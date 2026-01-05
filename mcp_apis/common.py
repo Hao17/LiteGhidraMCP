@@ -828,6 +828,117 @@ def get_program_simple():
         return None
 
 
+def execute_script_with_context(script_path: str):
+    """
+    通过script.runScript()执行脚本来获取Ghidra上下文
+    这种方式应该能保持主脚本的上下文，包括currentProgram()等函数
+    """
+    try:
+        # 尝试获取cached script对象
+        script_obj = None
+
+        # 方法1：从cached引用获取
+        if _cached_script_ref is not None:
+            script_obj = _cached_script_ref
+            _log_import_source("script_execution", "cached_script_ref", True)
+        else:
+            # 方法2：尝试从注入的script函数获取
+            if 'script' in globals() and callable(globals()['script']):
+                script_obj = globals()['script']()
+                _log_import_source("script_execution", "injected_script_call", True)
+            else:
+                # 方法3：尝试从主模块获取
+                try:
+                    import sys
+                    if 'ghidra_mcp_server' in sys.modules:
+                        main_module = sys.modules['ghidra_mcp_server']
+                        if hasattr(main_module, '_cached_script') and main_module._cached_script:
+                            script_obj = main_module._cached_script
+                            _log_import_source("script_execution", "main_module_script", True)
+                except:
+                    pass
+
+        if script_obj is None:
+            _log_import_source("script_execution", "no_script_object", False)
+            return {
+                "error": "Cannot access script object for runScript()",
+                "method": "script_execution",
+                "available_methods": ["cached_ref", "injected_call", "main_module"]
+            }
+
+        # 执行脚本
+        _log_import_source("script_execution", f"executing_{script_path}", True)
+
+        # 注意：script.runScript() 通常不直接返回值，我们需要其他方式获取结果
+        # 这里我们先尝试执行，然后通过其他方式获取结果
+        script_obj.runScript(script_path, None)
+
+        return {
+            "execution_success": True,
+            "script_path": script_path,
+            "method": "script.runScript()",
+            "note": "Script executed successfully - check console output for results"
+        }
+
+    except Exception as e:
+        _log_import_source("script_execution", f"execution_error({str(e)})", False)
+        return {
+            "execution_success": False,
+            "error": str(e),
+            "script_path": script_path,
+            "method": "script.runScript()"
+        }
+
+
+def test_script_based_access():
+    """
+    测试基于脚本执行的Ghidra API访问方法
+    """
+    result = {
+        "test_type": "script_based_access",
+        "timestamp": str(__import__("time").time()),
+        "tests": {},
+        "summary": "unknown"
+    }
+
+    # 测试1：检查script对象可用性
+    try:
+        script_available = False
+        script_source = "none"
+
+        if _cached_script_ref is not None:
+            script_available = True
+            script_source = "cached_ref"
+        elif 'script' in globals() and callable(globals()['script']):
+            script_available = True
+            script_source = "injected_global"
+
+        result["tests"]["script_object_available"] = script_available
+        result["tests"]["script_source"] = script_source
+
+    except Exception as e:
+        result["tests"]["script_object_error"] = str(e)
+
+    # 测试2：尝试执行测试脚本
+    try:
+        script_result = execute_script_with_context("test_script.py")
+        result["tests"]["script_execution"] = script_result
+
+    except Exception as e:
+        result["tests"]["script_execution_error"] = str(e)
+
+    # 总体评估
+    if result["tests"].get("script_object_available", False):
+        if result["tests"].get("script_execution", {}).get("execution_success", False):
+            result["summary"] = "script_method_viable"
+        else:
+            result["summary"] = "script_object_available_but_execution_failed"
+    else:
+        result["summary"] = "script_object_not_available"
+
+    return result
+
+
 __all__ = [
     "CodeUnit",
     "SourceType",
@@ -845,6 +956,8 @@ __all__ = [
     "debug_log_context",
     "test_context",
     "get_import_debug_info",
+    "execute_script_with_context",
+    "test_script_based_access",
     "set_context",
     "set_cached_context",
     "reset_context",
