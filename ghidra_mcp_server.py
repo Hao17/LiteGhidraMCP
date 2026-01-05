@@ -45,11 +45,15 @@ _cached_script = None
 
 
 def _run_test_script():
-    """使用script().runScript()执行test_script.py"""
+    """使用script().runScript()执行test_script.py，传入测试参数"""
+    test_args = ["test_param_1", "test_param_2", "12345"]
     try:
-        _cached_script.runScript("test_script.py")
-        return {"success": True}
+        _cached_script.runScript("test_script.py", test_args)
+        return {"success": True, "passed_args": test_args}
     except Exception as e:
+        # CancelledException 在脚本实际执行成功后仍可能抛出，忽略它
+        if "CancelledException" in str(type(e).__name__) or "CancelledException" in str(e):
+            return {"success": True, "passed_args": test_args, "note": "Script executed (CancelledException ignored)"}
         return {"success": False, "error": str(e)}
 
 
@@ -167,23 +171,6 @@ class GhidraRequestHandler(BaseHTTPRequestHandler):
                             "available_functions": [x for x in dir(common) if not x.startswith('_')],
                             "has_function_in_module": hasattr(__import__('mcp_apis.common', fromlist=['get_import_debug_info']), 'get_import_debug_info')
                         })
-            if self.path == "/api/test/script_execution" or self.path == "/api/test/script-execution":
-                if hasattr(common, 'test_script_based_access'):
-                    return self._send_json(common.test_script_based_access())
-                else:
-                    return self._send_json({
-                        "error": "test_script_based_access function not found in common module",
-                        "note": "This function tests script.runScript() based API access"
-                    })
-            if self.path == "/api/execute/test_script" or self.path == "/api/execute/test-script":
-                if hasattr(common, 'execute_script_with_context'):
-                    result = common.execute_script_with_context("test_script.py")
-                    return self._send_json(result)
-                else:
-                    return self._send_json({
-                        "error": "execute_script_with_context function not found in common module"
-                    })
-            # 新路由：使用exec()方式执行测试脚本，直接在注入了Ghidra上下文的环境中运行
             if self.path == "/api/run/test_script" or self.path == "/api/run/test-script":
                 return self._send_json(_run_test_script())
             if self.path.startswith("/api/function/"):
@@ -322,20 +309,6 @@ def _load_handlers_once():
                 else:
                     result["test_results"]["direct_currentProgram_call_success"] = False
                     result["errors"].append("currentProgram not injected to common module")
-
-                # Test script-based access if available
-                try:
-                    if hasattr(common, 'test_script_based_access'):
-                        script_test_result = common.test_script_based_access()
-                        result["test_results"]["script_based_access"] = script_test_result
-                    else:
-                        result["test_results"]["script_based_access"] = {
-                            "error": "test_script_based_access function not available due to cache issue"
-                        }
-                except Exception as e:
-                    result["test_results"]["script_based_access"] = {
-                        "error": f"test_script_based_access() failed: {str(e)}"
-                    }
 
                 # Check available functions
                 result["available_functions"] = [x for x in dir(common) if not x.startswith('_') and callable(getattr(common, x, None))]

@@ -8,6 +8,31 @@
 import json
 
 
+def test_script_args():
+    """测试从runScript传入的参数"""
+    result = {
+        "args_test": True,
+        "received_args": [],
+        "errors": []
+    }
+
+    try:
+        # 获取传入的参数
+        args = getScriptArgs()
+        if args is not None:
+            result["received_args"] = list(args)
+            result["args_count"] = len(args)
+        else:
+            result["received_args"] = None
+            result["args_count"] = 0
+    except NameError as e:
+        result["errors"].append(f"getScriptArgs() NameError: {str(e)}")
+    except Exception as e:
+        result["errors"].append(f"getScriptArgs() Exception: {str(e)}")
+
+    return result
+
+
 def test_ghidra_flat_api():
     """测试Ghidra Flat API函数的直接访问"""
 
@@ -144,6 +169,9 @@ def run_all_tests():
     }
 
     try:
+        # 运行参数测试
+        comprehensive_result["tests"]["args_test"] = test_script_args()
+
         # 运行API测试
         comprehensive_result["tests"]["flat_api_test"] = test_ghidra_flat_api()
 
@@ -151,11 +179,13 @@ def run_all_tests():
         comprehensive_result["tests"]["communication_test"] = test_script_communication()
 
         # 总体评估
+        args_received = len(comprehensive_result["tests"]["args_test"].get("received_args", [])) > 0
         api_success = comprehensive_result["tests"]["flat_api_test"]["test_results"].get("currentProgram_success", False)
         comm_success = comprehensive_result["tests"]["communication_test"]["data_serialization_success"]
 
         comprehensive_result["overall_success"] = api_success and comm_success
         comprehensive_result["summary"] = {
+            "args_passed": args_received,
             "flat_api_works": api_success,
             "communication_works": comm_success,
             "method_viable": api_success and comm_success
