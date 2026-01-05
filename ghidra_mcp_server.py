@@ -30,18 +30,13 @@ _server_thread: Optional[threading.Thread] = None
 _cached_script = None
 
 
-def _run_test_script():
+def _run_script_by_path(script_path: str, extra_args: list = None):
     """
-    使用script().runScript()执行test_script.py，并返回脚本执行结果。
+    通用脚本执行函数：使用script().runScript()执行指定路径的脚本。
 
-    实现方式：
-    1. 生成带时间戳的临时文件路径
-    2. 将临时文件路径作为第一个参数传入脚本
-    3. 脚本同步执行后将结果写入该文件
-    4. runScript返回后直接读取结果文件
-
-    注意：runScript() 是同步调用，会等待子脚本执行完成后才返回，
-    即使抛出 CancelledException 也是在执行完毕后。
+    Args:
+        script_path: 脚本路径（相对于Ghidra脚本目录）
+        extra_args: 额外的参数列表
 
     Returns:
         脚本执行结果的JSON对象
@@ -51,15 +46,15 @@ def _run_test_script():
     result_filename = f"ghidra_script_result_{timestamp}.json"
     result_filepath = os.path.join(tempfile.gettempdir(), result_filename)
 
-    # 传入参数：第一个是结果文件路径，后续是测试参数
-    test_args = [result_filepath, "test_param_1", "test_param_2", "12345"]
+    # 传入参数：第一个是结果文件路径，后续是额外参数
+    script_args = [result_filepath] + (extra_args or [])
 
     start_time = time.time()
     script_executed = False
     script_error = None
 
     try:
-        _cached_script.runScript("test_script.py", test_args)
+        _cached_script.runScript(script_path, script_args)
         script_executed = True
     except Exception as e:
         # CancelledException 在脚本实际执行成功后仍可能抛出，忽略它
@@ -74,8 +69,9 @@ def _run_test_script():
         return {
             "success": False,
             "error": script_error,
+            "script_path": script_path,
             "result_file": result_filepath,
-            "passed_args": test_args,
+            "passed_args": script_args,
             "execution_time_ms": execution_time_ms
         }
 
@@ -84,8 +80,9 @@ def _run_test_script():
         return {
             "success": False,
             "error": "Script executed but result file not found",
+            "script_path": script_path,
             "result_file": result_filepath,
-            "passed_args": test_args,
+            "passed_args": script_args,
             "execution_time_ms": execution_time_ms,
             "note": "Script may have failed to write output"
         }
@@ -103,7 +100,8 @@ def _run_test_script():
 
         return {
             "success": True,
-            "passed_args": test_args,
+            "script_path": script_path,
+            "passed_args": script_args,
             "result_file": result_filepath,
             "script_result": script_result,
             "execution_time_ms": execution_time_ms
@@ -120,8 +118,9 @@ def _run_test_script():
         return {
             "success": False,
             "error": f"Failed to parse result JSON: {str(e)}",
+            "script_path": script_path,
             "result_file": result_filepath,
-            "passed_args": test_args,
+            "passed_args": script_args,
             "execution_time_ms": execution_time_ms,
             "raw_content": raw_content[:1000]  # 限制长度
         }
@@ -129,10 +128,21 @@ def _run_test_script():
         return {
             "success": False,
             "error": f"Failed to read result file: {str(e)}",
+            "script_path": script_path,
             "result_file": result_filepath,
-            "passed_args": test_args,
+            "passed_args": script_args,
             "execution_time_ms": execution_time_ms
         }
+
+
+def _run_test_script():
+    """执行根目录下的 test_script.py"""
+    return _run_script_by_path("test_script.py", ["test_param_1", "test_param_2", "12345"])
+
+
+def _run_test_script_in_apis():
+    """执行 apis/ 子目录下的 test_script.py（用于测试子目录脚本调用）"""
+    return _run_script_by_path("apis/test_script.py", ["test_from_apis", "subdir_test"])
 
 
 def _cache_ghidra_context():
@@ -174,6 +184,8 @@ class GhidraRequestHandler(BaseHTTPRequestHandler):
         try:
             if self.path == "/api/run/test_script" or self.path == "/api/run/test-script":
                 return self._send_json(_run_test_script())
+            if self.path == "/api/run/apis/test_script" or self.path == "/api/run/apis/test-script":
+                return self._send_json(_run_test_script_in_apis())
             self._send_json({"error": "Not Found"}, status=404)
         except Exception as exc:
             self._send_json({"error": str(exc)}, status=500)
