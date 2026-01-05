@@ -135,14 +135,58 @@ def _run_script_by_path(script_path: str, extra_args: list = None):
         }
 
 
-def _run_test_script():
-    """执行根目录下的 test_script.py"""
-    return _run_script_by_path("test_script.py", ["test_param_1", "test_param_2", "12345"])
+def _run_demo_script():
+    """执行 api/demo.py 演示脚本（API 开发参考样例）"""
+    return _run_script_by_path("api/demo.py", ["demo_param_1", "demo_param_2", "12345"])
 
 
-def _run_test_script_in_apis():
-    """执行 apis/ 子目录下的 test_script.py（用于测试子目录脚本调用）"""
-    return _run_script_by_path("apis/test_script.py", ["test_from_apis", "subdir_test"])
+def _run_basic_info():
+    """执行 api/basic_info.py 获取程序基础信息"""
+    return _run_script_by_path("api/basic_info.py")
+
+
+# ============================================================
+# API v1 路由处理函数
+# ============================================================
+
+def _handle_v1_search(command, params):
+    """
+    处理 /api/v1/search 请求
+
+    路由:
+        GET /api/v1/search?q=<query>           - 搜索全部（函数+符号+字符串）
+        GET /api/v1/search/functions?q=<query> - 仅搜索函数
+        GET /api/v1/search/strings?q=<query>   - 仅搜索字符串
+
+    参数:
+        q: 搜索关键词
+        limit: (可选) 结果数量限制，默认50
+    """
+    query = params.get("q", "")
+    limit = params.get("limit", "50")
+
+    if command in ("", "all"):
+        return _run_script_by_path("api_v1/search.py", ["all", query, limit])
+    elif command == "functions":
+        return _run_script_by_path("api_v1/search.py", ["functions", query, limit])
+    elif command == "strings":
+        return _run_script_by_path("api_v1/search.py", ["strings", query, limit])
+    else:
+        return {"success": False, "error": f"Unknown search command: {command}"}
+
+
+def _parse_query_params(query_string):
+    """解析URL查询参数"""
+    params = {}
+    if not query_string:
+        return params
+    for pair in query_string.split("&"):
+        if "=" in pair:
+            key, value = pair.split("=", 1)
+            # URL解码
+            from urllib.parse import unquote
+            params[unquote(key)] = unquote(value)
+    return params
 
 
 def _cache_ghidra_context():
@@ -182,11 +226,38 @@ class GhidraRequestHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         try:
-            if self.path == "/api/run/test_script" or self.path == "/api/run/test-script":
-                return self._send_json(_run_test_script())
-            if self.path == "/api/run/apis/test_script" or self.path == "/api/run/apis/test-script":
-                return self._send_json(_run_test_script_in_apis())
-            self._send_json({"error": "Not Found"}, status=404)
+            # 解析路径和查询参数
+            path = self.path
+            query_string = ""
+            if "?" in path:
+                path, query_string = path.split("?", 1)
+            params = _parse_query_params(query_string)
+
+            # ============================================================
+            # 基础 API 路由
+            # ============================================================
+
+            # 演示脚本（API 开发参考样例）
+            if path == "/api/demo":
+                return self._send_json(_run_demo_script())
+
+            # 程序基础信息
+            if path == "/api/basic_info":
+                return self._send_json(_run_basic_info())
+
+            # ============================================================
+            # API v1 路由: /api/v1/<module>/<command>
+            # ============================================================
+            if path.startswith("/api/v1/search"):
+                # /api/v1/search 或 /api/v1/search/<command>
+                if path == "/api/v1/search":
+                    command = ""
+                else:
+                    command = path[15:]  # len("/api/v1/search/") = 15
+                return self._send_json(_handle_v1_search(command, params))
+
+            # 404
+            self._send_json({"error": "Not Found", "path": path}, status=404)
         except Exception as exc:
             self._send_json({"error": str(exc)}, status=500)
 

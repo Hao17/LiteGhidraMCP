@@ -1,22 +1,110 @@
 """
-测试脚本：用于验证script.runScript()方式调用Ghidra Flat API
+API 开发示例脚本 (Demo Script)
 
-这个脚本将被主服务器通过script.runScript()调用，
-用来测试是否能在独立脚本中直接访问currentProgram()等函数。
+本脚本是新 API 开发的参考样例，展示了如何：
+1. 接收来自服务器的参数
+2. 访问 Ghidra Flat API (currentProgram, currentAddress 等)
+3. 将结果写入临时文件返回给调用者
 
-参数约定：
-- args[0]: 结果输出文件路径（由调用者生成的临时文件路径）
-- args[1:]: 其他测试参数
+=== 参数约定 ===
+所有通过 script.runScript() 调用的脚本必须遵循以下参数约定：
+- args[0]: 结果输出文件路径（由服务器生成的临时文件路径，必须写入 JSON 结果）
+- args[1:]: 其他业务参数
 
-脚本执行完成后会将结果写入 args[0] 指定的文件。
+=== 返回结果 ===
+脚本执行完成后必须将 JSON 结果写入 args[0] 指定的文件。
+服务器会读取该文件并返回给客户端。
+
+=== 可用的 Ghidra Flat API 函数 ===
+- currentProgram(): 获取当前程序对象
+- currentAddress(): 获取当前地址
+- currentLocation(): 获取当前位置
+- currentSelection(): 获取当前选择
+- monitor(): 获取任务监视器
+- state(): 获取程序状态
+- script(): 获取脚本对象
+- getScriptArgs(): 获取传入的参数
+
+=== 使用方法 ===
+1. 复制本文件作为新 API 的模板
+2. 修改 main_logic() 函数实现你的业务逻辑
+3. 在 ghidra_mcp_server.py 中添加路由
 """
 
 import json
 import os
 
 
+def get_result_output_path():
+    """
+    从脚本参数中获取结果输出文件路径。
+
+    这是所有 API 脚本必须调用的函数，用于获取结果文件路径。
+
+    Returns:
+        结果文件路径，如果未提供则返回 None
+    """
+    try:
+        args = getScriptArgs()
+        if args is not None and len(args) > 0:
+            return args[0]
+    except NameError:
+        pass
+    except Exception:
+        pass
+    return None
+
+
+def get_extra_args():
+    """
+    获取除结果文件路径外的其他参数。
+
+    Returns:
+        参数列表（不包含第一个参数）
+    """
+    try:
+        args = getScriptArgs()
+        if args is not None and len(args) > 1:
+            return list(args[1:])
+    except NameError:
+        pass
+    except Exception:
+        pass
+    return []
+
+
+def write_result(result, filepath):
+    """
+    将结果写入指定文件。
+
+    这是所有 API 脚本必须调用的函数，用于返回结果给服务器。
+
+    Args:
+        result: 要写入的结果对象（会被序列化为 JSON）
+        filepath: 输出文件路径
+
+    Returns:
+        True 如果写入成功，否则返回错误信息
+    """
+    try:
+        dir_path = os.path.dirname(filepath)
+        if dir_path and not os.path.exists(dir_path):
+            os.makedirs(dir_path)
+
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(result, f, indent=2, ensure_ascii=False)
+
+        return True
+    except Exception as e:
+        return f"Failed to write result: {str(e)}"
+
+
+# ============================================================
+# 以下是测试/演示代码，展示各种 Ghidra API 的使用方式
+# ============================================================
+
 def test_script_args():
-    """测试从runScript传入的参数"""
+    """测试从 runScript 传入的参数"""
     result = {
         "args_test": True,
         "received_args": [],
@@ -24,7 +112,6 @@ def test_script_args():
     }
 
     try:
-        # 获取传入的参数
         args = getScriptArgs()
         if args is not None:
             result["received_args"] = list(args)
@@ -41,17 +128,17 @@ def test_script_args():
 
 
 def test_ghidra_flat_api():
-    """测试Ghidra Flat API函数的直接访问"""
+    """测试 Ghidra Flat API 函数的直接访问"""
 
     result = {
         "timestamp": str(__import__("time").time()),
-        "script_execution": "test_script.py via script.runScript()",
+        "script_execution": "demo.py via script.runScript()",
         "test_results": {},
         "errors": [],
         "context_info": {}
     }
 
-    # Test 1: 测试currentProgram()直接调用
+    # Test 1: 测试 currentProgram() 直接调用
     try:
         prog = currentProgram()
         if prog is not None:
@@ -68,7 +155,7 @@ def test_ghidra_flat_api():
         result["test_results"]["currentProgram_success"] = False
         result["errors"].append(f"currentProgram() Exception: {str(e)}")
 
-    # Test 2: 测试currentAddress()直接调用
+    # Test 2: 测试 currentAddress() 直接调用
     try:
         addr = currentAddress()
         if addr is not None:
@@ -85,7 +172,7 @@ def test_ghidra_flat_api():
         result["test_results"]["currentAddress_success"] = False
         result["errors"].append(f"currentAddress() Exception: {str(e)}")
 
-    # Test 3: 测试其他Ghidra Flat API函数
+    # Test 3: 测试其他 Ghidra Flat API 函数
     flat_api_tests = {
         'currentLocation': 'currentLocation()',
         'currentSelection': 'currentSelection()',
@@ -96,7 +183,6 @@ def test_ghidra_flat_api():
 
     for func_name, func_call in flat_api_tests.items():
         try:
-            # 使用eval来动态调用函数
             func_result = eval(func_call)
             result["test_results"][f"{func_name}_success"] = func_result is not None
             result["test_results"][f"{func_name}_type"] = str(type(func_result))
@@ -138,12 +224,11 @@ def test_script_communication():
 
     result = {
         "communication_test": True,
-        "script_name": "test_script.py",
+        "script_name": "demo.py",
         "execution_method": "script.runScript()",
         "can_return_data": True
     }
 
-    # 测试是否能返回复杂数据结构
     try:
         if currentProgram():
             result["complex_data_test"] = {
@@ -165,7 +250,6 @@ def test_script_communication():
     return result
 
 
-# 主要测试函数
 def run_all_tests():
     """运行所有测试并返回综合结果"""
 
@@ -179,7 +263,7 @@ def run_all_tests():
         # 运行参数测试
         comprehensive_result["tests"]["args_test"] = test_script_args()
 
-        # 运行API测试
+        # 运行 API 测试
         comprehensive_result["tests"]["flat_api_test"] = test_ghidra_flat_api()
 
         # 运行通信测试
@@ -205,50 +289,10 @@ def run_all_tests():
     return comprehensive_result
 
 
-def get_result_output_path():
-    """
-    从脚本参数中获取结果输出文件路径。
+# ============================================================
+# 脚本入口点
+# ============================================================
 
-    Returns:
-        结果文件路径，如果未提供则返回 None
-    """
-    try:
-        args = getScriptArgs()
-        if args is not None and len(args) > 0:
-            return args[0]
-    except NameError:
-        pass
-    except Exception:
-        pass
-    return None
-
-
-def write_result_to_file(result, filepath):
-    """
-    将结果写入指定文件。
-
-    Args:
-        result: 要写入的结果对象（会被序列化为JSON）
-        filepath: 输出文件路径
-
-    Returns:
-        True 如果写入成功，否则返回错误信息
-    """
-    try:
-        # 确保目录存在
-        dir_path = os.path.dirname(filepath)
-        if dir_path and not os.path.exists(dir_path):
-            os.makedirs(dir_path)
-
-        with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(result, f, indent=2, ensure_ascii=False)
-
-        return True
-    except Exception as e:
-        return f"Failed to write result: {str(e)}"
-
-
-# 如果脚本被直接执行（通过runScript），运行测试
 if __name__ == "__main__":
     # 运行所有测试
     test_result = run_all_tests()
@@ -258,16 +302,15 @@ if __name__ == "__main__":
 
     if output_path:
         # 如果提供了输出路径，写入文件
-        write_status = write_result_to_file(test_result, output_path)
+        write_status = write_result(test_result, output_path)
         if write_status is True:
             test_result["_output_written_to"] = output_path
-            print(f"[test_script] Result written to: {output_path}")
+            print(f"[demo] Result written to: {output_path}")
         else:
             test_result["_output_write_error"] = write_status
-            print(f"[test_script] Failed to write result: {write_status}")
-            # 仍然尝试输出到控制台
+            print(f"[demo] Failed to write result: {write_status}")
             print(json.dumps(test_result, indent=2))
     else:
         # 没有提供输出路径，输出到控制台
-        print("[test_script] No output path provided, printing to console:")
+        print("[demo] No output path provided, printing to console:")
         print(json.dumps(test_result, indent=2))
