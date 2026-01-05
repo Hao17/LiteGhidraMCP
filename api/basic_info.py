@@ -1,54 +1,30 @@
 """
-基础信息 API (Basic Info API)
+基础信息 API - State 传递模式 (Basic Info API - State Passing Pattern)
 
-提供当前加载程序的基础信息，包括：
-- 程序名称、路径
-- 架构、语言信息
-- 内存布局概要
-- 入口点信息
+通过传递 state 对象获取 Ghidra 上下文，直接返回结果字典。
+
+=== State 对象 ===
+Ghidra 的 state 对象包含所有上下文信息：
+- state.getCurrentProgram() - 当前程序
+- state.getCurrentAddress() - 当前地址
+- state.getCurrentSelection() - 当前选择
+- state.getCurrentHighlight() - 当前高亮
+- state.getTool() - 当前工具
+
+=== 使用方式 ===
+    import api.basic_info as basic_info_api
+    result = basic_info_api.basic_info(state)
 
 路由: GET /api/basic_info
-
-参数约定:
-- args[0]: 结果输出文件路径
-- args[1:]: 暂无额外参数
 """
 
-import json
-import os
 
-
-def get_result_output_path():
-    """从脚本参数中获取结果输出文件路径"""
-    try:
-        args = getScriptArgs()
-        if args is not None and len(args) > 0:
-            return args[0]
-    except NameError:
-        pass
-    except Exception:
-        pass
-    return None
-
-
-def write_result(result, filepath):
-    """将结果写入指定文件"""
-    try:
-        dir_path = os.path.dirname(filepath)
-        if dir_path and not os.path.exists(dir_path):
-            os.makedirs(dir_path)
-
-        with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(result, f, indent=2, ensure_ascii=False)
-
-        return True
-    except Exception as e:
-        return f"Failed to write result: {str(e)}"
-
-
-def get_basic_info():
+def basic_info(state):
     """
     获取当前程序的基础信息。
+
+    Args:
+        state: Ghidra 的 GhidraState 对象
 
     Returns:
         包含程序基础信息的字典
@@ -60,7 +36,7 @@ def get_basic_info():
     }
 
     try:
-        prog = currentProgram()
+        prog = state.getCurrentProgram()
         if prog is None:
             result["errors"].append("No program loaded")
             return result
@@ -73,6 +49,19 @@ def get_basic_info():
             "executable_path": prog.getExecutablePath() if hasattr(prog, 'getExecutablePath') else None,
             "executable_format": prog.getExecutableFormat() if hasattr(prog, 'getExecutableFormat') else None,
         }
+
+        # 当前地址
+        current_addr = state.getCurrentAddress()
+        if current_addr:
+            result["program"]["current_address"] = str(current_addr)
+
+        # 当前选择
+        current_selection = state.getCurrentSelection()
+        if current_selection and not current_selection.isEmpty():
+            result["program"]["has_selection"] = True
+            result["program"]["selection_range_count"] = current_selection.getNumAddressRanges()
+        else:
+            result["program"]["has_selection"] = False
 
         # 域文件信息
         domain_file = prog.getDomainFile()
@@ -88,7 +77,7 @@ def get_basic_info():
             result["program"]["language"] = {
                 "id": str(language.getLanguageID()),
                 "processor": str(language.getProcessor()),
-                "endian": str(language.isBigEndian() and "big" or "little"),
+                "endian": "big" if language.isBigEndian() else "little",
                 "size": language.getLanguageDescription().getSize() if language.getLanguageDescription() else None,
             }
 
@@ -120,8 +109,7 @@ def get_basic_info():
                 "blocks": blocks
             }
 
-        # 入口点信息
-        addr_factory = prog.getAddressFactory()
+        # 地址信息
         image_base = prog.getImageBase()
         result["program"]["address_info"] = {
             "image_base": str(image_base) if image_base else None,
@@ -140,38 +128,15 @@ def get_basic_info():
             result["program"]["functions"] = {
                 "total_count": function_manager.getFunctionCount(),
             }
-            # 获取入口点函数
+            # 入口点
             entry_points = []
             for entry in prog.getSymbolTable().getExternalEntryPointIterator():
                 entry_points.append(str(entry))
             if entry_points:
-                result["program"]["entry_points"] = entry_points[:10]  # 限制数量
+                result["program"]["entry_points"] = entry_points[:10]
 
     except Exception as e:
         result["success"] = False
         result["errors"].append(f"Exception: {str(e)}")
 
     return result
-
-
-# ============================================================
-# 脚本入口点
-# ============================================================
-
-if __name__ == "__main__":
-    # 获取基础信息
-    info_result = get_basic_info()
-
-    # 获取结果输出路径
-    output_path = get_result_output_path()
-
-    if output_path:
-        write_status = write_result(info_result, output_path)
-        if write_status is True:
-            print(f"[basic_info] Result written to: {output_path}")
-        else:
-            print(f"[basic_info] Failed to write result: {write_status}")
-            print(json.dumps(info_result, indent=2))
-    else:
-        print("[basic_info] No output path provided, printing to console:")
-        print(json.dumps(info_result, indent=2))

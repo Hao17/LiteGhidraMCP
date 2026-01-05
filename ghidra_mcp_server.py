@@ -26,8 +26,12 @@ PORT = int(os.environ.get("GHIDRA_MCP_PORT", "8803"))
 _server_instance: Optional["ThreadingHTTPServer"] = None
 _server_thread: Optional[threading.Thread] = None
 
-# Cache Ghidra script object at startup for runScript() calls
+# Cache Ghidra context at startup
 _cached_script = None
+_cached_state = None
+
+# Import API modules (state passing pattern)
+import api.basic_info as basic_info_api
 
 
 def _run_script_by_path(script_path: str, extra_args: list = None):
@@ -141,8 +145,14 @@ def _run_demo_script():
 
 
 def _run_basic_info():
-    """执行 api/basic_info.py 获取程序基础信息"""
-    return _run_script_by_path("api/basic_info.py")
+    """直接调用 basic_info_api.basic_info(state) 获取程序基础信息"""
+    if _cached_state is None:
+        return {"success": False, "error": "State not cached"}
+
+    try:
+        return basic_info_api.basic_info(_cached_state)
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 
 # ============================================================
@@ -190,8 +200,8 @@ def _parse_query_params(query_string):
 
 
 def _cache_ghidra_context():
-    """Cache Ghidra script object at startup for runScript() calls."""
-    global _cached_script
+    """Cache Ghidra script and state objects at startup."""
+    global _cached_script, _cached_state
 
     try:
         _cached_script = script()
@@ -199,6 +209,13 @@ def _cache_ghidra_context():
     except:
         _cached_script = None
         print("[Ghidra-MCP-Bridge] Failed to cache script")
+
+    try:
+        _cached_state = state()
+        print(f"[Ghidra-MCP-Bridge] Cached state: {_cached_state}")
+    except:
+        _cached_state = None
+        print("[Ghidra-MCP-Bridge] Failed to cache state")
 
 
 class GhidraRequestHandler(BaseHTTPRequestHandler):
