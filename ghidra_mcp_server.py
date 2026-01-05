@@ -1,9 +1,14 @@
 """
-Ghidra MCP Bridge server for Ghidrathon.
+Ghidrathon-based MCP Bridge for AI Repository Integration.
 
-Starts a small HTTP JSON API (http.server) inside Ghidra so an external
-agent can query decompilation data and perform scripted edits.
-Handlers are split into mcp_apis/* for clarity.
+This script runs inside Ghidra via Ghidrathon to provide an external AI agent
+with programmatic access to Ghidra's analysis capabilities. It exposes a lightweight
+HTTP JSON API that allows AI systems to query decompilation data, perform reverse
+engineering tasks, and execute scripted operations within Ghidra.
+
+Designed to serve as a bridge between AI repositories and Ghidra, enabling
+automated binary analysis, symbol management, and code understanding workflows.
+API handlers are modularized in mcp_apis/* for maintainability.
 
 Entry point is main(script_globals); no side effects at import time.
 """
@@ -31,11 +36,17 @@ _handlers_loaded = False
 # Cache Ghidra context at startup since it's not available during HTTP requests
 _cached_program = None
 _cached_address = None
+_cached_location = None
+_cached_selection = None
+_cached_highlight = None
+_cached_monitor = None
+_cached_state = None
+_cached_script = None
 
 
 def _cache_ghidra_context():
     """Cache Ghidra context at startup when functions are available."""
-    global _cached_program, _cached_address
+    global _cached_program, _cached_address, _cached_location, _cached_selection, _cached_highlight, _cached_monitor, _cached_state, _cached_script
 
     try:
         _cached_program = currentProgram()
@@ -50,6 +61,48 @@ def _cache_ghidra_context():
     except:
         _cached_address = None
         print("[Ghidra-MCP-Bridge] Failed to cache currentAddress")
+
+    try:
+        _cached_location = currentLocation()
+        print(f"[Ghidra-MCP-Bridge] Cached location: {_cached_location}")
+    except:
+        _cached_location = None
+        print("[Ghidra-MCP-Bridge] Failed to cache currentLocation")
+
+    try:
+        _cached_selection = currentSelection()
+        print(f"[Ghidra-MCP-Bridge] Cached selection: {_cached_selection}")
+    except:
+        _cached_selection = None
+        print("[Ghidra-MCP-Bridge] Failed to cache currentSelection")
+
+    try:
+        _cached_highlight = currentHighlight()
+        print(f"[Ghidra-MCP-Bridge] Cached highlight: {_cached_highlight}")
+    except:
+        _cached_highlight = None
+        print("[Ghidra-MCP-Bridge] Failed to cache currentHighlight")
+
+    try:
+        _cached_monitor = monitor()
+        print(f"[Ghidra-MCP-Bridge] Cached monitor: {_cached_monitor}")
+    except:
+        _cached_monitor = None
+        print("[Ghidra-MCP-Bridge] Failed to cache monitor")
+
+    try:
+        _cached_state = state()
+        print(f"[Ghidra-MCP-Bridge] Cached state: {_cached_state}")
+    except:
+        _cached_state = None
+        print("[Ghidra-MCP-Bridge] Failed to cache state")
+
+    try:
+        _cached_script = script()
+        print(f"[Ghidra-MCP-Bridge] Cached script: {_cached_script}")
+    except:
+        _cached_script = None
+        print("[Ghidra-MCP-Bridge] Failed to cache script")
 
 
 
@@ -80,15 +133,31 @@ class GhidraRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         try:
             if self.path == "/api/status":
-                # Direct implementation using cached values
-                if _cached_program:
-                    return self._send_json({
-                        "status": "ok",
-                        "program": _cached_program.getName(),
-                        "currentAddress": str(_cached_address) if _cached_address else None,
-                    })
+                return self._send_json(common.handle_status())
+            if self.path == "/api/test_context" or self.path == "/api/test-context":
+                if hasattr(common, 'test_context'):
+                    return self._send_json(common.test_context())
                 else:
-                    return self._send_json({"error": "No program cached"}, status=500)
+                    return self._send_json({
+                        "error": "test_context function not found in common module - this should be injected at startup",
+                        "available": [x for x in dir(common) if not x.startswith('_')],
+                        "note": "If you see this message, there was a problem with function injection during server startup"
+                    })
+            if self.path == "/api/debug/import_sources" or self.path == "/api/debug/import-sources":
+                if hasattr(common, 'get_import_debug_info'):
+                    return self._send_json(common.get_import_debug_info())
+                else:
+                    # Try to import directly from the module
+                    try:
+                        from mcp_apis.common import get_import_debug_info
+                        return self._send_json(get_import_debug_info())
+                    except ImportError as e:
+                        return self._send_json({
+                            "error": "get_import_debug_info function not found",
+                            "details": str(e),
+                            "available_functions": [x for x in dir(common) if not x.startswith('_')],
+                            "has_function_in_module": hasattr(__import__('mcp_apis.common', fromlist=['get_import_debug_info']), 'get_import_debug_info')
+                        })
             if self.path.startswith("/api/function/"):
                 addr_token = self.path.split("/api/function/", 1)[1]
                 return self._send_json(common.get_function_payload(addr_token))
@@ -135,6 +204,128 @@ def _load_handlers_once():
     common.rename_variable = rename_variable
     common.run_search = run_search
     common.handle_status = handle_status
+
+    # Manually inject test_context and debug functions if they're missing (Ghidrathon cache workaround)
+    if not hasattr(common, 'test_context'):
+        print("[Ghidra-MCP-Bridge] Manually injecting test_context function due to Ghidrathon cache issue")
+        try:
+            # Create a temporary test_context function
+            def temp_test_context():
+                import sys
+                from typing import Dict, Any
+
+                result: Dict[str, Any] = {
+                    "timestamp": str(__import__("time").time()),
+                    "test_results": {"manual_injection": True},
+                    "errors": [],
+                    "import_debug": {
+                        "flat_api_available": getattr(common, '_FLAT_API_AVAILABLE', False),
+                        "cache_issue": "Ghidrathon cache prevented normal function loading",
+                        "manual_injection_used": True
+                    },
+                    "summary": "manual_injection_mode"
+                }
+
+                # Test basic functions that should be available
+                try:
+                    prog = common.get_program()
+                    result["test_results"]["get_program_success"] = prog is not None
+                    if prog:
+                        result["test_results"]["program_name"] = prog.getName()
+                except Exception as e:
+                    result["errors"].append(f"get_program() failed: {str(e)}")
+                    result["test_results"]["get_program_success"] = False
+
+                try:
+                    addr = common.get_current_address()
+                    result["test_results"]["get_current_address_success"] = addr is not None
+                    if addr:
+                        result["test_results"]["current_address"] = str(addr)
+                except Exception as e:
+                    result["errors"].append(f"get_current_address() failed: {str(e)}")
+                    result["test_results"]["get_current_address_success"] = False
+
+                # Test the three new direct access methods we added
+                try:
+                    if hasattr(common, 'get_program_direct'):
+                        prog_direct = common.get_program_direct()
+                        result["test_results"]["get_program_direct_success"] = prog_direct is not None
+                        if prog_direct:
+                            result["test_results"]["get_program_direct_name"] = prog_direct.getName()
+                    else:
+                        result["test_results"]["get_program_direct_success"] = False
+                        result["errors"].append("get_program_direct function not available due to cache issue")
+                except Exception as e:
+                    result["test_results"]["get_program_direct_success"] = False
+                    result["errors"].append(f"get_program_direct() failed: {str(e)}")
+
+                try:
+                    if hasattr(common, 'get_program_simple'):
+                        prog_simple = common.get_program_simple()
+                        result["test_results"]["get_program_simple_success"] = prog_simple is not None
+                        if prog_simple:
+                            result["test_results"]["get_program_simple_name"] = prog_simple.getName()
+                    else:
+                        result["test_results"]["get_program_simple_success"] = False
+                        result["errors"].append("get_program_simple function not available due to cache issue")
+                except Exception as e:
+                    result["test_results"]["get_program_simple_success"] = False
+                    result["errors"].append(f"get_program_simple() failed: {str(e)}")
+
+                # Check if any Ghidra Flat API functions were successfully injected to common module
+                flat_api_functions = ['currentProgram', 'currentAddress', 'currentLocation', 'currentSelection', 'currentHighlight', 'monitor', 'state', 'script']
+                injected_functions = {}
+                for func_name in flat_api_functions:
+                    injected_functions[func_name] = hasattr(common, func_name)
+
+                result["test_results"]["injected_flat_api_functions"] = injected_functions
+                result["test_results"]["total_injected_flat_api"] = sum(injected_functions.values())
+
+                # Test if we can call injected currentProgram directly
+                if hasattr(common, 'currentProgram'):
+                    try:
+                        prog_injected = common.currentProgram()
+                        result["test_results"]["direct_currentProgram_call_success"] = prog_injected is not None
+                        if prog_injected:
+                            result["test_results"]["direct_currentProgram_name"] = prog_injected.getName()
+                    except Exception as e:
+                        result["test_results"]["direct_currentProgram_call_success"] = False
+                        result["errors"].append(f"Direct currentProgram() call failed: {str(e)}")
+                else:
+                    result["test_results"]["direct_currentProgram_call_success"] = False
+                    result["errors"].append("currentProgram not injected to common module")
+
+                # Check available functions
+                result["available_functions"] = [x for x in dir(common) if not x.startswith('_') and callable(getattr(common, x, None))]
+
+                return result
+
+            common.test_context = temp_test_context
+            print("[Ghidra-MCP-Bridge] Successfully injected temporary test_context function")
+
+        except Exception as e:
+            print(f"[Ghidra-MCP-Bridge] Failed to inject temporary test_context: {e}")
+    else:
+        print("[Ghidra-MCP-Bridge] test_context function found normally")
+
+    # Check debug function availability
+    if not hasattr(common, 'get_import_debug_info'):
+        print("[Ghidra-MCP-Bridge] Warning: get_import_debug_info not found in common module")
+
+        # Create a simplified debug info function
+        def temp_debug_info():
+            return {
+                "error": "get_import_debug_info not loaded due to Ghidrathon cache issue",
+                "manual_injection": True,
+                "available_functions": [x for x in dir(common) if not x.startswith('_') and callable(getattr(common, x, None))],
+                "cache_issue": "Ghidrathon module caching prevented normal loading"
+            }
+
+        common.get_import_debug_info = temp_debug_info
+        print("[Ghidra-MCP-Bridge] Injected temporary get_import_debug_info function")
+    else:
+        print("[Ghidra-MCP-Bridge] get_import_debug_info function successfully loaded")
+
     _handlers_loaded = True
 
 
@@ -176,6 +367,36 @@ def stop_server():
         _server_thread = None
 
 
+def _inject_flat_api_to_common():
+    """主动注入Ghidra Flat API函数到common模块的全局命名空间"""
+    try:
+        # 获取当前脚本的全局变量
+        script_globals = globals()
+
+        # 要注入的Ghidra Flat API函数列表
+        flat_api_functions = [
+            'currentProgram', 'currentAddress', 'currentLocation', 'currentSelection',
+            'currentHighlight', 'monitor', 'state', 'script'
+        ]
+
+        injected_count = 0
+        for func_name in flat_api_functions:
+            if func_name in script_globals:
+                func = script_globals[func_name]
+                if callable(func) or func is not None:
+                    # 直接注入到common模块的全局命名空间
+                    setattr(common, func_name, func)
+                    injected_count += 1
+                    print(f"[Ghidra-MCP-Bridge] Injected {func_name} to common module")
+
+        print(f"[Ghidra-MCP-Bridge] Successfully injected {injected_count} Flat API functions to common module")
+        return injected_count > 0
+
+    except Exception as e:
+        print(f"[Ghidra-MCP-Bridge] Failed to inject Flat API to common: {e}")
+        return False
+
+
 def main(script_globals: Dict[str, Any] | None = None, host: str = HOST, port: int = PORT):
     """
     Entry point for Script Manager or headless use.
@@ -186,9 +407,19 @@ def main(script_globals: Dict[str, Any] | None = None, host: str = HOST, port: i
     try:
         if hasattr(common, "set_context"):
             common.set_context(script_globals)
+
+        # 尝试主动注入Flat API到common模块
+        _inject_flat_api_to_common()
+
         _cache_ghidra_context()
         common._cached_program_ref = _cached_program
         common._cached_address_ref = _cached_address
+        common._cached_location_ref = _cached_location
+        common._cached_selection_ref = _cached_selection
+        common._cached_highlight_ref = _cached_highlight
+        common._cached_monitor_ref = _cached_monitor
+        common._cached_state_ref = _cached_state
+        common._cached_script_ref = _cached_script
         srv = start_server(host=host, port=port)
         print(f"[Ghidra-MCP-Bridge] Server started on {host}:{port}")
         return srv
@@ -203,6 +434,9 @@ try:
         common.set_context(globals())
     common.debug_log_context("server-init-import")
 
+    # 尝试主动注入Flat API到common模块（自动启动时）
+    _inject_flat_api_to_common()
+
     print("[Ghidra-MCP-Bridge] Caching Ghidra context for HTTP requests...")
     _cache_ghidra_context()
 
@@ -210,6 +444,12 @@ try:
     try:
         common._cached_program_ref = _cached_program
         common._cached_address_ref = _cached_address
+        common._cached_location_ref = _cached_location
+        common._cached_selection_ref = _cached_selection
+        common._cached_highlight_ref = _cached_highlight
+        common._cached_monitor_ref = _cached_monitor
+        common._cached_state_ref = _cached_state
+        common._cached_script_ref = _cached_script
     except Exception as e:
         print(f"[Ghidra-MCP-Bridge] Failed to set cached variables: {e}")
 
