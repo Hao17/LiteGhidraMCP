@@ -15,7 +15,9 @@ Entry point is main(script_globals); no side effects at import time.
 
 import json
 import os
+import tempfile
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Dict, Optional
 
@@ -45,16 +47,108 @@ _cached_script = None
 
 
 def _run_test_script():
-    """使用script().runScript()执行test_script.py，传入测试参数"""
-    test_args = ["test_param_1", "test_param_2", "12345"]
+    """
+    使用script().runScript()执行test_script.py，并返回脚本执行结果。
+
+    实现方式：
+    1. 生成带时间戳的临时文件路径
+    2. 将临时文件路径作为第一个参数传入脚本
+    3. 脚本同步执行后将结果写入该文件
+    4. runScript返回后直接读取结果文件
+
+    注意：runScript() 是同步调用，会等待子脚本执行完成后才返回，
+    即使抛出 CancelledException 也是在执行完毕后。
+
+    Returns:
+        脚本执行结果的JSON对象
+    """
+    # 生成带时间戳的临时文件路径
+    timestamp = int(time.time() * 1000)  # 毫秒级时间戳
+    result_filename = f"ghidra_script_result_{timestamp}.json"
+    result_filepath = os.path.join(tempfile.gettempdir(), result_filename)
+
+    # 传入参数：第一个是结果文件路径，后续是测试参数
+    test_args = [result_filepath, "test_param_1", "test_param_2", "12345"]
+
+    start_time = time.time()
+    script_executed = False
+    script_error = None
+
     try:
         _cached_script.runScript("test_script.py", test_args)
-        return {"success": True, "passed_args": test_args}
+        script_executed = True
     except Exception as e:
         # CancelledException 在脚本实际执行成功后仍可能抛出，忽略它
         if "CancelledException" in str(type(e).__name__) or "CancelledException" in str(e):
-            return {"success": True, "passed_args": test_args, "note": "Script executed (CancelledException ignored)"}
-        return {"success": False, "error": str(e)}
+            script_executed = True
+        else:
+            script_error = str(e)
+
+    execution_time_ms = int((time.time() - start_time) * 1000)
+
+    if not script_executed:
+        return {
+            "success": False,
+            "error": script_error,
+            "result_file": result_filepath,
+            "passed_args": test_args,
+            "execution_time_ms": execution_time_ms
+        }
+
+    # runScript 是同步的，执行完毕后直接读取结果文件
+    if not os.path.exists(result_filepath):
+        return {
+            "success": False,
+            "error": "Script executed but result file not found",
+            "result_file": result_filepath,
+            "passed_args": test_args,
+            "execution_time_ms": execution_time_ms,
+            "note": "Script may have failed to write output"
+        }
+
+    # 读取并返回结果
+    try:
+        with open(result_filepath, 'r', encoding='utf-8') as f:
+            script_result = json.load(f)
+
+        # 清理临时文件
+        try:
+            os.remove(result_filepath)
+        except OSError:
+            pass  # 忽略清理失败
+
+        return {
+            "success": True,
+            "passed_args": test_args,
+            "result_file": result_filepath,
+            "script_result": script_result,
+            "execution_time_ms": execution_time_ms
+        }
+
+    except json.JSONDecodeError as e:
+        # 读取原始内容用于调试
+        try:
+            with open(result_filepath, 'r', encoding='utf-8') as f:
+                raw_content = f.read()
+        except:
+            raw_content = "<unable to read>"
+
+        return {
+            "success": False,
+            "error": f"Failed to parse result JSON: {str(e)}",
+            "result_file": result_filepath,
+            "passed_args": test_args,
+            "execution_time_ms": execution_time_ms,
+            "raw_content": raw_content[:1000]  # 限制长度
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Failed to read result file: {str(e)}",
+            "result_file": result_filepath,
+            "passed_args": test_args,
+            "execution_time_ms": execution_time_ms
+        }
 
 
 def _cache_ghidra_context():

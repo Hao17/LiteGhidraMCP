@@ -3,9 +3,16 @@
 
 这个脚本将被主服务器通过script.runScript()调用，
 用来测试是否能在独立脚本中直接访问currentProgram()等函数。
+
+参数约定：
+- args[0]: 结果输出文件路径（由调用者生成的临时文件路径）
+- args[1:]: 其他测试参数
+
+脚本执行完成后会将结果写入 args[0] 指定的文件。
 """
 
 import json
+import os
 
 
 def test_script_args():
@@ -198,7 +205,69 @@ def run_all_tests():
     return comprehensive_result
 
 
+def get_result_output_path():
+    """
+    从脚本参数中获取结果输出文件路径。
+
+    Returns:
+        结果文件路径，如果未提供则返回 None
+    """
+    try:
+        args = getScriptArgs()
+        if args is not None and len(args) > 0:
+            return args[0]
+    except NameError:
+        pass
+    except Exception:
+        pass
+    return None
+
+
+def write_result_to_file(result, filepath):
+    """
+    将结果写入指定文件。
+
+    Args:
+        result: 要写入的结果对象（会被序列化为JSON）
+        filepath: 输出文件路径
+
+    Returns:
+        True 如果写入成功，否则返回错误信息
+    """
+    try:
+        # 确保目录存在
+        dir_path = os.path.dirname(filepath)
+        if dir_path and not os.path.exists(dir_path):
+            os.makedirs(dir_path)
+
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(result, f, indent=2, ensure_ascii=False)
+
+        return True
+    except Exception as e:
+        return f"Failed to write result: {str(e)}"
+
+
 # 如果脚本被直接执行（通过runScript），运行测试
 if __name__ == "__main__":
+    # 运行所有测试
     test_result = run_all_tests()
-    print(json.dumps(test_result, indent=2))
+
+    # 获取结果输出路径
+    output_path = get_result_output_path()
+
+    if output_path:
+        # 如果提供了输出路径，写入文件
+        write_status = write_result_to_file(test_result, output_path)
+        if write_status is True:
+            test_result["_output_written_to"] = output_path
+            print(f"[test_script] Result written to: {output_path}")
+        else:
+            test_result["_output_write_error"] = write_status
+            print(f"[test_script] Failed to write result: {write_status}")
+            # 仍然尝试输出到控制台
+            print(json.dumps(test_result, indent=2))
+    else:
+        # 没有提供输出路径，输出到控制台
+        print("[test_script] No output path provided, printing to console:")
+        print(json.dumps(test_result, indent=2))
