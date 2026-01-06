@@ -18,6 +18,7 @@ This is a Ghidrathon-based MCP (Model Context Protocol) Bridge that runs inside 
   - **`search.py`**: 搜索 API（使用 state 传递模式），支持多种搜索类型
   - **`view.py`**: 查看 API，提供反编译和反汇编功能
   - **`status.py`**: 服务器状态 API，用于验证热重载是否生效
+  - **`symbol_tree.py`**: Symbol Tree API，提供符号树结构查看功能
 
 - **`api_v1/`**: v1 版本 API 模块目录（面向 AI 的聚合接口）：
   - **`search.py`**: 统一搜索 API，支持智能类型推断
@@ -88,6 +89,19 @@ curl "http://127.0.0.1:8803/api/view/decompile?name=main"
 curl "http://127.0.0.1:8803/api/view/decompile?address=0x401000"
 curl "http://127.0.0.1:8803/api/view/disassemble?name=main&limit=50"
 curl "http://127.0.0.1:8803/api/view/disassemble?address=0x401000"
+
+# Symbol Tree API 测试
+curl "http://127.0.0.1:8803/api/symbol_tree/namespaces"
+curl "http://127.0.0.1:8803/api/symbol_tree/namespace?name=std"
+curl "http://127.0.0.1:8803/api/symbol_tree/namespace/tree?depth=2"
+curl "http://127.0.0.1:8803/api/symbol_tree/classes"
+curl "http://127.0.0.1:8803/api/symbol_tree/class?name=MyClass"
+curl "http://127.0.0.1:8803/api/symbol_tree/functions?namespace=std"
+curl "http://127.0.0.1:8803/api/symbol_tree/function?name=main"
+curl "http://127.0.0.1:8803/api/symbol_tree/labels"
+curl "http://127.0.0.1:8803/api/symbol_tree/globals"
+curl "http://127.0.0.1:8803/api/symbol_tree/imports?library=kernel32"
+curl "http://127.0.0.1:8803/api/symbol_tree/exports"
 ```
 
 ## Code Conventions
@@ -125,6 +139,19 @@ curl "http://127.0.0.1:8803/api/view/disassemble?address=0x401000"
 - `GET /api/search/xrefs/from?address=<addr>` - 搜索从某地址发出的引用
 - `GET /api/search/datatypes?q=<query>&limit=100` - 搜索数据类型
 - `GET /api/search/all?q=<query>&limit=50` - 聚合搜索（函数+符号+字符串）
+
+**Symbol Tree API** (`/api/symbol_tree/*`) - 符号树结构查看:
+- `GET /api/symbol_tree/namespaces?limit=100` - 列出顶级命名空间
+- `GET /api/symbol_tree/namespace?name=<ns>&limit=100` - 获取命名空间子项（支持路径如 `std::vector`）
+- `GET /api/symbol_tree/namespace/tree?name=<ns>&depth=3&limit=500` - 获取命名空间树形结构
+- `GET /api/symbol_tree/classes?q=<query>&limit=100` - 列出类
+- `GET /api/symbol_tree/class?name=<class>` - 获取类成员（方法、字段）
+- `GET /api/symbol_tree/functions?q=<query>&namespace=<ns>&limit=100` - 列出函数（带命名空间）
+- `GET /api/symbol_tree/function?name=<name>` 或 `?address=<addr>` - 获取函数内部符号（参数、局部变量、标签）
+- `GET /api/symbol_tree/labels?q=<query>&limit=100` - 列出标签
+- `GET /api/symbol_tree/globals?q=<query>&limit=100` - 列出全局变量
+- `GET /api/symbol_tree/imports?library=<lib>&limit=100` - 列出导入符号
+- `GET /api/symbol_tree/exports?limit=100` - 列出导出符号
 
 **V1 API** (`/api/v1/*`) - 面向 AI 的聚合接口:
 - `GET /api/v1/search?q=<query>&types=auto&limit=20` - 统一搜索（支持智能类型推断）
