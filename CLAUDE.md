@@ -19,7 +19,9 @@ This is a Ghidrathon-based MCP (Model Context Protocol) Bridge that runs inside 
   - **`view.py`**: 查看 API，提供反编译和反汇编功能
   - **`status.py`**: 服务器状态 API，用于验证热重载是否生效
 
-- **`api_v1/`**: v1 版本 API 模块目录
+- **`api_v1/`**: v1 版本 API 模块目录（面向 AI 的聚合接口）：
+  - **`search.py`**: 统一搜索 API，支持智能类型推断
+  - **`view.py`**: 统一查看 API，支持批量查询和同时返回反编译/汇编
 
 ### Key Design Patterns
 
@@ -124,8 +126,12 @@ curl "http://127.0.0.1:8803/api/view/disassemble?address=0x401000"
 - `GET /api/search/datatypes?q=<query>&limit=100` - 搜索数据类型
 - `GET /api/search/all?q=<query>&limit=50` - 聚合搜索（函数+符号+字符串）
 
-**Legacy API** (`/api/v1/*`):
-- `GET /api/v1/search?q=<query>` - 旧版搜索（使用 runScript 模式）
+**V1 API** (`/api/v1/*`) - 面向 AI 的聚合接口:
+- `GET /api/v1/search?q=<query>&types=auto&limit=20` - 统一搜索（支持智能类型推断）
+- `GET /api/v1/view?q=<query>&type=both&timeout=30&limit=500` - 统一查看（支持批量查询）
+  - `q`: 函数名或地址，逗号分隔支持批量（如 `main,init,0x401000`）
+  - `type`: `both`(默认) / `decompile` / `disassemble`
+  - 返回同时包含反编译代码和汇编指令
 
 **Error Handling**: Minimal logging to avoid Ghidra console noise, but preserve error context in API responses
 
