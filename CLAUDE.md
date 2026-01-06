@@ -174,6 +174,10 @@ curl "http://127.0.0.1:8803/api/v1/list?types=imports&library=kernel32"
 - 参数 `type`: EOL(默认)/PRE/POST/PLATE/REPEATABLE
 - 删除注释: `text=` (空字符串)
 
+**Bookmark API**: 不提供支持。原因：
+1. Comment 和 Label 已覆盖标记需求（EOL/PRE/POST/PLATE 注释 + 自定义标签）
+2. AI 工作流通过地址/符号名直接定位，不依赖用户态的书签导航机制
+
 **V1 API** (`/api/v1/*`) - 面向 AI 的聚合接口:
 
 所有 V1 API 默认返回 compact 格式（数组 + `_schema`），可通过 `verbose=true` 获取完整 dict 格式。
