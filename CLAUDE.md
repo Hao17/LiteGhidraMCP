@@ -111,7 +111,7 @@ curl "http://127.0.0.1:8803/api/comment/set?address=0x401000&type=EOL&text=测�
 curl "http://127.0.0.1:8803/api/comment/set?name=main&type=PLATE&text=主函数说明"
 curl "http://127.0.0.1:8803/api/comment/set?address=0x401000&type=EOL&text="  # 删除注释
 
-# Rename API 测试
+# Rename API 测试 (Listing 级别)
 curl "http://127.0.0.1:8803/api/rename/function?address=0x401000&new_name=my_main"
 curl "http://127.0.0.1:8803/api/rename/function?name=FUN_00401000&new_name=main"
 curl "http://127.0.0.1:8803/api/rename/variable?function=main&var_name=local_8&new_name=counter"
@@ -120,6 +120,16 @@ curl "http://127.0.0.1:8803/api/rename/global?address=0x404000&new_name=g_config
 curl "http://127.0.0.1:8803/api/rename/label?address=0x401050&new_name=loop_start"
 curl "http://127.0.0.1:8803/api/rename/datatype?name=struct_1&new_name=ConfigStruct"
 curl "http://127.0.0.1:8803/api/rename/namespace?name=Class1&new_name=MyClass"
+
+# Rename API 测试 (Decompiler 级别 - 推荐)
+curl "http://127.0.0.1:8803/api/rename/decompiler/variable?function=main&var_name=local_8&new_name=counter"
+curl "http://127.0.0.1:8803/api/rename/decompiler/variable?function_address=0x401000&var_name=uVar1&new_name=result"
+curl "http://127.0.0.1:8803/api/rename/decompiler/parameter?function=main&param=0&new_name=argc"
+curl "http://127.0.0.1:8803/api/rename/decompiler/parameter?function=main&param=param_1&new_name=argv"
+
+# Split Variable API 测试 (拆分变量)
+curl "http://127.0.0.1:8803/api/rename/decompiler/variable/instances?function=main&var_name=uVar1"  # 先查看使用点
+curl "http://127.0.0.1:8803/api/rename/decompiler/split?function=main&var_name=uVar1&use_address=0x401050&new_name=result"
 
 # V1 List API 测试
 curl "http://127.0.0.1:8803/api/v1/list"
@@ -186,6 +196,8 @@ curl "http://127.0.0.1:8803/api/v1/list?types=imports&library=kernel32"
 - 删除注释: `text=` (空字符串)
 
 **Rename API** (`/api/rename/*`) - 重命名操作:
+
+*Listing 级别*（修改数据库符号，可能不影响反编译视图）:
 - `GET /api/rename/function?address=<addr>&new_name=<name>` - 重命名函数（按地址）
 - `GET /api/rename/function?name=<old>&new_name=<new>` - 重命名函数（按名称）
 - `GET /api/rename/variable?function=<func>&var_name=<old>&new_name=<new>` - 重命名局部变量
@@ -197,6 +209,20 @@ curl "http://127.0.0.1:8803/api/v1/list?types=imports&library=kernel32"
 - `GET /api/rename/datatype?name=<old>&new_name=<new>` - 重命名数据类型（按名称）
 - `GET /api/rename/datatype?path=<path>&new_name=<new>` - 重命名数据类型（按路径）
 - `GET /api/rename/namespace?name=<old>&new_name=<new>` - 重命名命名空间/类（支持路径如 `std::MyClass`）
+
+*Decompiler 级别*（推荐，修改反编译视图中的变量名）:
+- `GET /api/rename/decompiler/variable?function=<func>&var_name=<old>&new_name=<new>` - 重命名反编译器变量
+- `GET /api/rename/decompiler/variable?function_address=<addr>&var_name=<old>&new_name=<new>&timeout=30` - 按函数地址定位
+- `GET /api/rename/decompiler/parameter?function=<func>&param=<idx|name>&new_name=<new>` - 重命名反编译器参数
+- `GET /api/rename/decompiler/split?function=<func>&var_name=<old>&use_address=<addr>&new_name=<new>` - 拆分变量（Split out as new variable）
+- `GET /api/rename/decompiler/variable/instances?function=<func>&var_name=<name>` - 列出变量的所有使用点（用于确定拆分位置）
+
+> **注意**: Listing 级别的 `variable/parameter` 操作的是底层存储单元（栈变量、寄存器变量），
+> 反编译器可能会将多个底层变量聚合为一个逻辑变量，导致修改不生效。
+> 推荐使用 `decompiler/*` 系列 API，直接操作反编译视图中显示的变量。
+>
+> **Split 功能**: 当编译器复用同一寄存器存储不同逻辑变量时（如循环计数器后被复用为返回值），
+> 可使用 `split` API 将特定使用点拆分为独立变量。注意：仅支持寄存器变量，栈变量暂不支持。
 
 **Bookmark API**: 不提供支持。原因：
 1. Comment 和 Label 已覆盖标记需求（EOL/PRE/POST/PLATE 注释 + 自定义标签）
