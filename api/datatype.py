@@ -1767,7 +1767,8 @@ def get_datatype_info(state, path="", name=""):
     }
 
     # Add structure-specific info
-    from ghidra.program.model.data import Structure, Enum, Union, Typedef, FunctionDefinition
+    # 注意: TypeDef 而不是 Typedef（大写 D）
+    from ghidra.program.model.data import Structure, Enum, Union, TypeDef, FunctionDefinition
 
     if isinstance(dt, Structure):
         fields = []
@@ -1809,7 +1810,7 @@ def get_datatype_info(state, path="", name=""):
         result["members"] = members
         result["member_count"] = len(members)
 
-    elif isinstance(dt, Typedef):
+    elif isinstance(dt, TypeDef):
         result["base_type"] = str(dt.getDataType())
 
     elif isinstance(dt, FunctionDefinition):
