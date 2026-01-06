@@ -20,6 +20,7 @@ This is a Ghidrathon-based MCP (Model Context Protocol) Bridge that runs inside 
   - **`status.py`**: 服务器状态 API，用于验证热重载是否生效
   - **`symbol_tree.py`**: Symbol Tree API，提供符号树结构查看功能
   - **`comment.py`**: Comment API，设置/删除注释
+  - **`rename.py`**: Rename API，重命名函数、变量、参数、标签、数据类型、命名空间等
 
 - **`api_v1/`**: v1 版本 API 模块目录（面向 AI 的聚合接口）：
   - **`search.py`**: 统一搜索 API，支持智能类型推断
@@ -110,6 +111,16 @@ curl "http://127.0.0.1:8803/api/comment/set?address=0x401000&type=EOL&text=测�
 curl "http://127.0.0.1:8803/api/comment/set?name=main&type=PLATE&text=主函数说明"
 curl "http://127.0.0.1:8803/api/comment/set?address=0x401000&type=EOL&text="  # 删除注释
 
+# Rename API 测试
+curl "http://127.0.0.1:8803/api/rename/function?address=0x401000&new_name=my_main"
+curl "http://127.0.0.1:8803/api/rename/function?name=FUN_00401000&new_name=main"
+curl "http://127.0.0.1:8803/api/rename/variable?function=main&var_name=local_8&new_name=counter"
+curl "http://127.0.0.1:8803/api/rename/parameter?function=main&param=0&new_name=argc"
+curl "http://127.0.0.1:8803/api/rename/global?address=0x404000&new_name=g_config"
+curl "http://127.0.0.1:8803/api/rename/label?address=0x401050&new_name=loop_start"
+curl "http://127.0.0.1:8803/api/rename/datatype?name=struct_1&new_name=ConfigStruct"
+curl "http://127.0.0.1:8803/api/rename/namespace?name=Class1&new_name=MyClass"
+
 # V1 List API 测试
 curl "http://127.0.0.1:8803/api/v1/list"
 curl "http://127.0.0.1:8803/api/v1/list?q=init*"
@@ -173,6 +184,19 @@ curl "http://127.0.0.1:8803/api/v1/list?types=imports&library=kernel32"
 - `GET /api/comment/set?name=<name>&type=<type>&text=<text>` - 按函数名设置入口点注释
 - 参数 `type`: EOL(默认)/PRE/POST/PLATE/REPEATABLE
 - 删除注释: `text=` (空字符串)
+
+**Rename API** (`/api/rename/*`) - 重命名操作:
+- `GET /api/rename/function?address=<addr>&new_name=<name>` - 重命名函数（按地址）
+- `GET /api/rename/function?name=<old>&new_name=<new>` - 重命名函数（按名称）
+- `GET /api/rename/variable?function=<func>&var_name=<old>&new_name=<new>` - 重命名局部变量
+- `GET /api/rename/variable?function_address=<addr>&var_name=<old>&new_name=<new>` - 按函数地址定位
+- `GET /api/rename/parameter?function=<func>&param=<idx|name>&new_name=<new>` - 重命名函数参数
+- `GET /api/rename/global?address=<addr>&new_name=<name>` - 重命名全局变量（按地址）
+- `GET /api/rename/global?name=<old>&new_name=<new>` - 重命名全局变量（按名称）
+- `GET /api/rename/label?address=<addr>&new_name=<name>` - 重命名标签
+- `GET /api/rename/datatype?name=<old>&new_name=<new>` - 重命名数据类型（按名称）
+- `GET /api/rename/datatype?path=<path>&new_name=<new>` - 重命名数据类型（按路径）
+- `GET /api/rename/namespace?name=<old>&new_name=<new>` - 重命名命名空间/类（支持路径如 `std::MyClass`）
 
 **Bookmark API**: 不提供支持。原因：
 1. Comment 和 Label 已覆盖标记需求（EOL/PRE/POST/PLATE 注释 + 自定义标签）
