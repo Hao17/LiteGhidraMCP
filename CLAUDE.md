@@ -22,18 +22,21 @@ This is a Ghidrathon-based MCP (Model Context Protocol) Bridge that runs inside 
 
 ### Key Design Patterns
 
-**State Passing Pattern (推荐)**: 服务器启动时缓存 `state` 对象，API 模块通过 `import` 导入后直接调用，传入 `state` 参数。
+**装饰器路由模式 (推荐)**: 使用 `@route` 装饰器声明 API 路由，服务器自动发现并注册。
 
 ```python
-# 服务器端
-import api.basic_info as basic_info_api
-result = basic_info_api.basic_info(_cached_state)
+# api/my_api.py
+from api import route
 
-# API 模块
-def basic_info(state):
+@route("/api/my_api")
+def my_function(state, q="", limit=100):
     prog = state.getCurrentProgram()
-    return {"name": prog.getName(), ...}
+    return {"success": True, "data": ...}
 ```
+
+- 服务器启动时自动扫描 `api/` 目录下所有模块
+- 调用 `/_reload` 热重载时自动发现新增的 API
+- URL 参数自动映射到函数参数
 
 **Script Execution Pattern (兼容)**: 使用 `script.runScript()` 执行脚本，通过临时文件传递结果。仅用于 demo.py 等测试脚本。
 
@@ -115,43 +118,41 @@ curl "http://127.0.0.1:8803/api/search/all?q=init"
 
 ## Adding New API Endpoints
 
-使用 State 传递模式添加新 API：
+使用 `@route` 装饰器添加新 API（**无需修改服务器代码**）：
 
-1. 在 `api/` 目录创建新模块，定义接收 `state` 参数的函数：
+1. 在 `api/` 目录创建新模块：
 ```python
 # api/my_api.py
-def my_function(state):
+from api import route
+
+@route("/api/my_api")
+def my_function(state, param1="", param2=None, limit=100):
+    """
+    我的 API 功能描述。
+
+    路由: GET /api/my_api?param1=xxx&limit=50
+    """
     prog = state.getCurrentProgram()
     # ... 业务逻辑
     return {"success": True, "data": ...}
-```
 
-2. 在 `ghidra_mcp_server.py` 中导入并添加路由：
-```python
-import api.my_api as my_api
-
-def _run_my_api():
-    if _cached_state is None:
-        return {"success": False, "error": "State not cached"}
-    return my_api.my_function(_cached_state)
-
-# 在 do_GET 中添加路由
-if path == "/api/my_api":
-    return self._send_json(_run_my_api())
-```
-
-3. 在 `_reload_api_modules()` 中注册模块以支持热重载：
-```python
-def _reload_api_modules():
-    global basic_info_api, search_api, my_api  # 添加新模块
+# 一个文件可以定义多个路由
+@route("/api/my_api/detail")
+def my_detail(state, address=""):
     # ...
-    try:
-        import api.my_api
-        my_api = importlib.reload(api.my_api)
-        reloaded.append("api.my_api")
-    except Exception as e:
-        errors.append(f"api.my_api: {e}")
+    return {"success": True, ...}
 ```
+
+2. 热重载使新 API 生效：
+```bash
+curl http://127.0.0.1:8803/_reload
+```
+
+**参数约定**:
+- 第一个参数必须是 `state`（Ghidra 状态对象）
+- 后续参数从 URL query 自动注入
+- 参数应提供默认值，如 `q=""`, `limit=100`
+- 整数字符串会自动转换为 int 类型
 
 **State 对象可用方法**:
 - `state.getCurrentProgram()` - 当前程序

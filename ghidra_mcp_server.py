@@ -34,54 +34,47 @@ _server_thread: Optional[threading.Thread] = None
 _cached_script = None
 _cached_state = None
 
-# Import API modules (state passing pattern)
-import api.basic_info as basic_info_api
-import api.search as search_api
-import api.status as status_api
-import api_v1.search as v1_search_api
 
+def _discover_and_load_api_modules():
+    """
+    自动发现并加载 api/ 目录下所有模块。
+    模块使用 @route 装饰器自动注册路由。
+    """
+    # 先 reload api 包本身，确保使用最新版本
+    import api
+    importlib.reload(api)
+    from api import clear_routes, get_route_list
 
-def _reload_api_modules():
-    """
-    热重载所有 API 模块。
-    在不重启服务器的情况下更新 API 实现。
-    """
-    global basic_info_api, search_api, status_api, v1_search_api
+    # 清空现有路由
+    clear_routes()
 
     reloaded = []
     errors = []
 
-    try:
-        import api.basic_info
-        basic_info_api = importlib.reload(api.basic_info)
-        reloaded.append("api.basic_info")
-    except Exception as e:
-        errors.append(f"api.basic_info: {e}")
+    # 获取 api/ 目录路径
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    api_dir = os.path.join(script_dir, "api")
 
-    try:
-        import api.search
-        search_api = importlib.reload(api.search)
-        reloaded.append("api.search")
-    except Exception as e:
-        errors.append(f"api.search: {e}")
+    if not os.path.isdir(api_dir):
+        return {"success": False, "error": f"API directory not found: {api_dir}"}
 
-    try:
-        import api.status
-        status_api = importlib.reload(api.status)
-        reloaded.append("api.status")
-    except Exception as e:
-        errors.append(f"api.status: {e}")
+    # 扫描并加载所有 .py 文件
+    for filename in sorted(os.listdir(api_dir)):
+        if not filename.endswith(".py") or filename.startswith("_"):
+            continue
 
-    try:
-        import api_v1.search
-        v1_search_api = importlib.reload(api_v1.search)
-        reloaded.append("api_v1.search")
-    except Exception as e:
-        errors.append(f"api_v1.search: {e}")
+        module_name = f"api.{filename[:-3]}"
+        try:
+            module = importlib.import_module(module_name)
+            importlib.reload(module)
+            reloaded.append(module_name)
+        except Exception as e:
+            errors.append(f"{module_name}: {e}")
 
     return {
         "success": len(errors) == 0,
         "reloaded": reloaded,
+        "routes": get_route_list(),
         "errors": errors if errors else None
     }
 
@@ -196,123 +189,46 @@ def _run_demo_script():
     return _run_script_by_path("api/demo.py", ["demo_param_1", "demo_param_2", "12345"])
 
 
-def _run_basic_info():
-    """直接调用 basic_info_api.basic_info(state) 获取程序基础信息"""
+def _handle_api_request(path, params):
+    """
+    统一处理 API 请求。
+    根据已注册的路由调用对应的 handler。
+
+    Args:
+        path: 请求路径，如 "/api/basic_info"
+        params: URL 查询参数字典
+
+    Returns:
+        dict 或 None（None 表示路由未找到）
+    """
+    from api import get_routes
+
     if _cached_state is None:
         return {"success": False, "error": "State not cached"}
 
-    try:
-        return basic_info_api.basic_info(_cached_state)
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    routes = get_routes()
 
+    if path not in routes:
+        return None  # 404
 
-# ============================================================
-# Search API 路由处理函数 (State Passing Pattern)
-# ============================================================
+    handler = routes[path]["handler"]
 
-def _run_search(endpoint, params):
-    """
-    处理 /api/search/* 请求
-
-    路由:
-        GET /api/search/functions?q=<query>&limit=100
-        GET /api/search/symbols?q=<query>&type=<type>&limit=100
-        GET /api/search/comments?q=<query>&type=<type>&limit=100
-        GET /api/search/strings?q=<query>&encoding=<enc>&limit=100
-        GET /api/search/scalars?value=<value>&size=<size>&limit=100
-        GET /api/search/bytes?pattern=<pattern>&limit=100&align=1
-        GET /api/search/instructions?q=<query>&limit=100
-        GET /api/search/xrefs/to?address=<addr>
-        GET /api/search/xrefs/from?address=<addr>
-        GET /api/search/datatypes?q=<query>&limit=100
-        GET /api/search/all?q=<query>&limit=50
-    """
-    if _cached_state is None:
-        return {"success": False, "error": "State not cached"}
-
-    query = params.get("q", "")
-    limit = int(params.get("limit", "100"))
-
-    try:
-        if endpoint == "functions":
-            return search_api.search_functions(_cached_state, query, limit)
-
-        elif endpoint == "symbols":
-            sym_type = params.get("type")
-            return search_api.search_symbols(_cached_state, query, sym_type, limit)
-
-        elif endpoint == "comments":
-            comment_type = params.get("type")
-            return search_api.search_comments(_cached_state, query, comment_type, limit)
-
-        elif endpoint == "strings":
-            encoding = params.get("encoding")
-            return search_api.search_strings(_cached_state, query, encoding, limit)
-
-        elif endpoint == "scalars":
-            value = params.get("value", "")
-            size = params.get("size")
-            size = int(size) if size else None
-            return search_api.search_scalars(_cached_state, value, size, limit)
-
-        elif endpoint == "bytes":
-            pattern = params.get("pattern", "")
-            align = int(params.get("align", "1"))
-            return search_api.search_bytes(_cached_state, pattern, limit, align)
-
-        elif endpoint == "instructions":
-            return search_api.search_instructions(_cached_state, query, limit)
-
-        elif endpoint == "xrefs/to":
-            address = params.get("address", "")
-            return search_api.search_xrefs_to(_cached_state, address)
-
-        elif endpoint == "xrefs/from":
-            address = params.get("address", "")
-            return search_api.search_xrefs_from(_cached_state, address)
-
-        elif endpoint == "datatypes":
-            return search_api.search_data_types(_cached_state, query, limit)
-
-        elif endpoint == "all":
-            limit = int(params.get("limit", "50"))
-            return search_api.search_all(_cached_state, query, limit)
-
+    # 自动转换参数类型
+    converted_params = {}
+    for key, value in params.items():
+        # 尝试转换为整数
+        if value.isdigit() or (value.startswith("-") and value[1:].isdigit()):
+            converted_params[key] = int(value)
         else:
-            return {"success": False, "error": f"Unknown search endpoint: {endpoint}"}
+            converted_params[key] = value
 
+    try:
+        return handler(_cached_state, **converted_params)
+    except TypeError as e:
+        # 参数不匹配时的错误处理
+        return {"success": False, "error": f"Invalid parameters: {e}"}
     except Exception as e:
         return {"success": False, "error": str(e)}
-
-
-# ============================================================
-# API v1 路由处理函数 (State Passing Pattern)
-# ============================================================
-
-def _handle_v1_search(params):
-    """
-    处理 /api/v1/search 请求 - 面向 AI 的统一搜索接口
-
-    路由:
-        GET /api/v1/search?q=<query>&types=<types>&limit=<limit>
-
-    参数:
-        q: 搜索查询（必需）
-        types: 搜索类型，逗号分隔（可选，默认 "auto"）
-               - auto: 智能推断类型
-               - all: 搜索所有类型
-               - functions,symbols,strings,comments,instructions,xrefs,datatypes,bytes
-        limit: 每种类型最大结果数（可选，默认 20）
-    """
-    if _cached_state is None:
-        return {"success": False, "error": "State not cached"}
-
-    query = params.get("q", "")
-    types = params.get("types", "auto")
-    limit = int(params.get("limit", "20"))
-
-    return v1_search_api.search(_cached_state, query, types, limit)
 
 
 def _parse_query_params(query_string):
@@ -344,6 +260,14 @@ def _cache_ghidra_context():
     except:
         _cached_state = None
         print("[Ghidra-MCP-Bridge] Warning: Failed to cache state")
+
+    # 自动加载 API 模块
+    result = _discover_and_load_api_modules()
+    if result.get("success"):
+        routes = result.get("routes", [])
+        print(f"[Ghidra-MCP-Bridge] Loaded {len(routes)} API routes")
+    else:
+        print(f"[Ghidra-MCP-Bridge] Warning: Failed to load some API modules: {result.get('errors')}")
 
 
 class GhidraRequestHandler(BaseHTTPRequestHandler):
@@ -379,12 +303,12 @@ class GhidraRequestHandler(BaseHTTPRequestHandler):
             params = _parse_query_params(query_string)
 
             # ============================================================
-            # 系统管理路由 (根目录)
+            # 系统管理路由 (根目录) - 保持硬编码
             # ============================================================
 
             # 热重载 API 模块
             if path == "/_reload":
-                result = _reload_api_modules()
+                result = _discover_and_load_api_modules()
                 print(f"[Ghidra-MCP-Bridge] API modules reloaded: {result}")
                 return self._send_json(result)
 
@@ -396,38 +320,16 @@ class GhidraRequestHandler(BaseHTTPRequestHandler):
                 threading.Thread(target=delayed_shutdown, daemon=True).start()
                 return self._send_json({"success": True, "message": "Server shutting down"})
 
-            # ============================================================
-            # 基础 API 路由
-            # ============================================================
-
-            # 演示脚本（API 开发参考样例）
+            # 演示脚本（使用 runScript 模式，保持硬编码）
             if path == "/api/demo":
                 return self._send_json(_run_demo_script())
 
-            # 程序基础信息
-            if path == "/api/basic_info":
-                return self._send_json(_run_basic_info())
-
-            # 服务器状态（用于验证热重载）
-            if path == "/api/status":
-                if _cached_state is None:
-                    return self._send_json({"success": False, "error": "State not cached"})
-                return self._send_json(status_api.status(_cached_state))
-
             # ============================================================
-            # Search API 路由: /api/search/<endpoint>
+            # 动态 API 路由 - 通过装饰器自动注册
             # ============================================================
-            if path.startswith("/api/search/"):
-                # 提取 endpoint: /api/search/functions -> functions
-                # 支持多级: /api/search/xrefs/to -> xrefs/to
-                endpoint = path[12:]  # len("/api/search/") = 12
-                return self._send_json(_run_search(endpoint, params))
-
-            # ============================================================
-            # API v1 路由: /api/v1/search (统一搜索接口)
-            # ============================================================
-            if path == "/api/v1/search":
-                return self._send_json(_handle_v1_search(params))
+            result = _handle_api_request(path, params)
+            if result is not None:
+                return self._send_json(result)
 
             # 404
             self._send_json({"error": "Not Found", "path": path}, status=404)

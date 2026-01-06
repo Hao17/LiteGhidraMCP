@@ -1,17 +1,15 @@
 """
-搜索 API - State 传递模式 (Search API - State Passing Pattern)
+搜索 API - 提供各类搜索功能
 
-提供各类搜索功能，包括：
 - 语义搜索：函数、符号、注释
 - 数据搜索：字符串、标量
 - 模式搜索：字节模式、指令
 - 引用搜索：交叉引用
 - 类型搜索：数据类型
-
-=== 使用方式 ===
-    import api.search as search_api
-    result = search_api.search_functions(state, "main")
+- 聚合搜索：同时搜索多种类型
 """
+
+from api import route
 
 
 # ============================================================
@@ -49,13 +47,14 @@ def _parse_address(prog, addr_str):
 # 语义搜索
 # ============================================================
 
-def search_functions(state, query, limit=100):
+@route("/api/search/functions")
+def search_functions(state, q="", limit=100):
     """
     搜索函数名称。
 
     Args:
         state: Ghidra GhidraState 对象
-        query: 搜索关键词（大小写不敏感）
+        q: 搜索关键词（大小写不敏感）
         limit: 最大返回数量
 
     Returns:
@@ -65,11 +64,11 @@ def search_functions(state, query, limit=100):
     if err:
         return err
 
-    if not query:
+    if not q:
         return _make_error("Query is required")
 
     try:
-        search_pattern = query.lower()
+        search_pattern = q.lower()
         matches = []
 
         fm = prog.getFunctionManager()
@@ -91,7 +90,7 @@ def search_functions(state, query, limit=100):
                 })
 
         return _make_success({
-            "query": query,
+            "query": q,
             "matches": matches,
             "count": len(matches),
             "limit": limit
@@ -101,14 +100,15 @@ def search_functions(state, query, limit=100):
         return _make_error(f"search_functions failed: {str(e)}")
 
 
-def search_symbols(state, query, sym_type=None, limit=100):
+@route("/api/search/symbols")
+def search_symbols(state, q="", type=None, limit=100):
     """
     搜索符号（标签、变量等）。
 
     Args:
         state: Ghidra GhidraState 对象
-        query: 搜索关键词（支持通配符 * 和 ?）
-        sym_type: 符号类型过滤 (Label, Function, Parameter, LocalVar, GlobalVar, Class, Namespace, ExternalLib, 等)
+        q: 搜索关键词（支持通配符 * 和 ?）
+        type: 符号类型过滤 (Label, Function, Parameter, LocalVar, GlobalVar, Class, Namespace, ExternalLib, 等)
         limit: 最大返回数量
 
     Returns:
@@ -118,7 +118,7 @@ def search_symbols(state, query, sym_type=None, limit=100):
     if err:
         return err
 
-    if not query:
+    if not q:
         return _make_error("Query is required")
 
     try:
@@ -126,14 +126,14 @@ def search_symbols(state, query, sym_type=None, limit=100):
         st = prog.getSymbolTable()
 
         # 使用通配符迭代器（如果查询包含 * 或 ?）
-        if '*' in query or '?' in query:
-            symbol_iter = st.getSymbolIterator(query, False)  # caseSensitive=False
+        if '*' in q or '?' in q:
+            symbol_iter = st.getSymbolIterator(q, False)  # caseSensitive=False
         else:
             # 普通模糊匹配
-            search_pattern = query.lower()
+            search_pattern = q.lower()
             symbol_iter = st.getAllSymbols(True)
 
-        use_pattern_match = '*' not in query and '?' not in query
+        use_pattern_match = '*' not in q and '?' not in q
 
         for sym in symbol_iter:
             if len(matches) >= limit:
@@ -142,7 +142,7 @@ def search_symbols(state, query, sym_type=None, limit=100):
             sym_type_str = str(sym.getSymbolType())
 
             # 类型过滤
-            if sym_type and sym_type.lower() != sym_type_str.lower():
+            if type and type.lower() != sym_type_str.lower():
                 continue
 
             name = sym.getName()
@@ -162,8 +162,8 @@ def search_symbols(state, query, sym_type=None, limit=100):
             })
 
         return _make_success({
-            "query": query,
-            "type_filter": sym_type,
+            "query": q,
+            "type_filter": type,
             "matches": matches,
             "count": len(matches),
             "limit": limit
@@ -173,14 +173,15 @@ def search_symbols(state, query, sym_type=None, limit=100):
         return _make_error(f"search_symbols failed: {str(e)}")
 
 
-def search_comments(state, query, comment_type=None, limit=100):
+@route("/api/search/comments")
+def search_comments(state, q="", type=None, limit=100):
     """
     搜索注释（EOL, Pre, Post, Plate, Repeatable）。
 
     Args:
         state: Ghidra GhidraState 对象
-        query: 搜索关键词
-        comment_type: 注释类型过滤 (EOL, PRE, POST, PLATE, REPEATABLE) 或 None 搜索全部
+        q: 搜索关键词
+        type: 注释类型过滤 (EOL, PRE, POST, PLATE, REPEATABLE) 或 None 搜索全部
         limit: 最大返回数量
 
     Returns:
@@ -190,7 +191,7 @@ def search_comments(state, query, comment_type=None, limit=100):
     if err:
         return err
 
-    if not query:
+    if not q:
         return _make_error("Query is required")
 
     try:
@@ -206,15 +207,15 @@ def search_comments(state, query, comment_type=None, limit=100):
         }
 
         # 确定要搜索的注释类型
-        if comment_type:
-            upper_type = comment_type.upper()
+        if type:
+            upper_type = type.upper()
             if upper_type not in comment_types:
-                return _make_error(f"Invalid comment_type: {comment_type}. Valid: {list(comment_types.keys())}")
+                return _make_error(f"Invalid comment type: {type}. Valid: {list(comment_types.keys())}")
             types_to_search = {upper_type: comment_types[upper_type]}
         else:
             types_to_search = comment_types
 
-        search_pattern = query.lower()
+        search_pattern = q.lower()
         matches = []
         listing = prog.getListing()
 
@@ -237,8 +238,8 @@ def search_comments(state, query, comment_type=None, limit=100):
                     })
 
         return _make_success({
-            "query": query,
-            "type_filter": comment_type,
+            "query": q,
+            "type_filter": type,
             "matches": matches,
             "count": len(matches),
             "limit": limit
@@ -252,13 +253,14 @@ def search_comments(state, query, comment_type=None, limit=100):
 # 数据搜索
 # ============================================================
 
-def search_strings(state, query, encoding=None, limit=100):
+@route("/api/search/strings")
+def search_strings(state, q="", encoding=None, limit=100):
     """
     搜索已定义的字符串数据。
 
     Args:
         state: Ghidra GhidraState 对象
-        query: 搜索关键词
+        q: 搜索关键词
         encoding: 编码过滤 (ASCII, UTF-8, UTF-16, unicode, 等) 或 None 搜索全部
         limit: 最大返回数量
 
@@ -269,11 +271,11 @@ def search_strings(state, query, encoding=None, limit=100):
     if err:
         return err
 
-    if not query:
+    if not q:
         return _make_error("Query is required")
 
     try:
-        search_pattern = query.lower()
+        search_pattern = q.lower()
         matches = []
 
         listing = prog.getListing()
@@ -319,7 +321,7 @@ def search_strings(state, query, encoding=None, limit=100):
             })
 
         return _make_success({
-            "query": query,
+            "query": q,
             "encoding_filter": encoding,
             "matches": matches,
             "count": len(matches),
@@ -330,7 +332,8 @@ def search_strings(state, query, encoding=None, limit=100):
         return _make_error(f"search_strings failed: {str(e)}")
 
 
-def search_scalars(state, value, size=None, limit=100):
+@route("/api/search/scalars")
+def search_scalars(state, value="", size=None, limit=100):
     """
     搜索标量/立即数。
 
@@ -418,7 +421,8 @@ def search_scalars(state, value, size=None, limit=100):
 # 模式搜索
 # ============================================================
 
-def search_bytes(state, pattern, limit=100, align=1):
+@route("/api/search/bytes")
+def search_bytes(state, pattern="", limit=100, align=1):
     """
     搜索字节模式（支持通配符）。
 
@@ -550,13 +554,14 @@ def search_bytes(state, pattern, limit=100, align=1):
         return _make_error(f"search_bytes failed: {str(e)}")
 
 
-def search_instructions(state, query, limit=100):
+@route("/api/search/instructions")
+def search_instructions(state, q="", limit=100):
     """
     搜索汇编指令文本。
 
     Args:
         state: Ghidra GhidraState 对象
-        query: 指令搜索关键词（如 "call", "mov eax", "jmp"）
+        q: 指令搜索关键词（如 "call", "mov eax", "jmp"）
         limit: 最大返回数量
 
     Returns:
@@ -566,11 +571,11 @@ def search_instructions(state, query, limit=100):
     if err:
         return err
 
-    if not query:
+    if not q:
         return _make_error("Query is required")
 
     try:
-        search_pattern = query.lower()
+        search_pattern = q.lower()
         matches = []
         listing = prog.getListing()
 
@@ -603,7 +608,7 @@ def search_instructions(state, query, limit=100):
                 })
 
         return _make_success({
-            "query": query,
+            "query": q,
             "matches": matches,
             "count": len(matches),
             "limit": limit
@@ -617,7 +622,8 @@ def search_instructions(state, query, limit=100):
 # 引用搜索
 # ============================================================
 
-def search_xrefs_to(state, address):
+@route("/api/search/xrefs/to")
+def search_xrefs_to(state, address=""):
     """
     搜索所有引用到指定地址的交叉引用。
 
@@ -679,7 +685,8 @@ def search_xrefs_to(state, address):
         return _make_error(f"search_xrefs_to failed: {str(e)}")
 
 
-def search_xrefs_from(state, address):
+@route("/api/search/xrefs/from")
+def search_xrefs_from(state, address=""):
     """
     搜索从指定地址发出的所有引用。
 
@@ -747,13 +754,14 @@ def search_xrefs_from(state, address):
 # 类型搜索
 # ============================================================
 
-def search_data_types(state, query, limit=100):
+@route("/api/search/datatypes")
+def search_data_types(state, q="", limit=100):
     """
     搜索数据类型。
 
     Args:
         state: Ghidra GhidraState 对象
-        query: 搜索关键词（支持通配符 * 和 ?）
+        q: 搜索关键词（支持通配符 * 和 ?）
         limit: 最大返回数量
 
     Returns:
@@ -763,7 +771,7 @@ def search_data_types(state, query, limit=100):
     if err:
         return err
 
-    if not query:
+    if not q:
         return _make_error("Query is required")
 
     try:
@@ -773,7 +781,7 @@ def search_data_types(state, query, limit=100):
         dtm = prog.getDataTypeManager()
 
         # 判断是否使用通配符模式
-        use_wildcard = '*' in query or '?' in query
+        use_wildcard = '*' in q or '?' in q
 
         if use_wildcard:
             # 使用 fnmatch 进行通配符匹配
@@ -781,7 +789,7 @@ def search_data_types(state, query, limit=100):
                 if len(matches) >= limit:
                     break
                 # fnmatch 支持 * 和 ? 通配符
-                if fnmatch.fnmatch(dt.getName().lower(), query.lower()):
+                if fnmatch.fnmatch(dt.getName().lower(), q.lower()):
                     matches.append({
                         "name": dt.getName(),
                         "path": str(dt.getPathName()),
@@ -792,7 +800,7 @@ def search_data_types(state, query, limit=100):
                     })
         else:
             # 模糊搜索（包含匹配）
-            search_pattern = query.lower()
+            search_pattern = q.lower()
             for dt in dtm.getAllDataTypes():
                 if len(matches) >= limit:
                     break
@@ -807,7 +815,7 @@ def search_data_types(state, query, limit=100):
                     })
 
         return _make_success({
-            "query": query,
+            "query": q,
             "matches": matches,
             "count": len(matches),
             "limit": limit
@@ -821,13 +829,14 @@ def search_data_types(state, query, limit=100):
 # 聚合搜索
 # ============================================================
 
-def search_all(state, query, limit=50):
+@route("/api/search/all")
+def search_all(state, q="", limit=50):
     """
     聚合搜索 - 同时搜索函数、符号、字符串。
 
     Args:
         state: Ghidra GhidraState 对象
-        query: 搜索关键词
+        q: 搜索关键词
         limit: 每种类型的最大返回数量
 
     Returns:
@@ -837,7 +846,7 @@ def search_all(state, query, limit=50):
     if err:
         return err
 
-    if not query:
+    if not q:
         return _make_error("Query is required")
 
     try:
@@ -848,12 +857,12 @@ def search_all(state, query, limit=50):
         }
 
         # 搜索函数
-        func_result = search_functions(state, query, limit)
+        func_result = search_functions(state, q=q, limit=limit)
         if func_result.get("success"):
             results["functions"] = func_result["data"]["matches"]
 
         # 搜索符号（排除函数）
-        sym_result = search_symbols(state, query, None, limit)
+        sym_result = search_symbols(state, q=q, limit=limit)
         if sym_result.get("success"):
             # 过滤掉函数类型的符号
             results["symbols"] = [
@@ -862,7 +871,7 @@ def search_all(state, query, limit=50):
             ][:limit]
 
         # 搜索字符串
-        str_result = search_strings(state, query, None, limit)
+        str_result = search_strings(state, q=q, limit=limit)
         if str_result.get("success"):
             results["strings"] = str_result["data"]["matches"]
 
@@ -870,7 +879,7 @@ def search_all(state, query, limit=50):
         total = len(results["functions"]) + len(results["symbols"]) + len(results["strings"])
 
         return _make_success({
-            "query": query,
+            "query": q,
             "results": results,
             "summary": {
                 "total": total,

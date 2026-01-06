@@ -1,24 +1,13 @@
 """
-基础信息 API - State 传递模式 (Basic Info API - State Passing Pattern)
-
-通过传递 state 对象获取 Ghidra 上下文，直接返回结果字典。
-
-=== State 对象 ===
-Ghidra 的 state 对象包含所有上下文信息：
-- state.getCurrentProgram() - 当前程序
-- state.getCurrentAddress() - 当前地址
-- state.getCurrentSelection() - 当前选择
-- state.getCurrentHighlight() - 当前高亮
-- state.getTool() - 当前工具
-
-=== 使用方式 ===
-    import api.basic_info as basic_info_api
-    result = basic_info_api.basic_info(state)
+基础信息 API - 获取当前程序的基础信息
 
 路由: GET /api/basic_info
 """
 
+from api import route
 
+
+@route("/api/basic_info")
 def basic_info(state):
     """
     获取当前程序的基础信息。

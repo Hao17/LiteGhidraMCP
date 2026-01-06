@@ -1,5 +1,5 @@
 """
-服务器状态 API - 用于验证热重载 (Server Status API - For Hot Reload Verification)
+服务器状态 API - 用于验证热重载
 
 模块加载时记录时间戳，通过对比时间戳可验证热重载是否生效。
 
@@ -8,11 +8,14 @@
 
 import time
 
+from api import route
+
 # 模块加载时间戳（每次 reload 会更新）
 _MODULE_LOAD_TIME = time.time()
 _MODULE_LOAD_TIME_STR = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(_MODULE_LOAD_TIME))
 
 
+@route("/api/status")
 def status(state):
     """
     获取服务器和模块状态信息。
