@@ -20,6 +20,34 @@ from api import route
 
 
 # ============================================================
+# Compact Mode Schema
+# ============================================================
+
+COMPACT_SCHEMA = {
+    "functions": ["name", "address", "size", "signature", "is_external"],
+    "symbols": ["name", "address", "type", "namespace"],
+    "strings": ["address", "value", "length"],
+    "comments": ["address", "type", "comment"],
+    "instructions": ["address", "mnemonic", "instruction"],
+    "xrefs": ["direction", "from", "to", "ref_type", "context", "instruction"],
+    "datatypes": ["name", "path", "category", "size"],
+    "bytes": ["address", "bytes"],
+}
+
+
+def _to_compact(results):
+    """Convert dict results to compact array format"""
+    compact = {}
+    for type_name, items in results.items():
+        schema = COMPACT_SCHEMA.get(type_name, [])
+        compact[type_name] = [
+            [item.get(field) for field in schema]
+            for item in items
+        ]
+    return compact
+
+
+# ============================================================
 # Response Helpers
 # ============================================================
 
@@ -103,7 +131,7 @@ def _search_functions(prog, query, limit):
             body = func.getBody()
             matches.append({
                 "name": name,
-                "address": str(entry),
+                "address": "0x" + str(entry),
                 "size": body.getNumAddresses() if body else 0,
                 "signature": str(func.getSignature()),
                 "is_external": func.isExternal(),
@@ -140,7 +168,7 @@ def _search_symbols(prog, query, limit):
 
         matches.append({
             "name": name,
-            "address": str(sym.getAddress()),
+            "address": "0x" + str(sym.getAddress()),
             "type": sym_type,
             "namespace": str(sym.getParentNamespace().getName()) if sym.getParentNamespace() else None,
         })
@@ -170,7 +198,7 @@ def _search_strings(prog, query, limit):
         # Truncate long strings
         display = str_value[:200] + "..." if len(str_value) > 200 else str_value
         matches.append({
-            "address": str(data.getAddress()),
+            "address": "0x" + str(data.getAddress()),
             "value": display,
             "length": len(str_value),
         })
@@ -204,7 +232,7 @@ def _search_comments(prog, query, limit):
             comment = cu.getComment(type_code)
             if comment and pattern in comment.lower():
                 matches.append({
-                    "address": str(cu.getAddress()),
+                    "address": "0x" + str(cu.getAddress()),
                     "type": type_name,
                     "comment": comment[:300] if len(comment) > 300 else comment,
                 })
@@ -225,7 +253,7 @@ def _search_instructions(prog, query, limit):
         instr_str = str(instr).lower()
         if pattern in instr_str:
             matches.append({
-                "address": str(instr.getAddress()),
+                "address": "0x" + str(instr.getAddress()),
                 "mnemonic": instr.getMnemonicString(),
                 "instruction": str(instr),
             })
@@ -268,8 +296,8 @@ def _search_xrefs(prog, query, limit):
 
         matches.append({
             "direction": "to",
-            "from": str(from_addr),
-            "to": str(ref.getToAddress()),
+            "from": "0x" + str(from_addr),
+            "to": "0x" + str(ref.getToAddress()),
             "ref_type": str(ref.getReferenceType()),
             "context": context,
             "instruction": str(instr) if instr else None,
@@ -376,7 +404,7 @@ def _search_bytes(prog, query, limit):
                     actual_bytes = ["??"] * byte_len
 
                 matches.append({
-                    "address": str(addr),
+                    "address": "0x" + str(addr),
                     "bytes": " ".join(actual_bytes),
                 })
                 addr = addr.add(1)
@@ -409,7 +437,7 @@ ALL_TYPES = list(SEARCH_HANDLERS.keys())
 # ============================================================
 
 @route("/api/v1/search")
-def search(state, q="", types="auto", limit=20):
+def search(state, q="", types="auto", limit=20, verbose=""):
     """
     Unified search with smart type inference.
 
@@ -421,9 +449,14 @@ def search(state, q="", types="auto", limit=20):
                - "all": Search all types
                - Specific types: "functions,symbols,strings"
         limit: Max results per type (default 20)
+        verbose: Output format:
+               - "" (default): Compact array format with _schema
+               - "true"/"1": Verbose dict format with all fields
 
     Returns:
         dict: Aggregated search results
+
+    路由: GET /api/v1/search?q=<query>&types=<types>&limit=<limit>&verbose=<bool>
     """
     prog, err = _get_prog(state)
     if err:
@@ -463,12 +496,25 @@ def search(state, q="", types="auto", limit=20):
 
     # Build summary
     summary = {t: len(results.get(t, [])) for t in search_types}
-    summary["total"] = sum(summary.values())
+    summary["total"] = sum(v for k, v in summary.items() if k != "total")
 
-    return _ok({
-        "query": query,
-        "types_searched": search_types,
-        "results": results,
-        "summary": summary,
-        "errors": errors if errors else None,
-    })
+    # Parse verbose parameter
+    is_verbose = str(verbose).lower() in ("true", "1", "yes")
+
+    # Build response
+    if is_verbose:
+        # Verbose mode: full dict format
+        response = {"summary": summary, "results": results}
+    else:
+        # Compact mode (default): array format with schema
+        response = {
+            "summary": summary,
+            "results": _to_compact(results),
+            "_schema": {t: COMPACT_SCHEMA[t] for t in search_types if t in COMPACT_SCHEMA},
+        }
+
+    # Only include errors if present
+    if errors:
+        response["errors"] = errors
+
+    return _ok(response)

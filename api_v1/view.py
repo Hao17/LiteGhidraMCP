@@ -21,6 +21,15 @@ from ghidra.util.task import ConsoleTaskMonitor
 
 
 # ============================================================
+# Compact Mode Schema
+# ============================================================
+
+COMPACT_SCHEMA = {
+    "info": ["name", "address", "signature", "size"],
+}
+
+
+# ============================================================
 # Response Helpers
 # ============================================================
 
@@ -181,8 +190,8 @@ def _disassemble_function(prog, func, limit):
                 operands_list.append(op_repr)
 
         # Format: "address bytes     mnemonic   operands"
-        # 地址8位，字节16位左对齐，助记符10位左对齐，操作数
-        addr_str = str(instr.getAddress())
+        # 地址带0x前缀，字节16位左对齐，助记符10位左对齐，操作数
+        addr_str = "0x" + str(instr.getAddress())
         mnemonic = instr.getMnemonicString()
         operands = ",".join(operands_list)
 
@@ -214,7 +223,7 @@ def _view_single_function(prog, decomp, func, view_type, timeout, limit):
     func_body = func.getBody()
     result = {
         "name": func.getName(),
-        "address": str(func.getEntryPoint()),
+        "address": "0x" + str(func.getEntryPoint()),
         "signature": str(func.getSignature()),
         "size": func_body.getNumAddresses() if func_body else 0,
     }
@@ -246,7 +255,7 @@ def _view_single_function(prog, decomp, func, view_type, timeout, limit):
 # ============================================================
 
 @route("/api/v1/view")
-def view(state, q="", type="both", timeout=30, limit=500):
+def view(state, q="", type="both", timeout=30, limit=500, verbose=""):
     """
     Unified view API for decompilation and disassembly.
 
@@ -256,9 +265,14 @@ def view(state, q="", type="both", timeout=30, limit=500):
         type: View type - "both" (default), "decompile", "disassemble"
         timeout: Decompilation timeout in seconds (default 30)
         limit: Max instructions per function (default 500)
+        verbose: Output format:
+               - "" (default): Compact format with info array
+               - "true"/"1": Verbose dict format with all fields
 
     Returns:
         dict: Aggregated view results for all queried functions
+
+    路由: GET /api/v1/view?q=<query>&type=<type>&timeout=30&limit=500&verbose=<bool>
     """
     prog, err = _get_prog(state)
     if err:
@@ -280,6 +294,9 @@ def view(state, q="", type="both", timeout=30, limit=500):
     if not queries:
         return _err("No valid queries provided")
 
+    # Parse verbose parameter
+    is_verbose = str(verbose).lower() in ("true", "1", "yes")
+
     # Initialize decompiler if needed
     decomp = None
     if view_type in ("both", "decompile"):
@@ -299,23 +316,52 @@ def view(state, q="", type="both", timeout=30, limit=500):
             func_result = _view_single_function(
                 prog, decomp, func, view_type, timeout, limit
             )
-            func_result["query"] = query
-            functions.append(func_result)
 
-        # Build summary
-        summary = {
-            "requested": len(queries),
-            "found": len(functions),
-            "failed": len(errors),
-        }
+            if is_verbose:
+                # Verbose mode: keep full dict format
+                func_result["query"] = query
+                functions.append(func_result)
+            else:
+                # Compact mode: use info array for metadata
+                compact_result = {
+                    "info": [
+                        func_result["name"],
+                        func_result["address"],
+                        func_result["signature"],
+                        func_result["size"],
+                    ]
+                }
+                # Add decompiled code if present
+                if "decompiled" in func_result:
+                    compact_result["decompiled"] = func_result["decompiled"]
+                if "decompile_error" in func_result:
+                    compact_result["decompile_error"] = func_result["decompile_error"]
+                # Add instructions if present
+                if "instructions" in func_result:
+                    compact_result["instructions"] = func_result["instructions"]
+                functions.append(compact_result)
 
-        return _ok({
-            "query": q,
-            "view_type": view_type,
-            "functions": functions,
-            "summary": summary,
-            "errors": errors if errors else None,
-        })
+        # Build response
+        if is_verbose:
+            response = {
+                "functions": functions,
+                "summary": {
+                    "requested": len(queries),
+                    "found": len(functions),
+                    "failed": len(errors),
+                },
+            }
+        else:
+            response = {
+                "functions": functions,
+                "_schema": COMPACT_SCHEMA,
+            }
+
+        # Only include errors if present
+        if errors:
+            response["errors"] = errors
+
+        return _ok(response)
 
     finally:
         if decomp:

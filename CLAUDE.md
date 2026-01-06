@@ -163,16 +163,22 @@ curl "http://127.0.0.1:8803/api/v1/list?types=imports&library=kernel32"
 - `GET /api/symbol_tree/exports?limit=100` - 列出导出符号
 
 **V1 API** (`/api/v1/*`) - 面向 AI 的聚合接口:
-- `GET /api/v1/search?q=<query>&types=auto&limit=20` - 统一搜索（支持智能类型推断）
-- `GET /api/v1/view?q=<query>&type=both&timeout=30&limit=500` - 统一查看（支持批量查询）
+
+所有 V1 API 默认返回 compact 格式（数组 + `_schema`），可通过 `verbose=true` 获取完整 dict 格式。
+
+- `GET /api/v1/search?q=<query>&types=auto&limit=20&verbose=false` - 统一搜索（支持智能类型推断）
+  - `types`: `auto`(智能推断) / `all` / 逗号分隔（如 `functions,symbols,strings`）
+  - `verbose`: `true` 返回完整 dict，默认 compact 数组格式
+- `GET /api/v1/view?q=<query>&type=both&timeout=30&limit=500&verbose=false` - 统一查看（支持批量查询）
   - `q`: 函数名或地址，逗号分隔支持批量（如 `main,init,0x401000`）
   - `type`: `both`(默认) / `decompile` / `disassemble`
-  - 返回同时包含反编译代码和汇编指令
-- `GET /api/v1/list?q=<query>&types=auto&limit=100` - 统一列表（类似 ls 的符号浏览）
+  - `verbose`: `true` 返回完整 dict，默认 compact info 数组格式
+- `GET /api/v1/list?q=<query>&types=auto&limit=100&verbose=false` - 统一列表（类似 ls 的符号浏览）
   - `q`: 名称过滤（支持通配符 `*` `?`）
   - `types`: `auto`(默认=functions) / `all` / 逗号分隔（如 `functions,classes,imports`）
   - `start`/`end`: 地址范围过滤（如 `start=0x401000&end=0x402000`）
   - `library`: imports 的库名过滤（如 `library=kernel32`）
+  - `verbose`: `true` 返回完整 dict，默认 compact 数组格式
   - 支持类型: functions, classes, namespaces, labels, globals, imports, exports
 
 **Error Handling**: Minimal logging to avoid Ghidra console noise, but preserve error context in API responses
