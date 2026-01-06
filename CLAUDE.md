@@ -19,6 +19,7 @@ This is a Ghidrathon-based MCP (Model Context Protocol) Bridge that runs inside 
   - **`view.py`**: 查看 API，提供反编译和反汇编功能
   - **`status.py`**: 服务器状态 API，用于验证热重载是否生效
   - **`symbol_tree.py`**: Symbol Tree API，提供符号树结构查看功能
+  - **`comment.py`**: Comment API，设置/删除注释
 
 - **`api_v1/`**: v1 版本 API 模块目录（面向 AI 的聚合接口）：
   - **`search.py`**: 统一搜索 API，支持智能类型推断
@@ -104,6 +105,11 @@ curl "http://127.0.0.1:8803/api/symbol_tree/globals"
 curl "http://127.0.0.1:8803/api/symbol_tree/imports?library=kernel32"
 curl "http://127.0.0.1:8803/api/symbol_tree/exports"
 
+# Comment API 测试
+curl "http://127.0.0.1:8803/api/comment/set?address=0x401000&type=EOL&text=测试注释"
+curl "http://127.0.0.1:8803/api/comment/set?name=main&type=PLATE&text=主函数说明"
+curl "http://127.0.0.1:8803/api/comment/set?address=0x401000&type=EOL&text="  # 删除注释
+
 # V1 List API 测试
 curl "http://127.0.0.1:8803/api/v1/list"
 curl "http://127.0.0.1:8803/api/v1/list?q=init*"
@@ -161,6 +167,12 @@ curl "http://127.0.0.1:8803/api/v1/list?types=imports&library=kernel32"
 - `GET /api/symbol_tree/globals?q=<query>&limit=100` - 列出全局变量
 - `GET /api/symbol_tree/imports?library=<lib>&limit=100` - 列出导入符号
 - `GET /api/symbol_tree/exports?limit=100` - 列出导出符号
+
+**Comment API** (`/api/comment/*`) - 注释操作:
+- `GET /api/comment/set?address=<addr>&type=<type>&text=<text>` - 设置注释
+- `GET /api/comment/set?name=<name>&type=<type>&text=<text>` - 按函数名设置入口点注释
+- 参数 `type`: EOL(默认)/PRE/POST/PLATE/REPEATABLE
+- 删除注释: `text=` (空字符串)
 
 **V1 API** (`/api/v1/*`) - 面向 AI 的聚合接口:
 
