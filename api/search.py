@@ -368,32 +368,38 @@ def search_scalars(state, value, size=None, limit=100):
             if len(matches) >= limit:
                 break
 
+            found_in_instr = False
             num_operands = instr.getNumOperands()
+
             for i in range(num_operands):
-                # 获取操作数的标量值
-                scalars = instr.getScalars()
-                if scalars:
-                    for scalar in scalars:
-                        scalar_value = scalar.getValue()
-                        scalar_size = scalar.bitLength() // 8
+                if found_in_instr:
+                    break
 
-                        # 数值匹配
-                        if scalar_value != search_value:
-                            continue
+                # 使用 getScalar(operandIndex) 获取特定操作数的标量
+                scalar = instr.getScalar(i)
+                if scalar is None:
+                    continue
 
-                        # 大小过滤
-                        if size and scalar_size != size:
-                            continue
+                scalar_value = scalar.getValue()
+                scalar_size = scalar.bitLength() // 8
 
-                        matches.append({
-                            "address": str(instr.getAddress()),
-                            "value": scalar_value,
-                            "hex_value": hex(scalar_value) if scalar_value >= 0 else hex(scalar_value & 0xFFFFFFFFFFFFFFFF),
-                            "size": scalar_size,
-                            "instruction": str(instr),
-                        })
-                        break  # 每条指令只记录一次
-                break  # 已处理该指令
+                # 数值匹配
+                if scalar_value != search_value:
+                    continue
+
+                # 大小过滤
+                if size and scalar_size != size:
+                    continue
+
+                matches.append({
+                    "address": str(instr.getAddress()),
+                    "value": scalar_value,
+                    "hex_value": hex(scalar_value) if scalar_value >= 0 else hex(scalar_value & 0xFFFFFFFFFFFFFFFF),
+                    "size": scalar_size,
+                    "instruction": str(instr),
+                    "operand_index": i,
+                })
+                found_in_instr = True  # 每条指令只记录一次
 
         return _make_success({
             "search_value": search_value,
@@ -434,51 +440,102 @@ def search_bytes(state, pattern, limit=100, align=1):
         return _make_error("Pattern is required")
 
     try:
+        import re
+
         # 标准化模式字符串：移除空格，统一通配符格式
-        # Ghidra findBytes 使用 . 作为通配符 nibble
         normalized = pattern.replace(" ", "").replace("??", "..").replace("?", ".")
 
         # 验证模式格式
-        import re
         if not re.match(r'^[0-9a-fA-F.]+$', normalized):
             return _make_error(f"Invalid pattern format: {pattern}. Use hex digits and ?? or .. for wildcards")
 
         if len(normalized) % 2 != 0:
             return _make_error(f"Pattern must have even number of characters: {normalized}")
 
+        # 将模式转换为字节数组和掩码
+        byte_len = len(normalized) // 2
+        search_bytes = []
+        search_mask = []
+
+        for i in range(byte_len):
+            high = normalized[i * 2]
+            low = normalized[i * 2 + 1]
+
+            if high == '.' and low == '.':
+                # 完全通配符
+                search_bytes.append(0)
+                search_mask.append(0x00)
+            elif high == '.':
+                # 高位通配符
+                search_bytes.append(int(low, 16))
+                search_mask.append(0x0F)
+            elif low == '.':
+                # 低位通配符
+                search_bytes.append(int(high, 16) << 4)
+                search_mask.append(0xF0)
+            else:
+                # 精确匹配
+                search_bytes.append(int(high + low, 16))
+                search_mask.append(0xFF)
+
         matches = []
         memory = prog.getMemory()
 
-        # 获取所有可执行内存块的地址集
-        search_set = prog.getMemory()
+        # 遍历所有内存块搜索
+        for block in memory.getBlocks():
+            if len(matches) >= limit:
+                break
 
-        # 使用 Ghidra 的 findBytes
-        # 需要通过 FlatProgramAPI 或直接调用
-        from ghidra.program.flatapi import FlatProgramAPI
-        flat_api = FlatProgramAPI(prog)
+            # 跳过非初始化的块
+            if not block.isInitialized():
+                continue
 
-        # findBytes 返回匹配的地址列表
-        found_addresses = flat_api.findBytes(None, normalized, limit, align)
+            start = block.getStart()
+            end = block.getEnd()
 
-        if found_addresses:
-            for addr in found_addresses:
-                if len(matches) >= limit:
+            # 从块起始位置开始搜索
+            addr = start
+            while addr is not None and addr.compareTo(end) <= 0 and len(matches) < limit:
+                # 检查对齐
+                addr_offset = addr.getOffset()
+                if align > 1 and (addr_offset % align) != 0:
+                    addr = addr.add(1)
+                    continue
+
+                # 检查是否有足够的字节可读
+                if addr.add(byte_len - 1).compareTo(end) > 0:
                     break
 
-                # 读取匹配位置的实际字节
-                byte_len = len(normalized) // 2
-                actual_bytes = []
+                # 尝试匹配
+                match_found = True
                 try:
                     for i in range(byte_len):
-                        b = memory.getByte(addr.add(i))
-                        actual_bytes.append(format(b & 0xFF, '02x'))
+                        b = memory.getByte(addr.add(i)) & 0xFF
+                        if (b & search_mask[i]) != (search_bytes[i] & search_mask[i]):
+                            match_found = False
+                            break
                 except:
-                    actual_bytes = ["??"] * byte_len
+                    match_found = False
 
-                matches.append({
-                    "address": str(addr),
-                    "bytes": " ".join(actual_bytes),
-                })
+                if match_found:
+                    # 读取实际字节
+                    actual_bytes = []
+                    try:
+                        for i in range(byte_len):
+                            b = memory.getByte(addr.add(i))
+                            actual_bytes.append(format(b & 0xFF, '02x'))
+                    except:
+                        actual_bytes = ["??"] * byte_len
+
+                    matches.append({
+                        "address": str(addr),
+                        "bytes": " ".join(actual_bytes),
+                    })
+
+                    # 移动到下一个可能的位置
+                    addr = addr.add(max(1, align))
+                else:
+                    addr = addr.add(1)
 
         return _make_success({
             "pattern": pattern,
@@ -710,31 +767,31 @@ def search_data_types(state, query, limit=100):
         return _make_error("Query is required")
 
     try:
+        import fnmatch
+
         matches = []
         dtm = prog.getDataTypeManager()
 
-        # 使用 findDataTypes（支持通配符）
-        from java.util import ArrayList
-        result_list = ArrayList()
+        # 判断是否使用通配符模式
+        use_wildcard = '*' in query or '?' in query
 
-        # Ghidra 的 findDataTypes 支持 * 和 ? 通配符
-        dtm.findDataTypes(query, result_list)
-
-        for dt in result_list:
-            if len(matches) >= limit:
-                break
-
-            matches.append({
-                "name": dt.getName(),
-                "path": str(dt.getPathName()),
-                "category": str(dt.getCategoryPath()),
-                "length": dt.getLength(),
-                "description": dt.getDescription() or "",
-                "display_name": dt.getDisplayName(),
-            })
-
-        # 如果没有使用通配符且结果为空，尝试模糊搜索
-        if not matches and '*' not in query and '?' not in query:
+        if use_wildcard:
+            # 使用 fnmatch 进行通配符匹配
+            for dt in dtm.getAllDataTypes():
+                if len(matches) >= limit:
+                    break
+                # fnmatch 支持 * 和 ? 通配符
+                if fnmatch.fnmatch(dt.getName().lower(), query.lower()):
+                    matches.append({
+                        "name": dt.getName(),
+                        "path": str(dt.getPathName()),
+                        "category": str(dt.getCategoryPath()),
+                        "length": dt.getLength(),
+                        "description": dt.getDescription() or "",
+                        "display_name": dt.getDisplayName(),
+                    })
+        else:
+            # 模糊搜索（包含匹配）
             search_pattern = query.lower()
             for dt in dtm.getAllDataTypes():
                 if len(matches) >= limit:
