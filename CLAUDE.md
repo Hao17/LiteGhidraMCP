@@ -16,6 +16,7 @@ This is a Ghidrathon-based MCP (Model Context Protocol) Bridge that runs inside 
   - **`demo.py`**: API 开发参考样例（使用 runScript 模式）
   - **`basic_info.py`**: 获取当前程序基础信息（使用 state 传递模式）
   - **`search.py`**: 搜索 API（使用 state 传递模式），支持多种搜索类型
+  - **`status.py`**: 服务器状态 API，用于验证热重载是否生效
 
 - **`api_v1/`**: v1 版本 API 模块目录
 
@@ -41,7 +42,8 @@ def basic_info(state):
 ### Running the Bridge
 ```bash
 # Inside Ghidra CodeBrowser: Execute ghidra_mcp_server.py via Ghidrathon
-# Server auto-starts and logs: "Listening on http://HOST:PORT"
+# - 首次执行：启动服务器，日志显示 "Server started on http://HOST:PORT"
+# - 再次执行：自动检测已运行的服务器，触发热重载，日志显示 "API modules reloaded"
 
 # Headless mode:
 analyzeHeadless <projDir> <projName> -import <binary> -scriptPath . -postScript ghidra_mcp_server.py
@@ -49,6 +51,12 @@ analyzeHeadless <projDir> <projName> -import <binary> -scriptPath . -postScript 
 # Environment variables:
 # GHIDRA_MCP_HOST (default: 127.0.0.1)
 # GHIDRA_MCP_PORT (default: 8803)
+
+# 手动热重载 API 模块（无需在 Ghidra 中重新执行脚本）
+curl http://127.0.0.1:8803/api/_reload
+
+# 关闭服务器
+curl http://127.0.0.1:8803/api/_shutdown
 ```
 
 ### API Testing
@@ -75,6 +83,11 @@ curl "http://127.0.0.1:8803/api/search/all?q=init"
 **Language**: Python 3 with Ghidrathon runtime
 **Indentation**: 4 spaces
 **Type Hints**: Used where practical
+
+**System API** (`/api/_*`):
+- `GET /api/_reload` - 热重载所有 API 模块（无需重启服务器）
+- `GET /api/_shutdown` - 关闭服务器
+- `GET /api/status` - 查看服务器状态和模块加载时间（验证热重载）
 
 **API Endpoints**:
 - `GET /api/demo` - 执行演示脚本，用于测试
@@ -123,6 +136,19 @@ def _run_my_api():
 # 在 do_GET 中添加路由
 if path == "/api/my_api":
     return self._send_json(_run_my_api())
+```
+
+3. 在 `_reload_api_modules()` 中注册模块以支持热重载：
+```python
+def _reload_api_modules():
+    global basic_info_api, search_api, my_api  # 添加新模块
+    # ...
+    try:
+        import api.my_api
+        my_api = importlib.reload(api.my_api)
+        reloaded.append("api.my_api")
+    except Exception as e:
+        errors.append(f"api.my_api: {e}")
 ```
 
 **State 对象可用方法**:

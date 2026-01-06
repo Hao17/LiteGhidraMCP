@@ -12,13 +12,17 @@ automated binary analysis, symbol management, and code understanding workflows.
 Entry point is main(script_globals); no side effects at import time.
 """
 
+import importlib
 import json
 import os
+import socket
 import tempfile
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Dict, Optional
+from urllib.request import urlopen
+from urllib.error import URLError
 
 HOST = os.environ.get("GHIDRA_MCP_HOST", "127.0.0.1")
 PORT = int(os.environ.get("GHIDRA_MCP_PORT", "8803"))
@@ -33,6 +37,45 @@ _cached_state = None
 # Import API modules (state passing pattern)
 import api.basic_info as basic_info_api
 import api.search as search_api
+import api.status as status_api
+
+
+def _reload_api_modules():
+    """
+    热重载所有 API 模块。
+    在不重启服务器的情况下更新 API 实现。
+    """
+    global basic_info_api, search_api, status_api
+
+    reloaded = []
+    errors = []
+
+    try:
+        import api.basic_info
+        basic_info_api = importlib.reload(api.basic_info)
+        reloaded.append("api.basic_info")
+    except Exception as e:
+        errors.append(f"api.basic_info: {e}")
+
+    try:
+        import api.search
+        search_api = importlib.reload(api.search)
+        reloaded.append("api.search")
+    except Exception as e:
+        errors.append(f"api.search: {e}")
+
+    try:
+        import api.status
+        status_api = importlib.reload(api.status)
+        reloaded.append("api.status")
+    except Exception as e:
+        errors.append(f"api.status: {e}")
+
+    return {
+        "success": len(errors) == 0,
+        "reloaded": reloaded,
+        "errors": errors if errors else None
+    }
 
 
 def _run_script_by_path(script_path: str, extra_args: list = None):
@@ -331,6 +374,24 @@ class GhidraRequestHandler(BaseHTTPRequestHandler):
             params = _parse_query_params(query_string)
 
             # ============================================================
+            # 系统管理 API
+            # ============================================================
+
+            # 热重载 API 模块
+            if path == "/api/_reload":
+                result = _reload_api_modules()
+                print(f"[Ghidra-MCP-Bridge] API modules reloaded: {result}")
+                return self._send_json(result)
+
+            # 关闭服务器
+            if path == "/api/_shutdown":
+                def delayed_shutdown():
+                    time.sleep(0.1)
+                    stop_server()
+                threading.Thread(target=delayed_shutdown, daemon=True).start()
+                return self._send_json({"success": True, "message": "Server shutting down"})
+
+            # ============================================================
             # 基础 API 路由
             # ============================================================
 
@@ -341,6 +402,12 @@ class GhidraRequestHandler(BaseHTTPRequestHandler):
             # 程序基础信息
             if path == "/api/basic_info":
                 return self._send_json(_run_basic_info())
+
+            # 服务器状态（用于验证热重载）
+            if path == "/api/status":
+                if _cached_state is None:
+                    return self._send_json({"success": False, "error": "State not cached"})
+                return self._send_json(status_api.status(_cached_state))
 
             # ============================================================
             # Search API 路由: /api/search/<endpoint>
@@ -433,11 +500,67 @@ def main(script_globals: Dict[str, Any] | None = None, host: str = HOST, port: i
         raise
 
 
-# Auto-start on import for Script Manager convenience.
-try:
+def _check_existing_server(host: str, port: int, timeout: float = 1.0) -> bool:
+    """
+    检测指定端口是否已有 Ghidra-MCP-Bridge 服务器在运行。
+    通过尝试连接并检查响应头来确认。
+    """
+    try:
+        url = f"http://{host}:{port}/api/basic_info"
+        with urlopen(url, timeout=timeout) as resp:
+            server_header = resp.headers.get("Server", "")
+            return "GhidraMCP" in server_header
+    except:
+        return False
+
+
+def _trigger_reload(host: str, port: int, timeout: float = 2.0) -> bool:
+    """
+    触发已运行服务器的热重载。
+    返回 True 表示成功触发。
+    """
+    try:
+        url = f"http://{host}:{port}/api/_reload"
+        with urlopen(url, timeout=timeout) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+            return result.get("success", False)
+    except Exception as e:
+        print(f"[Ghidra-MCP-Bridge] Reload request failed: {e}")
+        return False
+
+
+def auto_start_or_reload(host: str = HOST, port: int = PORT):
+    """
+    智能启动逻辑：
+    - 如果目标端口已有 Ghidra-MCP-Bridge 服务器在运行，触发热重载
+    - 否则启动新服务器
+    """
+    # 先缓存 Ghidra 上下文
     print("[Ghidra-MCP-Bridge] Caching Ghidra context for HTTP requests...")
     _cache_ghidra_context()
-    start_server()
-    print(f"[Ghidra-MCP-Bridge] Server auto-started on http://{HOST}:{PORT}")
+
+    # 检测是否已有服务器在运行
+    if _check_existing_server(host, port):
+        print(f"[Ghidra-MCP-Bridge] Existing server detected on {host}:{port}, triggering reload...")
+        if _trigger_reload(host, port):
+            print(f"[Ghidra-MCP-Bridge] API modules reloaded successfully")
+            return None  # 不返回服务器实例，因为我们没有启动新的
+        else:
+            print(f"[Ghidra-MCP-Bridge] Reload failed, existing server may be unresponsive")
+            return None
+
+    # 没有已存在的服务器，启动新的
+    try:
+        srv = start_server(host=host, port=port)
+        print(f"[Ghidra-MCP-Bridge] Server started on http://{host}:{port}")
+        return srv
+    except Exception as exc:
+        print(f"[Ghidra-MCP-Bridge] Failed to start server: {exc}")
+        raise
+
+
+# Auto-start on import for Script Manager convenience.
+try:
+    auto_start_or_reload()
 except Exception as _auto_exc:
     print(f"[Ghidra-MCP-Bridge] Auto-start failed: {_auto_exc}")
