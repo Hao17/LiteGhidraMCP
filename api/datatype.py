@@ -51,11 +51,82 @@ from ghidra.program.model.data import (
 from ghidra.app.decompiler import DecompInterface
 from ghidra.program.model.pcode import HighFunctionDBUtil
 from ghidra.util.task import ConsoleTaskMonitor
+from ghidra.program.model.data import BuiltInDataTypeManager
 
 
 # ============================================================
 # 辅助函数
 # ============================================================
+
+def _get_all_dtms(state):
+    """
+    获取所有可用的 DataTypeManager。
+
+    Returns:
+        list of (name, dtm) tuples
+    """
+    dtms = []
+
+    # 1. BuiltIn types
+    try:
+        builtin_dtm = BuiltInDataTypeManager.getDataTypeManager()
+        if builtin_dtm:
+            dtms.append(("BuiltInTypes", builtin_dtm))
+    except Exception:
+        pass
+
+    # 2. Program's own DTM
+    prog = state.getCurrentProgram()
+    if prog:
+        prog_dtm = prog.getDataTypeManager()
+        prog_name = prog.getName() if prog else "Program"
+        dtms.append((prog_name, prog_dtm))
+
+    # 3. Try to get DataTypeManagerService for open archives (GUI mode)
+    try:
+        tool = state.getTool()
+        if tool:
+            from ghidra.app.services import DataTypeManagerService
+            dtm_service = tool.getService(DataTypeManagerService)
+            if dtm_service:
+                # Get all open DataTypeManagers
+                for dtm in dtm_service.getDataTypeManagers():
+                    name = dtm.getName()
+                    # Avoid duplicates
+                    if not any(n == name for n, _ in dtms):
+                        dtms.append((name, dtm))
+    except Exception:
+        pass
+
+    return dtms
+
+
+def _get_dtm_by_name(state, archive_name):
+    """
+    根据名称获取指定的 DataTypeManager。
+
+    Args:
+        state: Ghidra state
+        archive_name: 归档名称，空字符串或 None 表示当前程序
+
+    Returns:
+        (dtm, error) 二元组
+    """
+    if not archive_name:
+        # Default to program's DTM
+        prog = state.getCurrentProgram()
+        if not prog:
+            return None, _make_error("No program loaded")
+        return prog.getDataTypeManager(), None
+
+    # Search in all DTMs
+    for name, dtm in _get_all_dtms(state):
+        if name == archive_name or name.lower() == archive_name.lower():
+            return dtm, None
+
+    # List available archives for error message
+    available = [n for n, _ in _get_all_dtms(state)]
+    return None, _make_error(f"Archive not found: {archive_name}. Available: {available}")
 
 def _make_success(data):
     """构造成功响应"""
@@ -1730,36 +1801,97 @@ def parse_c_code(state, code="", category="/"):
 # 数据类型信息查询 API
 # ============================================================
 
+@route("/api/datatype/archives")
+def list_archives(state):
+    """
+    列出所有可用的数据类型库（DataTypeManager）。
+
+    路由: GET /api/datatype/archives
+
+    返回:
+        archives: 数据类型库列表，包含名称、类型数量、类别数量等信息
+    """
+    dtms = _get_all_dtms(state)
+
+    archives = []
+    for name, dtm in dtms:
+        try:
+            # Count types and categories
+            type_count = 0
+            for _ in dtm.getAllDataTypes():
+                type_count += 1
+
+            cat_count = dtm.getCategoryCount() if hasattr(dtm, 'getCategoryCount') else 0
+
+            archives.append({
+                "name": name,
+                "type_count": type_count,
+                "category_count": cat_count,
+                "is_modifiable": dtm.isUpdatable() if hasattr(dtm, 'isUpdatable') else True,
+            })
+        except Exception as e:
+            archives.append({
+                "name": name,
+                "type_count": -1,
+                "error": str(e)
+            })
+
+    return _make_success({
+        "archive_count": len(archives),
+        "archives": archives
+    })
+
+
 @route("/api/datatype/info")
-def get_datatype_info(state, path="", name=""):
+def get_datatype_info(state, path="", name="", archive=""):
     """
     获取数据类型的详细信息。
 
     路由: GET /api/datatype/info?path=/MyStruct
           GET /api/datatype/info?name=MyStruct
+          GET /api/datatype/info?name=size_t&archive=BuiltInTypes
 
     参数:
         path: 数据类型路径 (与 name 二选一)
         name: 数据类型名称 (与 path 二选一)
+        archive: 数据类型库名称 (可选，默认搜索所有库)
     """
     if not path and not name:
         return _make_error("Must provide 'path' or 'name'")
 
-    prog, err = _get_program(state)
-    if err:
-        return err
+    # If archive specified, search only in that archive
+    if archive:
+        dtm, err = _get_dtm_by_name(state, archive)
+        if err:
+            return err
+        dtms_to_search = [(archive, dtm)]
+    else:
+        # Search all archives
+        dtms_to_search = _get_all_dtms(state)
 
-    dtm = prog.getDataTypeManager()
+    # Try to find the datatype in any of the DTMs
+    dt = None
+    found_archive = None
+    search_key = path or name
 
-    # Resolve datatype
-    dt, err = _resolve_datatype_safe(dtm, path or name)
-    if err:
-        return err
+    for arch_name, dtm in dtms_to_search:
+        try:
+            resolved, _ = _resolve_datatype_safe(dtm, search_key)
+            if resolved:
+                dt = resolved
+                found_archive = arch_name
+                break
+        except Exception:
+            continue
+
+    if dt is None:
+        return _make_error(f"Data type not found: {search_key}")
 
     result = {
         "name": dt.getName(),
         "path": dt.getPathName(),
         "category": str(dt.getCategoryPath()),
+        "archive": found_archive,
         "size": dt.getLength(),
         "description": dt.getDescription() or "",
         "display_name": dt.getDisplayName(),
@@ -1829,61 +1961,81 @@ def get_datatype_info(state, path="", name=""):
 
 
 @route("/api/datatype/list")
-def list_datatypes(state, category="/", q="", limit=100):
+def list_datatypes(state, category="/", q="", limit=100, archive=""):
     """
     列出类别下的数据类型。
 
     路由: GET /api/datatype/list
           GET /api/datatype/list?category=/MyTypes
           GET /api/datatype/list?q=*Struct*&limit=50
+          GET /api/datatype/list?archive=BuiltInTypes
+          GET /api/datatype/list?archive=all  (搜索所有库)
 
     参数:
         category: 类别路径 (默认 / 表示所有)
         q: 名称过滤（支持通配符 * ?）
         limit: 最大返回数量 (默认 100)
+        archive: 数据类型库名称 (可选，默认当前程序；'all' 搜索所有库)
     """
-    prog, err = _get_program(state)
-    if err:
-        return err
-
-    dtm = prog.getDataTypeManager()
     limit = int(limit)
 
     import fnmatch
+
+    # Determine which DTMs to search
+    if archive.lower() == "all":
+        dtms_to_search = _get_all_dtms(state)
+    elif archive:
+        dtm, err = _get_dtm_by_name(state, archive)
+        if err:
+            return err
+        dtms_to_search = [(archive, dtm)]
+    else:
+        # Default to program's DTM
+        prog, err = _get_program(state)
+        if err:
+            return err
+        dtm = prog.getDataTypeManager()
+        dtms_to_search = [(prog.getName(), dtm)]
 
     # Determine if using wildcard
     use_wildcard = '*' in q or '?' in q
     q_lower = q.lower() if q else ""
 
     results = []
-    for dt in dtm.getAllDataTypes():
+    for arch_name, dtm in dtms_to_search:
         if len(results) >= limit:
             break
 
-        # Filter by category
-        dt_category = str(dt.getCategoryPath())
-        if category != "/" and not dt_category.startswith(category):
-            continue
+        for dt in dtm.getAllDataTypes():
+            if len(results) >= limit:
+                break
 
-        # Filter by name
-        name = dt.getName()
-        if q:
-            if use_wildcard:
-                if not fnmatch.fnmatch(name.lower(), q_lower):
-                    continue
-            else:
-                if q_lower not in name.lower():
-                    continue
+            # Filter by category
+            dt_category = str(dt.getCategoryPath())
+            if category != "/" and not dt_category.startswith(category):
+                continue
 
-        results.append({
-            "name": name,
-            "path": dt.getPathName(),
-            "category": dt_category,
-            "size": dt.getLength(),
-            "kind": dt.__class__.__name__.replace("DataType", "")
-        })
+            # Filter by name
+            name = dt.getName()
+            if q:
+                if use_wildcard:
+                    if not fnmatch.fnmatch(name.lower(), q_lower):
+                        continue
+                else:
+                    if q_lower not in name.lower():
+                        continue
+
+            results.append({
+                "name": name,
+                "path": dt.getPathName(),
+                "category": dt_category,
+                "archive": arch_name,
+                "size": dt.getLength(),
+                "kind": dt.__class__.__name__.replace("DataType", "")
+            })
 
     return _make_success({
+        "archive": archive if archive else "program",
         "category": category,
         "query": q,
         "count": len(results),

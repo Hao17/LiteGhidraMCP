@@ -17,6 +17,7 @@ State Passing Pattern - 面向 AI 的统一符号列表接口，支持多种过�
 
 import fnmatch
 from api import route
+from api.datatype import _get_all_dtms
 
 
 # ============================================================
@@ -31,6 +32,7 @@ COMPACT_SCHEMA = {
     "globals": ["name", "address", "data_type"],
     "imports": ["name", "address", "library"],
     "exports": ["name", "address", "is_function", "signature"],
+    "datatypes": ["name", "path", "archive", "size", "kind"],
 }
 
 
@@ -425,6 +427,81 @@ def _list_exports(prog, q, limit):
     return results
 
 
+def _list_datatypes(state, q, archive, show_builtin, limit):
+    """
+    List datatypes with archive as root path.
+
+    Args:
+        state: Ghidra state (需要完整 state 以访问多个 DTM)
+        q: Name filter (支持通配符 * ?)
+        archive: Archive filter (空=所有可见库, 具体名称=指定库)
+        show_builtin: 是否显示 BuiltInTypes (默认 False)
+        limit: Max results
+
+    Returns:
+        list of datatype dicts
+    """
+    # 获取 DTM 列表
+    dtms = _get_all_dtms(state)
+
+    # 根据 show_builtin 过滤
+    if not show_builtin:
+        dtms = [(name, dtm) for name, dtm in dtms if name != "BuiltInTypes"]
+
+    # 如果指定了 archive，仅查询该库
+    if archive:
+        dtms = [(name, dtm) for name, dtm in dtms if name == archive]
+    else:
+        # 调整遍历顺序：程序 DTM → 小型归档 → 大型标准库
+        # 识别程序 DTM（is_modifiable=True）和标准库（名称包含 clib/lib 且类型数很多）
+        prog = state.getCurrentProgram()
+        prog_name = prog.getName() if prog else ""
+
+        def sort_key(item):
+            name, dtm = item
+            # 程序本身优先 (0)
+            if name == prog_name:
+                return (0, 0)
+            # 判断是否为大型标准库 (名称包含 clib/lib 且类型数 > 1000)
+            is_large_lib = False
+            try:
+                type_count = sum(1 for _ in dtm.getAllDataTypes())
+                name_lower = name.lower()
+                if type_count > 1000 and ('clib' in name_lower or 'lib' in name_lower or 'generic' in name_lower):
+                    is_large_lib = True
+            except:
+                pass
+            # 大型标准库最后 (2)，其他用户归档中间 (1)
+            if is_large_lib:
+                return (2, name)
+            return (1, name)
+
+        dtms = sorted(dtms, key=sort_key)
+
+    results = []
+    for arch_name, dtm in dtms:
+        if len(results) >= limit:
+            break
+
+        for dt in dtm.getAllDataTypes():
+            if len(results) >= limit:
+                break
+
+            name = dt.getName()
+            if not _matches_name_filter(name, q):
+                continue
+
+            results.append({
+                "name": name,
+                "path": dt.getPathName(),
+                "archive": arch_name,
+                "size": dt.getLength(),
+                "kind": dt.__class__.__name__.replace("DataType", ""),
+            })
+
+    return results
+
+
 # ============================================================
 # Handler Dispatcher
 # ============================================================
@@ -437,9 +514,10 @@ LIST_HANDLERS = {
     "globals": _list_globals,
     "imports": _list_imports,
     "exports": _list_exports,
+    # Note: datatypes 使用特殊调用路径，不在此注册
 }
 
-ALL_TYPES = list(LIST_HANDLERS.keys())
+ALL_TYPES = list(LIST_HANDLERS.keys()) + ["datatypes"]
 
 
 # ============================================================
@@ -447,7 +525,7 @@ ALL_TYPES = list(LIST_HANDLERS.keys())
 # ============================================================
 
 @route("/api/v1/list")
-def list_symbols(state, q="", types="auto", start="", end="", library="", limit=100, verbose=""):
+def list_symbols(state, q="", types="auto", start="", end="", library="", archive="", show_builtin="", limit=100, verbose=""):
     """
     Unified symbol listing API.
 
@@ -457,10 +535,12 @@ def list_symbols(state, q="", types="auto", start="", end="", library="", limit=
         types: Symbol types to list:
                - "auto": Default to functions only
                - "all": List all symbol types
-               - Comma-separated: "functions,classes,labels"
+               - Comma-separated: "functions,classes,labels,datatypes"
         start: Start address for range filter (e.g., "0x401000")
         end: End address for range filter
         library: Library filter for imports (e.g., "kernel32")
+        archive: Archive filter for datatypes (e.g., "init3.o")
+        show_builtin: Show BuiltInTypes in datatypes ("true"/"1" to enable)
         limit: Max results per type (default 100)
         verbose: Output format:
                - "" (default): Compact array format with _schema
@@ -476,6 +556,9 @@ def list_symbols(state, q="", types="auto", start="", end="", library="", limit=
         GET /api/v1/list?q=init*&types=functions      # List functions matching "init*"
         GET /api/v1/list?start=0x401000&end=0x402000  # List functions in address range
         GET /api/v1/list?types=imports&library=kernel32  # List kernel32 imports
+        GET /api/v1/list?types=datatypes              # List datatypes (exclude BuiltInTypes)
+        GET /api/v1/list?types=datatypes&show_builtin=true  # List all datatypes
+        GET /api/v1/list?types=datatypes&archive=init3.o    # List datatypes from specific archive
 
     路由: GET /api/v1/list?q=<query>&types=<types>&start=<addr>&end=<addr>&limit=<limit>&verbose=<bool>
     """
@@ -489,6 +572,10 @@ def list_symbols(state, q="", types="auto", start="", end="", library="", limit=
     start = str(start) if start else ""
     end = str(end) if end else ""
     library = str(library) if library else ""
+    archive = str(archive) if archive else ""
+
+    # Parse boolean parameters
+    is_show_builtin = str(show_builtin).lower() in ("true", "1", "yes")
 
     # Parse limit
     try:
@@ -508,7 +595,7 @@ def list_symbols(state, q="", types="auto", start="", end="", library="", limit=
         list_types = ALL_TYPES
     else:
         list_types = [t.strip() for t in types.split(",")]
-        invalid = [t for t in list_types if t not in LIST_HANDLERS]
+        invalid = [t for t in list_types if t not in ALL_TYPES]
         if invalid:
             return _err(f"Invalid types: {invalid}. Valid: {ALL_TYPES}")
 
@@ -517,6 +604,15 @@ def list_symbols(state, q="", types="auto", start="", end="", library="", limit=
     errors = []
 
     for list_type in list_types:
+        # datatypes uses special handler (needs state, not prog)
+        if list_type == "datatypes":
+            try:
+                results[list_type] = _list_datatypes(state, q, archive, is_show_builtin, limit)
+            except Exception as e:
+                errors.append(f"datatypes: {str(e)}")
+                results[list_type] = []
+            continue
+
         handler = LIST_HANDLERS.get(list_type)
         if not handler:
             continue
