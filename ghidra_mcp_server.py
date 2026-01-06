@@ -38,6 +38,7 @@ _cached_state = None
 import api.basic_info as basic_info_api
 import api.search as search_api
 import api.status as status_api
+import api_v1.search as v1_search_api
 
 
 def _reload_api_modules():
@@ -45,7 +46,7 @@ def _reload_api_modules():
     热重载所有 API 模块。
     在不重启服务器的情况下更新 API 实现。
     """
-    global basic_info_api, search_api, status_api
+    global basic_info_api, search_api, status_api, v1_search_api
 
     reloaded = []
     errors = []
@@ -70,6 +71,13 @@ def _reload_api_modules():
         reloaded.append("api.status")
     except Exception as e:
         errors.append(f"api.status: {e}")
+
+    try:
+        import api_v1.search
+        v1_search_api = importlib.reload(api_v1.search)
+        reloaded.append("api_v1.search")
+    except Exception as e:
+        errors.append(f"api_v1.search: {e}")
 
     return {
         "success": len(errors) == 0,
@@ -279,33 +287,32 @@ def _run_search(endpoint, params):
 
 
 # ============================================================
-# API v1 路由处理函数
+# API v1 路由处理函数 (State Passing Pattern)
 # ============================================================
 
-def _handle_v1_search(command, params):
+def _handle_v1_search(params):
     """
-    处理 /api/v1/search 请求
+    处理 /api/v1/search 请求 - 面向 AI 的统一搜索接口
 
     路由:
-        GET /api/v1/search?q=<query>           - 搜索全部（函数+符号+字符串）
-        GET /api/v1/search/functions?q=<query> - 仅搜索函数
-        GET /api/v1/search/strings?q=<query>   - 仅搜索字符串
+        GET /api/v1/search?q=<query>&types=<types>&limit=<limit>
 
     参数:
-        q: 搜索关键词
-        limit: (可选) 结果数量限制，默认50
+        q: 搜索查询（必需）
+        types: 搜索类型，逗号分隔（可选，默认 "auto"）
+               - auto: 智能推断类型
+               - all: 搜索所有类型
+               - functions,symbols,strings,comments,instructions,xrefs,datatypes,bytes
+        limit: 每种类型最大结果数（可选，默认 20）
     """
-    query = params.get("q", "")
-    limit = params.get("limit", "50")
+    if _cached_state is None:
+        return {"success": False, "error": "State not cached"}
 
-    if command in ("", "all"):
-        return _run_script_by_path("api_v1/search.py", ["all", query, limit])
-    elif command == "functions":
-        return _run_script_by_path("api_v1/search.py", ["functions", query, limit])
-    elif command == "strings":
-        return _run_script_by_path("api_v1/search.py", ["strings", query, limit])
-    else:
-        return {"success": False, "error": f"Unknown search command: {command}"}
+    query = params.get("q", "")
+    types = params.get("types", "auto")
+    limit = int(params.get("limit", "20"))
+
+    return v1_search_api.search(_cached_state, query, types, limit)
 
 
 def _parse_query_params(query_string):
@@ -417,15 +424,10 @@ class GhidraRequestHandler(BaseHTTPRequestHandler):
                 return self._send_json(_run_search(endpoint, params))
 
             # ============================================================
-            # API v1 路由: /api/v1/<module>/<command>
+            # API v1 路由: /api/v1/search (统一搜索接口)
             # ============================================================
-            if path.startswith("/api/v1/search"):
-                # /api/v1/search 或 /api/v1/search/<command>
-                if path == "/api/v1/search":
-                    command = ""
-                else:
-                    command = path[15:]  # len("/api/v1/search/") = 15
-                return self._send_json(_handle_v1_search(command, params))
+            if path == "/api/v1/search":
+                return self._send_json(_handle_v1_search(params))
 
             # 404
             self._send_json({"error": "Not Found", "path": path}, status=404)
