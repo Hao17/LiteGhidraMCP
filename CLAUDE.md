@@ -21,6 +21,7 @@ This is a Ghidrathon-based MCP (Model Context Protocol) Bridge that runs inside 
   - **`symbol_tree.py`**: Symbol Tree API，提供符号树结构查看功能
   - **`comment.py`**: Comment API，设置/删除注释
   - **`rename.py`**: Rename API，重命名函数、变量、参数、标签、数据类型、命名空间等
+  - **`datatype.py`**: DataType API，数据类型设置、创建、管理和 C 头文件解析
 
 - **`api_v1/`**: v1 版本 API 模块目录（面向 AI 的聚合接口）：
   - **`search.py`**: 统一搜索 API，支持智能类型推断
@@ -138,6 +139,40 @@ curl "http://127.0.0.1:8803/api/v1/list?types=all&limit=20"
 curl "http://127.0.0.1:8803/api/v1/list?types=functions,classes"
 curl "http://127.0.0.1:8803/api/v1/list?start=0x401000&end=0x402000"
 curl "http://127.0.0.1:8803/api/v1/list?types=imports&library=kernel32"
+
+# DataType API 测试 - 类型设置
+curl "http://127.0.0.1:8803/api/datatype/set/return?function=main&type=int"
+curl "http://127.0.0.1:8803/api/datatype/set/parameter?function=main&param=0&type=int"
+curl "http://127.0.0.1:8803/api/datatype/set/decompiler/variable?function=main&var_name=local_8&type=int"
+curl "http://127.0.0.1:8803/api/datatype/set/decompiler/parameter?function=main&param=0&type=char **"
+curl "http://127.0.0.1:8803/api/datatype/set/global?address=0x404000&type=int"
+curl "http://127.0.0.1:8803/api/datatype/set/field?struct=MyStruct&field=0&type=int"
+
+# DataType API 测试 - 类型创建
+curl "http://127.0.0.1:8803/api/datatype/create/struct?name=Point&fields=[{\"name\":\"x\",\"type\":\"int\"},{\"name\":\"y\",\"type\":\"int\"}]"
+curl "http://127.0.0.1:8803/api/datatype/create/enum?name=Status&members={\"OK\":0,\"ERROR\":1}"
+curl "http://127.0.0.1:8803/api/datatype/create/typedef?name=DWORD&base_type=uint"
+curl "http://127.0.0.1:8803/api/datatype/create/union?name=Value&members=[{\"name\":\"i\",\"type\":\"int\"},{\"name\":\"f\",\"type\":\"float\"}]"
+curl "http://127.0.0.1:8803/api/datatype/create/funcdef?name=CallbackFn&return_type=void&params=[{\"name\":\"ctx\",\"type\":\"void *\"}]"
+
+# DataType API 测试 - 类型管理
+curl "http://127.0.0.1:8803/api/datatype/struct/field/add?struct=Point&type=int&name=z"
+curl "http://127.0.0.1:8803/api/datatype/struct/field/delete?struct=Point&field=z"
+curl "http://127.0.0.1:8803/api/datatype/struct/field/modify?struct=Point&field=x&new_name=x_pos"
+curl "http://127.0.0.1:8803/api/datatype/enum/member/add?enum=Status&name=PENDING&value=2"
+curl "http://127.0.0.1:8803/api/datatype/enum/member/delete?enum=Status&name=PENDING"
+curl "http://127.0.0.1:8803/api/datatype/delete?name=OldStruct"
+curl "http://127.0.0.1:8803/api/datatype/copy?source=/Point&dest_category=/Geometry&new_name=Point2D"
+curl "http://127.0.0.1:8803/api/datatype/move?source=/Point&dest_category=/Geometry"
+
+# DataType API 测试 - C 解析
+curl "http://127.0.0.1:8803/api/datatype/parse/c?code=typedef%20struct%20{%20int%20x;%20int%20y;%20}%20Point;"
+
+# DataType API 测试 - 查询
+curl "http://127.0.0.1:8803/api/datatype/info?name=Point"
+curl "http://127.0.0.1:8803/api/datatype/list?category=/&limit=50"
+curl "http://127.0.0.1:8803/api/datatype/list?q=*Struct*"
+
 ```
 
 ## Code Conventions
@@ -227,6 +262,47 @@ curl "http://127.0.0.1:8803/api/v1/list?types=imports&library=kernel32"
 **Bookmark API**: 不提供支持。原因：
 1. Comment 和 Label 已覆盖标记需求（EOL/PRE/POST/PLATE 注释 + 自定义标签）
 2. AI 工作流通过地址/符号名直接定位，不依赖用户态的书签导航机制
+
+**DataType API** (`/api/datatype/*`) - 数据类型操作:
+
+*类型设置*（设置变量/参数/返回值的类型）:
+- `GET /api/datatype/set/return?function=<name>&type=<type>` - 设置函数返回类型
+- `GET /api/datatype/set/parameter?function=<name>&param=<idx|name>&type=<type>` - 设置函数参数类型
+- `GET /api/datatype/set/decompiler/variable?function=<name>&var_name=<var>&type=<type>` - 设置反编译器变量类型（推荐）
+- `GET /api/datatype/set/decompiler/parameter?function=<name>&param=<idx|name>&type=<type>` - 设置反编译器参数类型（推荐）
+- `GET /api/datatype/set/global?address=<addr>&type=<type>` - 设置全局变量类型
+- `GET /api/datatype/set/field?struct=<name>&field=<idx|name>&type=<type>` - 设置结构体字段类型
+
+*类型创建*:
+- `GET /api/datatype/create/struct?name=<name>&category=/&packing=0&fields=<json>` - 创建结构体
+  - `fields` JSON: `[{"name": "x", "type": "int", "comment": "..."}]`
+- `GET /api/datatype/create/enum?name=<name>&category=/&size=4&members=<json>` - 创建枚举
+  - `members` JSON: `{"OK": 0, "ERROR": 1}` 或 `[{"name": "OK", "value": 0}]`
+- `GET /api/datatype/create/typedef?name=<name>&base_type=<type>&category=/` - 创建 typedef
+- `GET /api/datatype/create/union?name=<name>&category=/&members=<json>` - 创建联合体
+  - `members` JSON: `[{"name": "i", "type": "int"}]`
+- `GET /api/datatype/create/funcdef?name=<name>&return_type=void&params=<json>&calling_convention=` - 创建函数定义（函数指针）
+  - `params` JSON: `[{"name": "ctx", "type": "void *"}]`
+
+*类型管理*:
+- `GET /api/datatype/struct/field/add?struct=<name>&type=<type>&name=<name>&at=-1` - 添加结构体字段
+- `GET /api/datatype/struct/field/delete?struct=<name>&field=<idx|name>` - 删除结构体字段
+- `GET /api/datatype/struct/field/modify?struct=<name>&field=<idx|name>&new_name=&new_type=&new_comment=` - 修改结构体字段
+- `GET /api/datatype/enum/member/add?enum=<name>&name=<name>&value=<value>` - 添加枚举成员
+- `GET /api/datatype/enum/member/delete?enum=<name>&name=<name>` - 删除枚举成员
+- `GET /api/datatype/delete?path=<path>` 或 `?name=<name>` - 删除数据类型
+- `GET /api/datatype/copy?source=<path>&dest_category=/&new_name=` - 复制数据类型
+- `GET /api/datatype/move?source=<path>&dest_category=/` - 移动数据类型
+
+*C 代码解析*:
+- `GET /api/datatype/parse/c?code=<urlencoded_c>&category=/` - 解析 C 代码创建类型
+  - 支持 struct、typedef、enum 定义
+
+*类型查询*:
+- `GET /api/datatype/info?name=<name>` 或 `?path=<path>` - 获取数据类型详细信息
+- `GET /api/datatype/list?category=/&q=<query>&limit=100` - 列出数据类型（支持通配符）
+
+> **类型字符串格式**: 支持内置类型（`int`, `char`, `void`, `float`, `double` 等）、指针（`int *`, `char **`）、数组（`int[10]`, `char[256]`）、路径（`/MyCategory/MyStruct`）
 
 **V1 API** (`/api/v1/*`) - 面向 AI 的聚合接口:
 
