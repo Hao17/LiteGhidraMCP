@@ -53,10 +53,10 @@ analyzeHeadless <projDir> <projName> -import <binary> -scriptPath . -postScript 
 # GHIDRA_MCP_PORT (default: 8803)
 
 # 手动热重载 API 模块（无需在 Ghidra 中重新执行脚本）
-curl http://127.0.0.1:8803/api/_reload
+curl http://127.0.0.1:8803/_reload
 
 # 关闭服务器
-curl http://127.0.0.1:8803/api/_shutdown
+curl http://127.0.0.1:8803/_shutdown
 ```
 
 ### API Testing
@@ -84,9 +84,11 @@ curl "http://127.0.0.1:8803/api/search/all?q=init"
 **Indentation**: 4 spaces
 **Type Hints**: Used where practical
 
-**System API** (`/api/_*`):
-- `GET /api/_reload` - 热重载所有 API 模块（无需重启服务器）
-- `GET /api/_shutdown` - 关闭服务器
+**System Routes** (根目录):
+- `GET /_reload` - 热重载所有 API 模块（无需重启服务器）
+- `GET /_shutdown` - 关闭服务器
+
+**Status API**:
 - `GET /api/status` - 查看服务器状态和模块加载时间（验证热重载）
 
 **API Endpoints**:

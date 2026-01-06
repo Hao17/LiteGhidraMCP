@@ -328,17 +328,15 @@ def _cache_ghidra_context():
 
     try:
         _cached_script = script()
-        print(f"[Ghidra-MCP-Bridge] Cached script: {_cached_script}")
     except:
         _cached_script = None
-        print("[Ghidra-MCP-Bridge] Failed to cache script")
+        print("[Ghidra-MCP-Bridge] Warning: Failed to cache script")
 
     try:
         _cached_state = state()
-        print(f"[Ghidra-MCP-Bridge] Cached state: {_cached_state}")
     except:
         _cached_state = None
-        print("[Ghidra-MCP-Bridge] Failed to cache state")
+        print("[Ghidra-MCP-Bridge] Warning: Failed to cache state")
 
 
 class GhidraRequestHandler(BaseHTTPRequestHandler):
@@ -374,17 +372,17 @@ class GhidraRequestHandler(BaseHTTPRequestHandler):
             params = _parse_query_params(query_string)
 
             # ============================================================
-            # 系统管理 API
+            # 系统管理路由 (根目录)
             # ============================================================
 
             # 热重载 API 模块
-            if path == "/api/_reload":
+            if path == "/_reload":
                 result = _reload_api_modules()
                 print(f"[Ghidra-MCP-Bridge] API modules reloaded: {result}")
                 return self._send_json(result)
 
             # 关闭服务器
-            if path == "/api/_shutdown":
+            if path == "/_shutdown":
                 def delayed_shutdown():
                     time.sleep(0.1)
                     stop_server()
@@ -450,7 +448,7 @@ def start_server(host: str = HOST, port: int = PORT):
     """Start the HTTP server as a daemon thread to keep GUI responsive."""
     global _server_instance, _server_thread
     if _server_instance:
-        return _server_instance
+        return _server_instance, port
     last_err = None
     chosen_port = port
     for _ in range(100):
@@ -470,8 +468,7 @@ def start_server(host: str = HOST, port: int = PORT):
         daemon=True,
     )
     _server_thread.start()
-    print(f"[Ghidra-MCP-Bridge] Listening on http://{host}:{chosen_port}")
-    return _server_instance
+    return _server_instance, chosen_port
 
 
 def stop_server():
@@ -483,6 +480,19 @@ def stop_server():
         _server_thread = None
 
 
+def _print_startup_banner(host: str, port: int):
+    """打印启动横幅和 Quick Start 提示"""
+    base_url = f"http://{host}:{port}"
+    print(f"[Ghidra-MCP-Bridge] ═══════════════════════════════════════════════════════════")
+    print(f"[Ghidra-MCP-Bridge] Server started: {base_url}")
+    print(f"[Ghidra-MCP-Bridge] ───────────────────────────────────────────────────────────")
+    print(f"[Ghidra-MCP-Bridge] Quick Start:")
+    print(f"[Ghidra-MCP-Bridge]   {base_url}/api/basic_info")
+    print(f"[Ghidra-MCP-Bridge]   {base_url}/api/search/functions?q=main")
+    print(f"[Ghidra-MCP-Bridge]   {base_url}/_shutdown")
+    print(f"[Ghidra-MCP-Bridge] ═══════════════════════════════════════════════════════════")
+
+
 def main(script_globals: Dict[str, Any] | None = None, host: str = HOST, port: int = PORT):
     """
     Entry point for Script Manager or headless use.
@@ -492,8 +502,8 @@ def main(script_globals: Dict[str, Any] | None = None, host: str = HOST, port: i
         script_globals = {}
     try:
         _cache_ghidra_context()
-        srv = start_server(host=host, port=port)
-        print(f"[Ghidra-MCP-Bridge] Server started on {host}:{port}")
+        srv, actual_port = start_server(host=host, port=port)
+        _print_startup_banner(host, actual_port)
         return srv
     except Exception as exc:
         print(f"[Ghidra-MCP-Bridge] Failed to start server: {exc}")
@@ -520,7 +530,7 @@ def _trigger_reload(host: str, port: int, timeout: float = 2.0) -> bool:
     返回 True 表示成功触发。
     """
     try:
-        url = f"http://{host}:{port}/api/_reload"
+        url = f"http://{host}:{port}/_reload"
         with urlopen(url, timeout=timeout) as resp:
             result = json.loads(resp.read().decode("utf-8"))
             return result.get("success", False)
@@ -536,12 +546,12 @@ def auto_start_or_reload(host: str = HOST, port: int = PORT):
     - 否则启动新服务器
     """
     # 先缓存 Ghidra 上下文
-    print("[Ghidra-MCP-Bridge] Caching Ghidra context for HTTP requests...")
+    print("[Ghidra-MCP-Bridge] Caching Ghidra context...")
     _cache_ghidra_context()
 
     # 检测是否已有服务器在运行
     if _check_existing_server(host, port):
-        print(f"[Ghidra-MCP-Bridge] Existing server detected on {host}:{port}, triggering reload...")
+        print(f"[Ghidra-MCP-Bridge] Existing server detected, triggering reload...")
         if _trigger_reload(host, port):
             print(f"[Ghidra-MCP-Bridge] API modules reloaded successfully")
             return None  # 不返回服务器实例，因为我们没有启动新的
@@ -551,8 +561,8 @@ def auto_start_or_reload(host: str = HOST, port: int = PORT):
 
     # 没有已存在的服务器，启动新的
     try:
-        srv = start_server(host=host, port=port)
-        print(f"[Ghidra-MCP-Bridge] Server started on http://{host}:{port}")
+        srv, actual_port = start_server(host=host, port=port)
+        _print_startup_banner(host, actual_port)
         return srv
     except Exception as exc:
         print(f"[Ghidra-MCP-Bridge] Failed to start server: {exc}")
