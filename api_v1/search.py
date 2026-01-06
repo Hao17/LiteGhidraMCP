@@ -16,6 +16,7 @@ State Passing Pattern - 面向 AI 的统一搜索接口，支持智能类型推�
 """
 
 import re
+from api import route
 
 
 # ============================================================
@@ -407,13 +408,14 @@ ALL_TYPES = list(SEARCH_HANDLERS.keys())
 # Main Search Function
 # ============================================================
 
-def search(state, query, types="auto", limit=20):
+@route("/api/v1/search")
+def search(state, q="", types="auto", limit=20):
     """
     Unified search with smart type inference.
 
     Args:
         state: Ghidra GhidraState object
-        query: Search query string
+        q: Search query string
         types: Search types (comma-separated or special values)
                - "auto": Smart inference based on query
                - "all": Search all types
@@ -427,10 +429,10 @@ def search(state, query, types="auto", limit=20):
     if err:
         return err
 
-    if not query or not query.strip():
+    if not q or not q.strip():
         return _err("Query is required")
 
-    query = query.strip()
+    query = q.strip()
 
     # Determine search types
     if types == "auto":

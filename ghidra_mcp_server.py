@@ -37,7 +37,7 @@ _cached_state = None
 
 def _discover_and_load_api_modules():
     """
-    自动发现并加载 api/ 目录下所有模块。
+    自动发现并加载 api/ 和 api_v*/ 目录下所有模块。
     模块使用 @route 装饰器自动注册路由。
     """
     # 先 reload api 包本身，确保使用最新版本
@@ -51,25 +51,34 @@ def _discover_and_load_api_modules():
     reloaded = []
     errors = []
 
-    # 获取 api/ 目录路径
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    api_dir = os.path.join(script_dir, "api")
 
-    if not os.path.isdir(api_dir):
-        return {"success": False, "error": f"API directory not found: {api_dir}"}
+    # 收集所有 API 目录: api/ + api_v*/
+    api_dirs = []
 
-    # 扫描并加载所有 .py 文件
-    for filename in sorted(os.listdir(api_dir)):
-        if not filename.endswith(".py") or filename.startswith("_"):
-            continue
+    # 主目录 api/
+    main_api_dir = os.path.join(script_dir, "api")
+    if os.path.isdir(main_api_dir):
+        api_dirs.append(("api", main_api_dir))
 
-        module_name = f"api.{filename[:-3]}"
-        try:
-            module = importlib.import_module(module_name)
-            importlib.reload(module)
-            reloaded.append(module_name)
-        except Exception as e:
-            errors.append(f"{module_name}: {e}")
+    # 版本化目录 api_v1/, api_v2/, ...
+    for entry in sorted(os.listdir(script_dir)):
+        if entry.startswith("api_v") and os.path.isdir(os.path.join(script_dir, entry)):
+            api_dirs.append((entry, os.path.join(script_dir, entry)))
+
+    # 加载每个目录下的模块
+    for package_name, api_dir in api_dirs:
+        for filename in sorted(os.listdir(api_dir)):
+            if not filename.endswith(".py") or filename.startswith("_"):
+                continue
+
+            module_name = f"{package_name}.{filename[:-3]}"
+            try:
+                module = importlib.import_module(module_name)
+                importlib.reload(module)
+                reloaded.append(module_name)
+            except Exception as e:
+                errors.append(f"{module_name}: {e}")
 
     return {
         "success": len(errors) == 0,
@@ -263,11 +272,9 @@ def _cache_ghidra_context():
 
     # 自动加载 API 模块
     result = _discover_and_load_api_modules()
-    if result.get("success"):
-        routes = result.get("routes", [])
-        print(f"[Ghidra-MCP-Bridge] Loaded {len(routes)} API routes")
-    else:
+    if not result.get("success"):
         print(f"[Ghidra-MCP-Bridge] Warning: Failed to load some API modules: {result.get('errors')}")
+    return result.get("routes", [])
 
 
 class GhidraRequestHandler(BaseHTTPRequestHandler):
@@ -384,10 +391,27 @@ def stop_server():
         _server_thread = None
 
 
-def _print_startup_banner(host: str, port: int):
+def _print_startup_banner(host: str, port: int, routes: list = None):
     """打印启动横幅和 Quick Start 提示"""
     base_url = f"http://{host}:{port}"
+    routes = routes or []
+
     print(f"[Ghidra-MCP-Bridge] ═══════════════════════════════════════════════════════════")
+    print(f"[Ghidra-MCP-Bridge] Loaded {len(routes)} API routes:")
+
+    # 按模块分组显示路由
+    modules = {}
+    for r in routes:
+        mod = r.get("module", "unknown")
+        path = r.get("path", "")
+        if mod not in modules:
+            modules[mod] = []
+        modules[mod].append(path)
+
+    for mod, paths in sorted(modules.items()):
+        print(f"[Ghidra-MCP-Bridge]   {mod}: {', '.join(paths)}")
+
+    print(f"[Ghidra-MCP-Bridge] ───────────────────────────────────────────────────────────")
     print(f"[Ghidra-MCP-Bridge] Server started: {base_url}")
     print(f"[Ghidra-MCP-Bridge] ───────────────────────────────────────────────────────────")
     print(f"[Ghidra-MCP-Bridge] Quick Start:")
@@ -405,9 +429,9 @@ def main(script_globals: Dict[str, Any] | None = None, host: str = HOST, port: i
     if script_globals is None:
         script_globals = {}
     try:
-        _cache_ghidra_context()
+        routes = _cache_ghidra_context()
         srv, actual_port = start_server(host=host, port=port)
-        _print_startup_banner(host, actual_port)
+        _print_startup_banner(host, actual_port, routes)
         return srv
     except Exception as exc:
         print(f"[Ghidra-MCP-Bridge] Failed to start server: {exc}")
@@ -451,7 +475,7 @@ def auto_start_or_reload(host: str = HOST, port: int = PORT):
     """
     # 先缓存 Ghidra 上下文
     print("[Ghidra-MCP-Bridge] Caching Ghidra context...")
-    _cache_ghidra_context()
+    routes = _cache_ghidra_context()
 
     # 检测是否已有服务器在运行
     if _check_existing_server(host, port):
@@ -466,7 +490,7 @@ def auto_start_or_reload(host: str = HOST, port: int = PORT):
     # 没有已存在的服务器，启动新的
     try:
         srv, actual_port = start_server(host=host, port=port)
-        _print_startup_banner(host, actual_port)
+        _print_startup_banner(host, actual_port, routes)
         return srv
     except Exception as exc:
         print(f"[Ghidra-MCP-Bridge] Failed to start server: {exc}")
