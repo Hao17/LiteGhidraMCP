@@ -23,6 +23,7 @@ This is a Ghidrathon-based MCP (Model Context Protocol) Bridge that runs inside 
 - **`api_v1/`**: v1 版本 API 模块目录（面向 AI 的聚合接口）：
   - **`search.py`**: 统一搜索 API，支持智能类型推断
   - **`view.py`**: 统一查看 API，支持批量查询和同时返回反编译/汇编
+  - **`list.py`**: 统一列表 API，提供类似 ls 的符号浏览功能
 
 ### Key Design Patterns
 
@@ -102,6 +103,14 @@ curl "http://127.0.0.1:8803/api/symbol_tree/labels"
 curl "http://127.0.0.1:8803/api/symbol_tree/globals"
 curl "http://127.0.0.1:8803/api/symbol_tree/imports?library=kernel32"
 curl "http://127.0.0.1:8803/api/symbol_tree/exports"
+
+# V1 List API 测试
+curl "http://127.0.0.1:8803/api/v1/list"
+curl "http://127.0.0.1:8803/api/v1/list?q=init*"
+curl "http://127.0.0.1:8803/api/v1/list?types=all&limit=20"
+curl "http://127.0.0.1:8803/api/v1/list?types=functions,classes"
+curl "http://127.0.0.1:8803/api/v1/list?start=0x401000&end=0x402000"
+curl "http://127.0.0.1:8803/api/v1/list?types=imports&library=kernel32"
 ```
 
 ## Code Conventions
@@ -159,6 +168,12 @@ curl "http://127.0.0.1:8803/api/symbol_tree/exports"
   - `q`: 函数名或地址，逗号分隔支持批量（如 `main,init,0x401000`）
   - `type`: `both`(默认) / `decompile` / `disassemble`
   - 返回同时包含反编译代码和汇编指令
+- `GET /api/v1/list?q=<query>&types=auto&limit=100` - 统一列表（类似 ls 的符号浏览）
+  - `q`: 名称过滤（支持通配符 `*` `?`）
+  - `types`: `auto`(默认=functions) / `all` / 逗号分隔（如 `functions,classes,imports`）
+  - `start`/`end`: 地址范围过滤（如 `start=0x401000&end=0x402000`）
+  - `library`: imports 的库名过滤（如 `library=kernel32`）
+  - 支持类型: functions, classes, namespaces, labels, globals, imports, exports
 
 **Error Handling**: Minimal logging to avoid Ghidra console noise, but preserve error context in API responses
 
