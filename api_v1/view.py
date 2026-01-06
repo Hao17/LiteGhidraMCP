@@ -52,16 +52,22 @@ def _resolve_function(prog, query):
 
     Args:
         prog: Ghidra program object
-        query: Function name or address (0x... format)
+        query: Function name or address (0x... format or pure hex)
 
     Returns:
         (function, error_message) - success returns (func, None)
     """
     fm = prog.getFunctionManager()
-    q = query.strip()
+    q = str(query).strip()  # 确保是字符串
 
-    # Try as address first (0x prefix or pure hex 8+ chars)
-    if q.lower().startswith("0x") or (len(q) >= 8 and all(c in '0123456789abcdefABCDEF' for c in q)):
+    # 判断是否为地址：
+    # 1. 带 0x 前缀
+    # 2. 纯十六进制字符且长度 >= 5 (避免短函数名如 "F0" 误判)
+    is_address = q.lower().startswith("0x") or (
+        len(q) >= 5 and all(c in '0123456789abcdefABCDEF' for c in q)
+    )
+
+    if is_address:
         try:
             addr_str = q if q.lower().startswith("0x") else "0x" + q
             addr = prog.getAddressFactory().getAddress(addr_str)
@@ -70,14 +76,18 @@ def _resolve_function(prog, query):
             func = fm.getFunctionContaining(addr)
             if func:
                 return func, None
-            return None, f"No function at address: {q}"
-        except Exception as e:
-            return None, f"Address parse error: {str(e)}"
+            # 地址有效但无函数，继续尝试作为函数名
+        except Exception:
+            pass  # 地址解析失败，继续尝试作为函数名
 
     # Try as function name
     for func in fm.getFunctions(True):
         if func.getName() == q:
             return func, None
+
+    # 如果是地址格式但没找到函数，返回明确错误
+    if is_address:
+        return None, f"No function at address: {q}"
 
     return None, f"Function not found: {q}"
 
@@ -96,7 +106,7 @@ def _decompile_function(decomp, func, timeout):
         timeout: Decompilation timeout in seconds
 
     Returns:
-        (c_code, error_message) - success returns (code, None)
+        (lines_list, error_message) - success returns (list of "lineno: code", None)
     """
     try:
         monitor = ConsoleTaskMonitor()
@@ -110,7 +120,25 @@ def _decompile_function(decomp, func, timeout):
         if decomp_func is None:
             return None, "Decompilation returned no result"
 
-        return decomp_func.getC(), None
+        # 获取原始代码并按行处理
+        raw_code = decomp_func.getC()
+        if not raw_code:
+            return None, "Decompilation returned empty result"
+
+        # 分割为行并添加行号
+        lines = raw_code.split('\n')
+        # 过滤掉首尾空行，但保留中间的空行
+        while lines and not lines[0].strip():
+            lines.pop(0)
+        while lines and not lines[-1].strip():
+            lines.pop()
+
+        # 格式化为 "行号: 代码" 格式
+        numbered_lines = []
+        for i, line in enumerate(lines, 1):
+            numbered_lines.append(f"{i}: {line}")
+
+        return numbered_lines, None
     except Exception as e:
         return None, f"Decompile error: {str(e)}"
 
@@ -129,7 +157,7 @@ def _disassemble_function(prog, func, limit):
         limit: Maximum instructions to return
 
     Returns:
-        list of instruction dicts
+        list of formatted instruction strings like "00100004 200f013c     aui        at,zero,0xf200000"
     """
     listing = prog.getListing()
     instructions = []
@@ -152,12 +180,14 @@ def _disassemble_function(prog, func, limit):
             if op_repr:
                 operands_list.append(op_repr)
 
-        instructions.append({
-            "address": str(instr.getAddress()),
-            "bytes": bytes_hex,
-            "mnemonic": instr.getMnemonicString(),
-            "operands": ", ".join(operands_list)
-        })
+        # Format: "address bytes     mnemonic   operands"
+        # 地址8位，字节16位左对齐，助记符10位左对齐，操作数
+        addr_str = str(instr.getAddress())
+        mnemonic = instr.getMnemonicString()
+        operands = ",".join(operands_list)
+
+        formatted = f"{addr_str} {bytes_hex:<16} {mnemonic:<10} {operands}"
+        instructions.append(formatted)
 
     return instructions
 
@@ -233,6 +263,9 @@ def view(state, q="", type="both", timeout=30, limit=500):
     prog, err = _get_prog(state)
     if err:
         return err
+
+    # 强制转为字符串，防止纯数字被服务器参数解析转为 int
+    q = str(q) if q else ""
 
     if not q or not q.strip():
         return _err("Query parameter 'q' is required")
