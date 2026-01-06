@@ -120,25 +120,36 @@ def list_namespaces(state, limit=100):
                         })
 
         # 也直接遍历命名空间
-        for ns in st.getChildren(global_ns):
-            if len(namespaces) >= limit:
-                break
-            name = ns.getName()
-            if name not in seen and name != "Global":
-                seen.add(name)
-                symbol_count = 0
-                for _ in st.getSymbols(ns):
-                    symbol_count += 1
-                ns_type = "Namespace"
-                # 检查是否是类
-                ns_sym = st.getNamespaceSymbol(ns)
-                if ns_sym:
-                    ns_type = _symbol_type_str(ns_sym)
-                namespaces.append({
-                    "name": name,
-                    "type": ns_type,
-                    "symbol_count": symbol_count,
-                })
+        try:
+            children_iter = st.getChildren(global_ns)
+            if children_iter:
+                for ns in children_iter:
+                    if len(namespaces) >= limit:
+                        break
+                    name = ns.getName()
+                    if name not in seen and name != "Global":
+                        seen.add(name)
+                        symbol_count = 0
+                        try:
+                            for _ in st.getSymbols(ns):
+                                symbol_count += 1
+                        except:
+                            pass
+                        ns_type = "Namespace"
+                        # 检查是否是类
+                        try:
+                            from ghidra.program.model.symbol import GhidraClass
+                            if isinstance(ns, GhidraClass):
+                                ns_type = "Class"
+                        except:
+                            pass
+                        namespaces.append({
+                            "name": name,
+                            "type": ns_type,
+                            "symbol_count": symbol_count,
+                        })
+        except:
+            pass
 
         return _make_success({
             "namespaces": namespaces,
@@ -169,42 +180,54 @@ def get_namespace(state, name="", limit=100):
     if err:
         return err
 
-    if not name:
-        return _make_error("Namespace name is required")
-
     try:
         st = prog.getSymbolTable()
         global_ns = prog.getGlobalNamespace()
 
-        # 解析命名空间路径
-        path_parts = name.split("::")
-        current_ns = global_ns
+        # 特殊处理：空字符串或 "Global" 表示全局命名空间
+        if not name or name == "Global":
+            current_ns = global_ns
+        else:
+            # 解析命名空间路径
+            path_parts = name.split("::")
+            current_ns = global_ns
 
-        for part in path_parts:
-            found_ns = st.getNamespace(part, current_ns)
-            if found_ns is None:
-                return _make_error(f"Namespace not found: {name}")
-            current_ns = found_ns
+            for part in path_parts:
+                found_ns = st.getNamespace(part, current_ns)
+                if found_ns is None:
+                    return _make_error(f"Namespace not found: {name}")
+                current_ns = found_ns
 
         # 收集子项
         symbols = []
         child_namespaces = []
 
         # 获取子命名空间
-        for child_ns in st.getChildren(current_ns):
-            child_name = child_ns.getName()
-            symbol_count = 0
-            for _ in st.getSymbols(child_ns):
-                symbol_count += 1
-            ns_type = "Namespace"
-            ns_sym = st.getNamespaceSymbol(child_ns)
-            if ns_sym:
-                ns_type = _symbol_type_str(ns_sym)
-            child_namespaces.append({
-                "name": child_name,
-                "type": ns_type,
-                "symbol_count": symbol_count,
-            })
+        try:
+            children_iter = st.getChildren(current_ns)
+            if children_iter:
+                for child_ns in children_iter:
+                    child_name = child_ns.getName()
+                    symbol_count = 0
+                    try:
+                        for _ in st.getSymbols(child_ns):
+                            symbol_count += 1
+                    except:
+                        pass
+                    ns_type = "Namespace"
+                    try:
+                        from ghidra.program.model.symbol import GhidraClass
+                        if isinstance(child_ns, GhidraClass):
+                            ns_type = "Class"
+                    except:
+                        pass
+                    child_namespaces.append({
+                        "name": child_name,
+                        "type": ns_type,
+                        "symbol_count": symbol_count,
+                    })
+        except:
+            pass
 
         # 获取该命名空间下的符号
         for sym in st.getSymbols(current_ns):
@@ -286,50 +309,64 @@ def get_namespace_tree(state, name="", depth=3, limit=500):
             children = []
 
             # 添加子命名空间
-            for child_ns in st.getChildren(ns):
-                if node_count[0] >= limit:
-                    break
-                node_count[0] += 1
+            try:
+                children_iter = st.getChildren(ns)
+                if children_iter:
+                    for child_ns in children_iter:
+                        if node_count[0] >= limit:
+                            break
+                        node_count[0] += 1
 
-                child_name = child_ns.getName()
-                ns_type = "Namespace"
-                ns_sym = st.getNamespaceSymbol(child_ns)
-                if ns_sym:
-                    ns_type = _symbol_type_str(ns_sym)
+                        child_name = child_ns.getName()
+                        ns_type = "Namespace"
+                        try:
+                            from ghidra.program.model.symbol import GhidraClass
+                            if isinstance(child_ns, GhidraClass):
+                                ns_type = "Class"
+                        except:
+                            pass
 
-                child_node = {
-                    "name": child_name,
-                    "type": ns_type,
-                }
+                        child_node = {
+                            "name": child_name,
+                            "type": ns_type,
+                        }
 
-                # 递归构建子树
-                subtree = build_tree(child_ns, current_depth - 1)
-                if subtree:
-                    child_node["children"] = subtree
-                else:
-                    # 统计子项数量
-                    symbol_count = 0
-                    for _ in st.getSymbols(child_ns):
-                        symbol_count += 1
-                    child_node["symbol_count"] = symbol_count
+                        # 递归构建子树
+                        subtree = build_tree(child_ns, current_depth - 1)
+                        if subtree:
+                            child_node["children"] = subtree
+                        else:
+                            # 统计子项数量
+                            symbol_count = 0
+                            try:
+                                for _ in st.getSymbols(child_ns):
+                                    symbol_count += 1
+                            except:
+                                pass
+                            child_node["symbol_count"] = symbol_count
 
-                children.append(child_node)
+                        children.append(child_node)
+            except:
+                pass
 
             # 添加符号（仅在最后一层或空间允许时）
             if current_depth == 1 or len(children) == 0:
-                for sym in st.getSymbols(ns):
-                    if node_count[0] >= limit:
-                        break
-                    sym_type = _symbol_type_str(sym)
-                    if sym_type in ("Namespace", "Class"):
-                        continue
-                    node_count[0] += 1
-                    addr = sym.getAddress()
-                    children.append({
-                        "name": sym.getName(),
-                        "type": sym_type,
-                        "address": str(addr) if addr else None,
-                    })
+                try:
+                    for sym in st.getSymbols(ns):
+                        if node_count[0] >= limit:
+                            break
+                        sym_type = _symbol_type_str(sym)
+                        if sym_type in ("Namespace", "Class"):
+                            continue
+                        node_count[0] += 1
+                        addr = sym.getAddress()
+                        children.append({
+                            "name": sym.getName(),
+                            "type": sym_type,
+                            "address": str(addr) if addr else None,
+                        })
+                except:
+                    pass
 
             return children if children else None
 
@@ -662,7 +699,8 @@ def get_function_symbols(state, name="", address=""):
         st = prog.getSymbolTable()
         body = func.getBody()
         if body:
-            for sym in st.getSymbols(body, True):
+            # 使用 getPrimarySymbolIterator 获取地址范围内的符号
+            for sym in st.getPrimarySymbolIterator(body, True):
                 sym_type = _symbol_type_str(sym)
                 if sym_type == "Label":
                     labels.append({
