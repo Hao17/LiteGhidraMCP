@@ -15,6 +15,7 @@ This is a Ghidrathon-based MCP (Model Context Protocol) Bridge that runs inside 
 - **`api/`**: API 模块目录，包含所有可调用的 API 实现：
   - **`demo.py`**: API 开发参考样例（使用 runScript 模式）
   - **`basic_info.py`**: 获取当前程序基础信息（使用 state 传递模式）
+  - **`search.py`**: 搜索 API（使用 state 传递模式），支持多种搜索类型
 
 - **`api_v1/`**: v1 版本 API 模块目录
 
@@ -57,6 +58,16 @@ curl http://127.0.0.1:8803/api/demo
 
 # 获取程序基础信息
 curl http://127.0.0.1:8803/api/basic_info
+
+# Search API 测试
+curl "http://127.0.0.1:8803/api/search/functions?q=main&limit=10"
+curl "http://127.0.0.1:8803/api/search/symbols?q=*printf*"
+curl "http://127.0.0.1:8803/api/search/strings?q=error"
+curl "http://127.0.0.1:8803/api/search/bytes?pattern=48 8b ?? 90&limit=20"
+curl "http://127.0.0.1:8803/api/search/instructions?q=call"
+curl "http://127.0.0.1:8803/api/search/xrefs/to?address=0x401000"
+curl "http://127.0.0.1:8803/api/search/datatypes?q=*struct*"
+curl "http://127.0.0.1:8803/api/search/all?q=init"
 ```
 
 ## Code Conventions
@@ -68,7 +79,22 @@ curl http://127.0.0.1:8803/api/basic_info
 **API Endpoints**:
 - `GET /api/demo` - 执行演示脚本，用于测试
 - `GET /api/basic_info` - 获取当前程序的基础信息
-- `GET /api/v1/search?q=<query>` - 搜索函数和字符串
+
+**Search API** (`/api/search/*`):
+- `GET /api/search/functions?q=<query>&limit=100` - 搜索函数名
+- `GET /api/search/symbols?q=<query>&type=<type>&limit=100` - 搜索符号（支持通配符 `*` `?`）
+- `GET /api/search/comments?q=<query>&type=<type>&limit=100` - 搜索注释（type: EOL/PRE/POST/PLATE/REPEATABLE）
+- `GET /api/search/strings?q=<query>&encoding=<enc>&limit=100` - 搜索字符串
+- `GET /api/search/scalars?value=<value>&size=<size>&limit=100` - 搜索立即数/标量
+- `GET /api/search/bytes?pattern=<pattern>&limit=100&align=1` - 搜索字节模式（如 `48 8b ?? 90`）
+- `GET /api/search/instructions?q=<query>&limit=100` - 搜索汇编指令文本
+- `GET /api/search/xrefs/to?address=<addr>` - 搜索引用到某地址的交叉引用
+- `GET /api/search/xrefs/from?address=<addr>` - 搜索从某地址发出的引用
+- `GET /api/search/datatypes?q=<query>&limit=100` - 搜索数据类型
+- `GET /api/search/all?q=<query>&limit=50` - 聚合搜索（函数+符号+字符串）
+
+**Legacy API** (`/api/v1/*`):
+- `GET /api/v1/search?q=<query>` - 旧版搜索（使用 runScript 模式）
 
 **Error Handling**: Minimal logging to avoid Ghidra console noise, but preserve error context in API responses
 

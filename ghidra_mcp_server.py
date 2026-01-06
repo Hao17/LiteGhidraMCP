@@ -32,6 +32,7 @@ _cached_state = None
 
 # Import API modules (state passing pattern)
 import api.basic_info as basic_info_api
+import api.search as search_api
 
 
 def _run_script_by_path(script_path: str, extra_args: list = None):
@@ -156,6 +157,85 @@ def _run_basic_info():
 
 
 # ============================================================
+# Search API 路由处理函数 (State Passing Pattern)
+# ============================================================
+
+def _run_search(endpoint, params):
+    """
+    处理 /api/search/* 请求
+
+    路由:
+        GET /api/search/functions?q=<query>&limit=100
+        GET /api/search/symbols?q=<query>&type=<type>&limit=100
+        GET /api/search/comments?q=<query>&type=<type>&limit=100
+        GET /api/search/strings?q=<query>&encoding=<enc>&limit=100
+        GET /api/search/scalars?value=<value>&size=<size>&limit=100
+        GET /api/search/bytes?pattern=<pattern>&limit=100&align=1
+        GET /api/search/instructions?q=<query>&limit=100
+        GET /api/search/xrefs/to?address=<addr>
+        GET /api/search/xrefs/from?address=<addr>
+        GET /api/search/datatypes?q=<query>&limit=100
+        GET /api/search/all?q=<query>&limit=50
+    """
+    if _cached_state is None:
+        return {"success": False, "error": "State not cached"}
+
+    query = params.get("q", "")
+    limit = int(params.get("limit", "100"))
+
+    try:
+        if endpoint == "functions":
+            return search_api.search_functions(_cached_state, query, limit)
+
+        elif endpoint == "symbols":
+            sym_type = params.get("type")
+            return search_api.search_symbols(_cached_state, query, sym_type, limit)
+
+        elif endpoint == "comments":
+            comment_type = params.get("type")
+            return search_api.search_comments(_cached_state, query, comment_type, limit)
+
+        elif endpoint == "strings":
+            encoding = params.get("encoding")
+            return search_api.search_strings(_cached_state, query, encoding, limit)
+
+        elif endpoint == "scalars":
+            value = params.get("value", "")
+            size = params.get("size")
+            size = int(size) if size else None
+            return search_api.search_scalars(_cached_state, value, size, limit)
+
+        elif endpoint == "bytes":
+            pattern = params.get("pattern", "")
+            align = int(params.get("align", "1"))
+            return search_api.search_bytes(_cached_state, pattern, limit, align)
+
+        elif endpoint == "instructions":
+            return search_api.search_instructions(_cached_state, query, limit)
+
+        elif endpoint == "xrefs/to":
+            address = params.get("address", "")
+            return search_api.search_xrefs_to(_cached_state, address)
+
+        elif endpoint == "xrefs/from":
+            address = params.get("address", "")
+            return search_api.search_xrefs_from(_cached_state, address)
+
+        elif endpoint == "datatypes":
+            return search_api.search_data_types(_cached_state, query, limit)
+
+        elif endpoint == "all":
+            limit = int(params.get("limit", "50"))
+            return search_api.search_all(_cached_state, query, limit)
+
+        else:
+            return {"success": False, "error": f"Unknown search endpoint: {endpoint}"}
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+# ============================================================
 # API v1 路由处理函数
 # ============================================================
 
@@ -261,6 +341,15 @@ class GhidraRequestHandler(BaseHTTPRequestHandler):
             # 程序基础信息
             if path == "/api/basic_info":
                 return self._send_json(_run_basic_info())
+
+            # ============================================================
+            # Search API 路由: /api/search/<endpoint>
+            # ============================================================
+            if path.startswith("/api/search/"):
+                # 提取 endpoint: /api/search/functions -> functions
+                # 支持多级: /api/search/xrefs/to -> xrefs/to
+                endpoint = path[12:]  # len("/api/search/") = 12
+                return self._send_json(_run_search(endpoint, params))
 
             # ============================================================
             # API v1 路由: /api/v1/<module>/<command>
