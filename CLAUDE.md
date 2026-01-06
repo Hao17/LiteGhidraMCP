@@ -16,6 +16,7 @@ This is a Ghidrathon-based MCP (Model Context Protocol) Bridge that runs inside 
   - **`demo.py`**: API 开发参考样例（使用 runScript 模式）
   - **`basic_info.py`**: 获取当前程序基础信息（使用 state 传递模式）
   - **`search.py`**: 搜索 API（使用 state 传递模式），支持多种搜索类型
+  - **`view.py`**: 查看 API，提供反编译和反汇编功能
   - **`status.py`**: 服务器状态 API，用于验证热重载是否生效
 
 - **`api_v1/`**: v1 版本 API 模块目录
@@ -79,6 +80,12 @@ curl "http://127.0.0.1:8803/api/search/instructions?q=call"
 curl "http://127.0.0.1:8803/api/search/xrefs/to?address=0x401000"
 curl "http://127.0.0.1:8803/api/search/datatypes?q=*struct*"
 curl "http://127.0.0.1:8803/api/search/all?q=init"
+
+# View API 测试
+curl "http://127.0.0.1:8803/api/view/decompile?name=main"
+curl "http://127.0.0.1:8803/api/view/decompile?address=0x401000"
+curl "http://127.0.0.1:8803/api/view/disassemble?name=main&limit=50"
+curl "http://127.0.0.1:8803/api/view/disassemble?address=0x401000"
 ```
 
 ## Code Conventions
@@ -97,6 +104,12 @@ curl "http://127.0.0.1:8803/api/search/all?q=init"
 **API Endpoints**:
 - `GET /api/demo` - 执行演示脚本，用于测试
 - `GET /api/basic_info` - 获取当前程序的基础信息
+
+**View API** (`/api/view/*`):
+- `GET /api/view/decompile?address=<addr>` - 反编译函数为 C 伪代码
+- `GET /api/view/decompile?name=<name>&timeout=30` - 按函数名反编译
+- `GET /api/view/disassemble?address=<addr>&limit=500` - 获取函数汇编代码
+- `GET /api/view/disassemble?name=<name>&limit=500` - 按函数名获取汇编
 
 **Search API** (`/api/search/*`):
 - `GET /api/search/functions?q=<query>&limit=100` - 搜索函数名
