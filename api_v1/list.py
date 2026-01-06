@@ -20,6 +20,33 @@ from api import route
 
 
 # ============================================================
+# Compact Mode Schema
+# ============================================================
+
+COMPACT_SCHEMA = {
+    "functions": ["name", "address", "size", "signature"],
+    "classes": ["name", "address", "full_path"],
+    "namespaces": ["name", "symbol_count"],
+    "labels": ["name", "address", "function"],
+    "globals": ["name", "address", "data_type"],
+    "imports": ["name", "address", "library"],
+    "exports": ["name", "address", "is_function", "signature"],
+}
+
+
+def _to_compact(results):
+    """Convert dict results to compact array format"""
+    compact = {}
+    for type_name, items in results.items():
+        schema = COMPACT_SCHEMA.get(type_name, [])
+        compact[type_name] = [
+            [item.get(field) for field in schema]
+            for item in items
+        ]
+    return compact
+
+
+# ============================================================
 # Response Helpers
 # ============================================================
 
@@ -158,7 +185,7 @@ def _list_functions(prog, q, start_addr, end_addr, limit):
         body = func.getBody()
         results.append({
             "name": name,
-            "address": str(entry),
+            "address": "0x" + str(entry),
             "size": body.getNumAddresses() if body else 0,
             "signature": str(func.getSignature()),
             "is_external": func.isExternal(),
@@ -195,7 +222,7 @@ def _list_classes(prog, q, start_addr, end_addr, limit):
 
         results.append({
             "name": name,
-            "address": str(addr),
+            "address": "0x" + str(addr),
             "namespace": ns_path,
             "full_path": f"{ns_path}::{name}" if ns_path != "Global" else name,
         })
@@ -282,7 +309,7 @@ def _list_labels(prog, q, start_addr, end_addr, limit):
 
         results.append({
             "name": name,
-            "address": str(addr),
+            "address": "0x" + str(addr),
             "function": func.getName() if func else None,
         })
 
@@ -320,7 +347,7 @@ def _list_globals(prog, q, start_addr, end_addr, limit):
 
         results.append({
             "name": name,
-            "address": str(addr),
+            "address": "0x" + str(addr),
             "data_type": data_type,
         })
 
@@ -354,7 +381,7 @@ def _list_imports(prog, q, library, limit):
         addr = sym.getAddress()
         results.append({
             "name": name,
-            "address": str(addr) if addr else None,
+            "address": "0x" + str(addr) if addr else None,
             "library": lib_name,
         })
 
@@ -389,7 +416,7 @@ def _list_exports(prog, q, limit):
 
             results.append({
                 "name": name,
-                "address": addr_str,
+                "address": "0x" + addr_str,
                 "is_function": func is not None,
                 "signature": str(func.getSignature()) if func else None,
             })
@@ -420,7 +447,7 @@ ALL_TYPES = list(LIST_HANDLERS.keys())
 # ============================================================
 
 @route("/api/v1/list")
-def list_symbols(state, q="", types="auto", start="", end="", library="", limit=100):
+def list_symbols(state, q="", types="auto", start="", end="", library="", limit=100, verbose=""):
     """
     Unified symbol listing API.
 
@@ -435,18 +462,22 @@ def list_symbols(state, q="", types="auto", start="", end="", library="", limit=
         end: End address for range filter
         library: Library filter for imports (e.g., "kernel32")
         limit: Max results per type (default 100)
+        verbose: Output format:
+               - "" (default): Compact array format with _schema
+               - "true"/"1": Verbose dict format with all fields
 
     Returns:
         dict: Aggregated listing results
 
     Example:
-        GET /api/v1/list                              # List all functions
+        GET /api/v1/list                              # List all functions (compact)
+        GET /api/v1/list?verbose=true                 # List functions (verbose)
         GET /api/v1/list?types=all&limit=50           # List all symbol types
         GET /api/v1/list?q=init*&types=functions      # List functions matching "init*"
         GET /api/v1/list?start=0x401000&end=0x402000  # List functions in address range
         GET /api/v1/list?types=imports&library=kernel32  # List kernel32 imports
 
-    路由: GET /api/v1/list?q=<query>&types=<types>&start=<addr>&end=<addr>&limit=<limit>
+    路由: GET /api/v1/list?q=<query>&types=<types>&start=<addr>&end=<addr>&limit=<limit>&verbose=<bool>
     """
     prog, err = _get_prog(state)
     if err:
@@ -512,23 +543,23 @@ def list_symbols(state, q="", types="auto", start="", end="", library="", limit=
     summary = {t: len(results.get(t, [])) for t in list_types}
     summary["total"] = sum(v for k, v in summary.items() if k != "total")
 
-    # Build query info
-    query_info = {
-        "q": q if q else None,
-        "types": list_types,
-        "limit": limit,
-    }
-    if start_addr or end_addr:
-        query_info["address_range"] = {
-            "start": str(start_addr) if start_addr else None,
-            "end": str(end_addr) if end_addr else None,
-        }
-    if library:
-        query_info["library"] = library
+    # Parse verbose parameter
+    is_verbose = str(verbose).lower() in ("true", "1", "yes")
 
-    return _ok({
-        "summary": summary,
-        "results": results,
-        "query": query_info,
-        "errors": errors if errors else None,
-    })
+    # Build response
+    if is_verbose:
+        # Verbose mode: full dict format
+        response = {"summary": summary, "results": results}
+    else:
+        # Compact mode (default): array format with schema
+        response = {
+            "summary": summary,
+            "results": _to_compact(results),
+            "_schema": {t: COMPACT_SCHEMA[t] for t in list_types if t in COMPACT_SCHEMA},
+        }
+
+    # Only include errors if present
+    if errors:
+        response["errors"] = errors
+
+    return _ok(response)
