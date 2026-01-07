@@ -104,6 +104,44 @@ pip install mcp uvicorn
 - `ghidra_edit`: 统一编辑 (rename, datatype, comment)
 - `ghidra_basic_info`: 获取程序基本信息
 
+**MCP stdio Mode (for local debugging):**
+
+除了 SSE 模式，还提供独立的 stdio 模式脚本 `mcp_stdio.py`，用于本地 Claude Desktop 调试。
+
+stdio 模式作为独立进程运行，通过 HTTP API 与 Ghidra Bridge 通信：
+
+```
+┌─────────────────┐     stdio      ┌─────────────────┐     HTTP      ┌─────────────────┐
+│  Claude Desktop │ ◄────────────► │   mcp_stdio.py  │ ◄───────────► │  Ghidra Bridge  │
+└─────────────────┘                └─────────────────┘               └─────────────────┘
+```
+
+Claude Desktop 配置 (stdio 模式):
+```json
+{
+  "mcpServers": {
+    "ghidra": {
+      "command": "/opt/homebrew/anaconda3/envs/ghidra/bin/python",
+      "args": ["/path/to/Bridge/mcp_stdio.py", "--port", "8803"]
+    }
+  }
+}
+```
+
+命令行参数:
+- `--host`: Ghidra Bridge 主机地址 (默认: 127.0.0.1)
+- `--port`: Ghidra Bridge HTTP API 端口 (默认: 8803，需与 Ghidra 中显示的端口一致)
+
+**SSE vs stdio 模式对比:**
+
+| 特性 | SSE 模式 | stdio 模式 |
+|------|----------|------------|
+| 进程 | Ghidra 内置线程 | 独立 Python 进程 |
+| 配置 | `"url": "http://...sse"` | `"command": "python"` |
+| 调试 | 无法直接调试 | 可用 IDE 调试 |
+| 性能 | 直接访问 Ghidra API | 通过 HTTP 代理 |
+| 适用场景 | 生产使用 | 本地开发调试 |
+
 ### API Testing
 ```bash
 # 运行演示脚本
