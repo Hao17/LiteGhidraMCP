@@ -26,9 +26,12 @@ from urllib.error import URLError
 
 HOST = os.environ.get("GHIDRA_MCP_HOST", "127.0.0.1")
 PORT = int(os.environ.get("GHIDRA_MCP_PORT", "8803"))
+MCP_PORT = int(os.environ.get("GHIDRA_MCP_SSE_PORT", "8804"))
 
 _server_instance: Optional["ThreadingHTTPServer"] = None
 _server_thread: Optional[threading.Thread] = None
+_mcp_server_thread: Optional[threading.Thread] = None
+_mcp_actual_port: Optional[int] = None
 
 # Cache Ghidra context at startup
 _cached_script = None
@@ -415,7 +418,44 @@ def stop_server():
         _server_thread = None
 
 
-def _print_startup_banner(host: str, port: int, routes: list = None):
+def _start_mcp_server(host: str, port: int) -> Optional[int]:
+    """
+    Start the MCP SSE server on a separate port.
+
+    Args:
+        host: Hostname to bind to
+        port: Port number for MCP server
+
+    Returns:
+        Actual port number if successful, None if failed
+    """
+    global _mcp_server_thread, _mcp_actual_port
+
+    if _cached_state is None:
+        print("[Ghidra-MCP-Bridge] Cannot start MCP server: state not cached")
+        return None
+
+    try:
+        from mcp_v1.server import set_ghidra_state, start_mcp_sse_server
+
+        # Inject Ghidra state into MCP module
+        set_ghidra_state(_cached_state)
+
+        # Start MCP server
+        _mcp_server_thread = start_mcp_sse_server(host=host, port=port)
+        _mcp_actual_port = port
+        return port
+
+    except ImportError as e:
+        print(f"[Ghidra-MCP-Bridge] MCP module not available: {e}")
+        print("[Ghidra-MCP-Bridge] Install with: pip install mcp uvicorn")
+        return None
+    except Exception as e:
+        print(f"[Ghidra-MCP-Bridge] Failed to start MCP server: {e}")
+        return None
+
+
+def _print_startup_banner(host: str, port: int, mcp_port: Optional[int] = None, routes: list = None):
     """打印启动横幅和 Quick Start 提示"""
     base_url = f"http://{host}:{port}"
     routes = routes or []
@@ -436,12 +476,20 @@ def _print_startup_banner(host: str, port: int, routes: list = None):
         print(f"[Ghidra-MCP-Bridge]   {mod}: {', '.join(paths)}")
 
     print(f"[Ghidra-MCP-Bridge] ───────────────────────────────────────────────────────────")
-    print(f"[Ghidra-MCP-Bridge] Server started: {base_url}")
+    print(f"[Ghidra-MCP-Bridge] HTTP API Server: {base_url}")
+    if mcp_port:
+        mcp_url = f"http://{host}:{mcp_port}/sse"
+        print(f"[Ghidra-MCP-Bridge] MCP SSE Server: {mcp_url}")
+    else:
+        print(f"[Ghidra-MCP-Bridge] MCP SSE Server: (not started)")
     print(f"[Ghidra-MCP-Bridge] ───────────────────────────────────────────────────────────")
     print(f"[Ghidra-MCP-Bridge] Quick Start:")
     print(f"[Ghidra-MCP-Bridge]   {base_url}/api/basic_info")
     print(f"[Ghidra-MCP-Bridge]   {base_url}/api/search/functions?q=main")
     print(f"[Ghidra-MCP-Bridge]   {base_url}/_shutdown")
+    if mcp_port:
+        print(f"[Ghidra-MCP-Bridge] MCP Config (Claude Desktop):")
+        print(f'[Ghidra-MCP-Bridge]   {{"mcpServers": {{"ghidra": {{"url": "http://{host}:{mcp_port}/sse"}}}}}}')
     print(f"[Ghidra-MCP-Bridge] ═══════════════════════════════════════════════════════════")
 
 
@@ -491,11 +539,11 @@ def _trigger_reload(host: str, port: int, timeout: float = 2.0) -> bool:
         return False
 
 
-def auto_start_or_reload(host: str = HOST, port: int = PORT):
+def auto_start_or_reload(host: str = HOST, port: int = PORT, mcp_port: int = MCP_PORT):
     """
     智能启动逻辑：
     - 如果目标端口已有 Ghidra-MCP-Bridge 服务器在运行，触发热重载
-    - 否则启动新服务器
+    - 否则启动新服务器（包括 HTTP API 和 MCP SSE）
     """
     # 先缓存 Ghidra 上下文
     print("[Ghidra-MCP-Bridge] Caching Ghidra context...")
@@ -513,8 +561,13 @@ def auto_start_or_reload(host: str = HOST, port: int = PORT):
 
     # 没有已存在的服务器，启动新的
     try:
+        # Start HTTP API server
         srv, actual_port = start_server(host=host, port=port)
-        _print_startup_banner(host, actual_port, routes)
+
+        # Start MCP SSE server
+        actual_mcp_port = _start_mcp_server(host=host, port=mcp_port)
+
+        _print_startup_banner(host, actual_port, mcp_port=actual_mcp_port, routes=routes)
         return srv
     except Exception as exc:
         print(f"[Ghidra-MCP-Bridge] Failed to start server: {exc}")

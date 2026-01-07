@@ -27,6 +27,10 @@ This is a Ghidrathon-based MCP (Model Context Protocol) Bridge that runs inside 
   - **`search.py`**: 统一搜索 API，支持智能类型推断
   - **`view.py`**: 统一查看 API，支持批量查询和同时返回反编译/汇编
   - **`list.py`**: 统一列表 API，提供类似 ls 的符号浏览功能
+  - **`edit.py`**: 统一编辑 API，支持批量重命名、类型设置、注释操作
+
+- **`mcp_v1/`**: MCP (Model Context Protocol) 模块目录：
+  - **`server.py`**: MCP SSE 服务器实现，包装 api_v1 为 MCP tools
 
 ### Key Design Patterns
 
@@ -62,6 +66,7 @@ analyzeHeadless <projDir> <projName> -import <binary> -scriptPath . -postScript 
 # Environment variables:
 # GHIDRA_MCP_HOST (default: 127.0.0.1)
 # GHIDRA_MCP_PORT (default: 8803)
+# GHIDRA_MCP_SSE_PORT (default: 8804) - MCP SSE server port
 
 # 手动热重载 API 模块（无需在 Ghidra 中重新执行脚本）
 curl http://127.0.0.1:8803/_reload
@@ -69,6 +74,35 @@ curl http://127.0.0.1:8803/_reload
 # 关闭服务器
 curl http://127.0.0.1:8803/_shutdown
 ```
+
+### MCP (Model Context Protocol) Support
+
+服务器启动时会同时启动 HTTP API (8803) 和 MCP SSE (8804) 两个服务。
+
+**Dependencies:**
+```bash
+pip install mcp uvicorn
+```
+
+**Claude Desktop Configuration:**
+
+在 `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) 或 `~/.config/claude/settings.json` (Linux) 添加:
+```json
+{
+  "mcpServers": {
+    "ghidra": {
+      "url": "http://127.0.0.1:8804/sse"
+    }
+  }
+}
+```
+
+**Available MCP Tools:**
+- `ghidra_search`: 统一搜索 (functions, symbols, strings, xrefs, etc.)
+- `ghidra_view`: 反编译/反汇编查看
+- `ghidra_list`: 符号列表浏览
+- `ghidra_edit`: 统一编辑 (rename, datatype, comment)
+- `ghidra_basic_info`: 获取程序基本信息
 
 ### API Testing
 ```bash
