@@ -345,7 +345,31 @@ class GhidraRequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         try:
-            self._send_json({"error": "Not Found"}, status=404)
+            # Parse path
+            path = self.path.split("?")[0]
+
+            # ============================================================
+            # V1 Edit API (POST-only)
+            # ============================================================
+            if path == "/api/v1/edit":
+                if _cached_state is None:
+                    return self._send_json(
+                        {"success": False, "error": "Ghidra state not available"},
+                        status=500
+                    )
+                try:
+                    body = self._read_json()
+                except ValueError as e:
+                    return self._send_json(
+                        {"success": False, "error": str(e)},
+                        status=400
+                    )
+                from api_v1 import edit as v1_edit
+                result = v1_edit.edit(_cached_state, body)
+                return self._send_json(result)
+
+            # 404 for other POST paths
+            self._send_json({"error": "Not Found", "path": path}, status=404)
         except Exception as exc:
             self._send_json({"error": str(exc)}, status=500)
 

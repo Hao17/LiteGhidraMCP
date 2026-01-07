@@ -140,6 +140,16 @@ curl "http://127.0.0.1:8803/api/v1/list?types=functions,classes"
 curl "http://127.0.0.1:8803/api/v1/list?start=0x401000&end=0x402000"
 curl "http://127.0.0.1:8803/api/v1/list?types=imports&library=kernel32"
 
+# V1 Edit API 测试 (POST)
+curl -X POST http://127.0.0.1:8803/api/v1/edit -H "Content-Type: application/json" -d '{"action": "rename.function", "name": "FUN_00401000", "new_name": "main"}'
+curl -X POST http://127.0.0.1:8803/api/v1/edit -H "Content-Type: application/json" -d '{"action": "datatype.set.return", "function": "main", "type": "int"}'
+curl -X POST http://127.0.0.1:8803/api/v1/edit -H "Content-Type: application/json" -d '{"action": "rename.decompiler.variable", "function": "main", "var_name": "local_8", "new_name": "counter"}'
+curl -X POST http://127.0.0.1:8803/api/v1/edit -H "Content-Type: application/json" -d '{"action": "comment.set", "address": "0x401000", "type": "EOL", "text": "Entry point"}'
+curl -X POST http://127.0.0.1:8803/api/v1/edit -H "Content-Type: application/json" -d '{"action": "datatype.create.struct", "name": "Point", "fields": [{"name": "x", "type": "int"}, {"name": "y", "type": "int"}]}'
+curl -X POST http://127.0.0.1:8803/api/v1/edit -H "Content-Type: application/json" -d '{"action": "datatype.parse.c", "code": "typedef struct { int x; int y; } Point;"}'
+# V1 Edit API 批量操作
+curl -X POST http://127.0.0.1:8803/api/v1/edit -H "Content-Type: application/json" -d '{"actions": [{"action": "rename.function", "name": "FUN_00401000", "new_name": "main"}, {"action": "datatype.set.return", "function": "main", "type": "int"}, {"action": "comment.set", "name": "main", "type": "PLATE", "text": "Main entry"}]}'
+
 # DataType API 测试 - 类型设置
 curl "http://127.0.0.1:8803/api/datatype/set/return?function=main&type=int"
 curl "http://127.0.0.1:8803/api/datatype/set/parameter?function=main&param=0&type=int"
@@ -321,7 +331,16 @@ curl "http://127.0.0.1:8803/api/datatype/list?q=*Struct*"
   - `start`/`end`: 地址范围过滤（如 `start=0x401000&end=0x402000`）
   - `library`: imports 的库名过滤（如 `library=kernel32`）
   - `verbose`: `true` 返回完整 dict，默认 compact 数组格式
-  - 支持类型: functions, classes, namespaces, labels, globals, imports, exports
+  - 支持类型: functions, classes, namespaces, labels, globals, imports, exports, datatypes
+- `POST /api/v1/edit` - 统一编辑接口（rename + datatype + comment）
+  - 请求体: `{"action": "<action>", ...params}` 单操作
+  - 批量: `{"actions": [{...}, {...}]}` 多操作
+  - `verbose`: `true` 返回详细输入输出
+  - **Rename actions**: `rename.function`, `rename.variable`, `rename.parameter`, `rename.global`, `rename.label`, `rename.datatype`, `rename.namespace`, `rename.decompiler.variable`, `rename.decompiler.parameter`, `rename.decompiler.split`
+  - **DataType set**: `datatype.set.return`, `datatype.set.parameter`, `datatype.set.decompiler.variable`, `datatype.set.decompiler.parameter`, `datatype.set.global`, `datatype.set.field`
+  - **DataType create**: `datatype.create.struct`, `datatype.create.enum`, `datatype.create.typedef`, `datatype.create.union`, `datatype.create.funcdef`
+  - **DataType manage**: `datatype.struct.field.add`, `datatype.struct.field.delete`, `datatype.struct.field.modify`, `datatype.enum.member.add`, `datatype.enum.member.delete`, `datatype.delete`, `datatype.parse.c`
+  - **Comment**: `comment.set`
 
 **Error Handling**: Minimal logging to avoid Ghidra console noise, but preserve error context in API responses
 
