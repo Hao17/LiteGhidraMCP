@@ -436,15 +436,22 @@ def _start_mcp_server(host: str, port: int) -> Optional[int]:
         return None
 
     try:
-        from mcp_v1.server import set_ghidra_state, start_mcp_sse_server
+        # Reload MCP module to pick up latest changes
+        import mcp_v1.server as mcp_server_module
+        importlib.reload(mcp_server_module)
+        from mcp_v1.server import set_ghidra_state, start_mcp_sse_server, get_mcp_thread
 
         # Inject Ghidra state into MCP module
         set_ghidra_state(_cached_state)
 
-        # Start MCP server
-        _mcp_server_thread = start_mcp_sse_server(host=host, port=port)
-        _mcp_actual_port = port
-        return port
+        # Start MCP server (returns actual port or None)
+        actual_port = start_mcp_sse_server(host=host, port=port)
+        if actual_port is None:
+            return None
+
+        _mcp_server_thread = get_mcp_thread()
+        _mcp_actual_port = actual_port
+        return actual_port
 
     except ImportError as e:
         print(f"[Ghidra-MCP-Bridge] MCP module not available: {e}")

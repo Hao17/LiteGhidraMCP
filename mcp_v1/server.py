@@ -8,20 +8,29 @@ Usage:
     from mcp_v1.server import set_ghidra_state, start_mcp_sse_server
 
     set_ghidra_state(cached_state)
-    thread = start_mcp_sse_server(host="127.0.0.1", port=8804)
+    actual_port = start_mcp_sse_server(host="127.0.0.1", port=8804)
 """
 
 import json
+import socket
 import threading
 from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
 
 # ============================================================
-# FastMCP Instance
+# FastMCP Instance (created lazily with correct settings)
 # ============================================================
 
-mcp = FastMCP(name="Ghidra-MCP-Bridge")
+mcp: Optional[FastMCP] = None
+
+
+def _create_mcp_instance(host: str = "127.0.0.1", port: int = 8804) -> FastMCP:
+    """Create FastMCP instance with specified host and port."""
+    global mcp
+    mcp = FastMCP(name="Ghidra-MCP-Bridge", host=host, port=port)
+    _register_mcp_tools()
+    return mcp
 
 # ============================================================
 # Ghidra State Reference
@@ -50,10 +59,9 @@ def get_ghidra_state():
 
 
 # ============================================================
-# MCP Tools
+# MCP Tools (registered via _register_mcp_tools)
 # ============================================================
 
-@mcp.tool()
 def ghidra_search(
     query: str,
     types: str = "auto",
@@ -99,7 +107,6 @@ def ghidra_search(
     )
 
 
-@mcp.tool()
 def ghidra_view(
     query: str,
     view_type: str = "both",
@@ -146,7 +153,6 @@ def ghidra_view(
     )
 
 
-@mcp.tool()
 def ghidra_list(
     query: str = "",
     types: str = "auto",
@@ -203,7 +209,6 @@ def ghidra_list(
     )
 
 
-@mcp.tool()
 def ghidra_edit(
     action: str,
     name: str = "",
@@ -402,7 +407,6 @@ def ghidra_edit(
     return v1_edit.edit(_ghidra_state, body)
 
 
-@mcp.tool()
 def ghidra_basic_info() -> dict:
     """
     Get basic information about the loaded program.
@@ -429,14 +433,47 @@ def ghidra_basic_info() -> dict:
     return basic_info.basic_info(_ghidra_state)
 
 
+def _register_mcp_tools():
+    """Register all MCP tools on the global mcp instance."""
+    if mcp is None:
+        raise RuntimeError("MCP instance not created yet")
+
+    mcp.tool()(ghidra_search)
+    mcp.tool()(ghidra_view)
+    mcp.tool()(ghidra_list)
+    mcp.tool()(ghidra_edit)
+    mcp.tool()(ghidra_basic_info)
+
+
 # ============================================================
 # MCP Server Management
 # ============================================================
 
 _mcp_thread: Optional[threading.Thread] = None
+_mcp_actual_port: Optional[int] = None
 
 
-def start_mcp_sse_server(host: str = "127.0.0.1", port: int = 8804):
+def _is_port_available(host: str, port: int) -> bool:
+    """Check if a port is available for binding."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind((host, port))
+            return True
+    except OSError:
+        return False
+
+
+def _find_available_port(host: str, start_port: int, max_attempts: int = 100) -> int:
+    """Find an available port starting from start_port."""
+    for offset in range(max_attempts):
+        port = start_port + offset
+        if _is_port_available(host, port):
+            return port
+    raise RuntimeError(f"No available port found after {max_attempts} attempts starting from {start_port}")
+
+
+def start_mcp_sse_server(host: str = "127.0.0.1", port: int = 8804) -> Optional[int]:
     """
     Start the MCP SSE server in a daemon thread.
 
@@ -445,15 +482,30 @@ def start_mcp_sse_server(host: str = "127.0.0.1", port: int = 8804):
         port: Port number (default: 8804)
 
     Returns:
-        threading.Thread: The server thread
+        int: Actual port number if successful, None if failed
     """
-    global _mcp_thread
+    global _mcp_thread, _mcp_actual_port, mcp
+
+    # Find an available port (similar to HTTP server logic)
+    try:
+        actual_port = _find_available_port(host, port)
+    except RuntimeError as e:
+        print(f"[Ghidra-MCP-Bridge] MCP server error: {e}")
+        return None
+
+    if actual_port != port:
+        print(f"[Ghidra-MCP-Bridge] MCP port {port} in use, using {actual_port}")
+
+    # Create FastMCP instance with correct settings
+    mcp = _create_mcp_instance(host=host, port=actual_port)
 
     def run_server():
         try:
-            mcp.run(transport="sse", host=host, port=port)
+            mcp.run(transport="sse")
         except Exception as e:
             print(f"[Ghidra-MCP-Bridge] MCP server error: {e}")
+            import traceback
+            traceback.print_exc()
 
     _mcp_thread = threading.Thread(
         target=run_server,
@@ -461,9 +513,15 @@ def start_mcp_sse_server(host: str = "127.0.0.1", port: int = 8804):
         name="MCPServer"
     )
     _mcp_thread.start()
-    return _mcp_thread
+    _mcp_actual_port = actual_port
+    return actual_port
 
 
 def get_mcp_thread() -> Optional[threading.Thread]:
     """Get the MCP server thread."""
     return _mcp_thread
+
+
+def get_mcp_port() -> Optional[int]:
+    """Get the actual MCP server port."""
+    return _mcp_actual_port
