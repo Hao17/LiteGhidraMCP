@@ -501,11 +501,28 @@ def start_mcp_sse_server(host: str = "127.0.0.1", port: int = 8804) -> Optional[
 
     def run_server():
         try:
-            mcp.run(transport="sse")
-        except Exception as e:
-            print(f"[Ghidra-MCP-Bridge] MCP server error: {e}")
-            import traceback
-            traceback.print_exc()
+            import asyncio
+            import uvicorn
+
+            # Create new event loop for this thread
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+            # Get the SSE Starlette app from FastMCP
+            starlette_app = mcp.sse_app()
+
+            # Use log_config=None to avoid Ghidrathon stream access issues
+            config = uvicorn.Config(
+                starlette_app,
+                host=host,
+                port=actual_port,
+                log_config=None,  # Critical: disable logging config for Ghidrathon
+                log_level="warning",
+            )
+            server = uvicorn.Server(config)
+            loop.run_until_complete(server.serve())
+        except BaseException:
+            pass  # TODO: Thread logs need file output (Ghidrathon threads can't access console)
 
     _mcp_thread = threading.Thread(
         target=run_server,
