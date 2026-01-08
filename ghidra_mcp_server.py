@@ -15,6 +15,8 @@ Entry point is main(script_globals); no side effects at import time.
 import importlib
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -30,8 +32,6 @@ MCP_PORT = int(os.environ.get("GHIDRA_MCP_SSE_PORT", "8804"))
 
 _server_instance: Optional["ThreadingHTTPServer"] = None
 _server_thread: Optional[threading.Thread] = None
-_mcp_server_thread: Optional[threading.Thread] = None
-_mcp_actual_port: Optional[int] = None
 
 # Cache Ghidra context at startup
 _cached_script = None
@@ -417,6 +417,9 @@ def start_server(host: str = HOST, port: int = PORT):
 
 def stop_server():
     global _server_instance, _server_thread
+    # Stop MCP proxy first
+    _stop_mcp_server()
+    # Then stop HTTP server
     if _server_instance:
         _server_instance.shutdown()
         _server_instance.server_close()
@@ -424,48 +427,128 @@ def stop_server():
         _server_thread = None
 
 
-def _start_mcp_server(host: str, port: int) -> Optional[int]:
+_mcp_process: Optional["subprocess.Popen"] = None
+
+
+def _find_available_port(host: str, start_port: int, max_attempts: int = 100) -> int:
+    """Find an available port starting from start_port."""
+    import socket
+    for offset in range(max_attempts):
+        port = start_port + offset
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                s.bind((host, port))
+                return port
+        except OSError:
+            continue
+    raise RuntimeError(f"No available port found after {max_attempts} attempts")
+
+
+def _start_mcp_server(host: str, port: int, http_port: int) -> Optional[int]:
     """
-    Start the MCP SSE server on a separate port.
+    Start the MCP SSE Proxy as an independent subprocess.
+
+    This avoids Ghidrathon thread limitations by running MCP in a separate process
+    that proxies requests through the HTTP API.
 
     Args:
         host: Hostname to bind to
-        port: Port number for MCP server
+        port: Port number for MCP SSE server (will find next available if busy)
+        http_port: Port number of the HTTP API server (for proxy)
 
     Returns:
         Actual port number if successful, None if failed
     """
-    global _mcp_server_thread, _mcp_actual_port
+    global _mcp_process, _mcp_actual_port
 
-    if _cached_state is None:
-        print("[Ghidra-MCP-Bridge] Cannot start MCP server: state not cached")
+    # Find an available port
+    try:
+        actual_port = _find_available_port(host, port)
+        if actual_port != port:
+            print(f"[Ghidra-MCP-Bridge] MCP port {port} busy, using {actual_port}")
+    except RuntimeError as e:
+        print(f"[Ghidra-MCP-Bridge] {e}")
         return None
 
+    # Find the proxy script path
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    proxy_script = os.path.join(script_dir, "scripts", "mcp_sse_proxy.py")
+
+    if not os.path.exists(proxy_script):
+        print(f"[Ghidra-MCP-Bridge] MCP proxy script not found: {proxy_script}")
+        return None
+
+    # Get Python interpreter path
+    # Ghidrathon may use embedded Python, so allow override via env var
+    python_exe = os.environ.get("GHIDRA_MCP_PYTHON", sys.executable)
+    if not os.path.exists(python_exe):
+        # Fallback: try common locations
+        for fallback in ["/usr/bin/python3", "/opt/homebrew/bin/python3"]:
+            if os.path.exists(fallback):
+                python_exe = fallback
+                break
+
     try:
-        # Reload MCP module to pick up latest changes
-        import mcp_v1.server as mcp_server_module
-        importlib.reload(mcp_server_module)
-        from mcp_v1.server import set_ghidra_state, start_mcp_sse_server, get_mcp_thread
+        # Start the proxy as a subprocess
+        # Use PIPE for stderr to capture error messages if it fails
+        _mcp_process = subprocess.Popen(
+            [
+                python_exe,
+                proxy_script,
+                "--host", host,
+                "--port", str(actual_port),
+                "--ghidra-host", host,
+                "--ghidra-port", str(http_port),
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            start_new_session=True,  # Detach from parent process group
+        )
 
-        # Inject Ghidra state into MCP module
-        set_ghidra_state(_cached_state)
-
-        # Start MCP server (returns actual port or None)
-        actual_port = start_mcp_sse_server(host=host, port=port)
-        if actual_port is None:
+        # Wait briefly and check if process started successfully
+        time.sleep(0.5)
+        if _mcp_process.poll() is not None:
+            # Process exited immediately - capture error
+            stderr_output = ""
+            try:
+                stderr_output = _mcp_process.stderr.read().decode("utf-8", errors="replace")
+            except:
+                pass
+            print(f"[Ghidra-MCP-Bridge] MCP proxy failed to start")
+            print(f"[Ghidra-MCP-Bridge] Python: {python_exe}")
+            if stderr_output:
+                # Show first few lines of error
+                for line in stderr_output.strip().split("\n")[:5]:
+                    print(f"[Ghidra-MCP-Bridge] {line}")
             return None
 
-        _mcp_server_thread = get_mcp_thread()
         _mcp_actual_port = actual_port
         return actual_port
 
-    except ImportError as e:
-        print(f"[Ghidra-MCP-Bridge] MCP module not available: {e}")
-        print("[Ghidra-MCP-Bridge] Install with: pip install mcp uvicorn")
+    except FileNotFoundError:
+        print(f"[Ghidra-MCP-Bridge] Python interpreter not found: {python_exe}")
         return None
     except Exception as e:
-        print(f"[Ghidra-MCP-Bridge] Failed to start MCP server: {e}")
+        print(f"[Ghidra-MCP-Bridge] Failed to start MCP proxy: {e}")
         return None
+
+
+def _stop_mcp_server():
+    """Stop the MCP SSE Proxy subprocess."""
+    global _mcp_process, _mcp_actual_port
+
+    if _mcp_process is not None:
+        try:
+            _mcp_process.terminate()
+            _mcp_process.wait(timeout=2.0)
+        except Exception:
+            try:
+                _mcp_process.kill()
+            except Exception:
+                pass
+        _mcp_process = None
+        _mcp_actual_port = None
 
 
 def _test_server(host: str, port: int) -> Optional[dict]:
@@ -573,7 +656,7 @@ def auto_start_or_reload(host: str = HOST, port: int = PORT, mcp_port: int = MCP
 
     注意：当前临时禁用热重载，总是完全重启服务器。
     """
-    global _server_instance, _server_thread, _mcp_server_thread, _mcp_actual_port
+    global _server_instance, _server_thread, _mcp_process, _mcp_actual_port
 
     print("[Ghidra-MCP-Bridge] run auto_start_or_reload")
 
@@ -586,7 +669,7 @@ def auto_start_or_reload(host: str = HOST, port: int = PORT, mcp_port: int = MCP
         # 清理全局状态
         _server_instance = None
         _server_thread = None
-        _mcp_server_thread = None
+        _mcp_process = None
         _mcp_actual_port = None
 
     # 缓存 Ghidra 上下文并加载 API 模块
@@ -597,8 +680,8 @@ def auto_start_or_reload(host: str = HOST, port: int = PORT, mcp_port: int = MCP
         # Start HTTP API server
         srv, actual_port = start_server(host=host, port=port)
 
-        # Start MCP SSE server
-        actual_mcp_port = _start_mcp_server(host=host, port=mcp_port)
+        # Start MCP SSE Proxy (as independent subprocess)
+        actual_mcp_port = _start_mcp_server(host=host, port=mcp_port, http_port=actual_port)
 
         _print_startup_banner(host, actual_port, mcp_port=actual_mcp_port, routes=routes)
         return srv

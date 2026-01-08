@@ -20,7 +20,7 @@ from typing import Optional
 
 # Add parent directory to path for utils import
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from utils.logging_config import log_debug, log_info, log_error, log_exception
+from utils.logging_config import log_debug, log_info, log_error, log_exception, get_log_file_path
 
 from mcp.server.fastmcp import FastMCP
 
@@ -459,11 +459,21 @@ def _register_mcp_tools():
     if mcp is None:
         raise RuntimeError("MCP instance not created yet")
 
+    log_info("Registering MCP tools, _ghidra_state is %s",
+             "set" if _ghidra_state is not None else "None")
+
     mcp.tool()(ghidra_search)
     mcp.tool()(ghidra_view)
     mcp.tool()(ghidra_list)
     mcp.tool()(ghidra_edit)
     mcp.tool()(ghidra_basic_info)
+
+    # Log registered tools
+    try:
+        tools = list(mcp._tool_manager._tools.keys())
+        log_info("MCP tools registered: %s", tools)
+    except Exception as e:
+        log_debug("Could not list tools: %s", e)
 
 
 # ============================================================
@@ -529,14 +539,47 @@ def start_mcp_sse_server(host: str = "127.0.0.1", port: int = 8804) -> Optional[
             # Get the SSE Starlette app from FastMCP
             starlette_app = mcp.sse_app()
 
-            # Use log_config=None to avoid Ghidrathon stream access issues
-            # Uvicorn's default logging config triggers stdout flush which fails in background threads
+            # Custom log config using file handler to avoid Ghidrathon stream issues
+            # Default uvicorn config uses StreamHandler which triggers stdout flush
+            log_file = get_log_file_path()
+            uvicorn_log_config = {
+                "version": 1,
+                "disable_existing_loggers": False,
+                "formatters": {
+                    "default": {
+                        "format": "%(asctime)s [%(levelname)s] [uvicorn] %(message)s",
+                        "datefmt": "%Y-%m-%d %H:%M:%S",
+                    },
+                    "access": {
+                        "format": "%(asctime)s [%(levelname)s] [uvicorn.access] %(client_addr)s - \"%(request_line)s\" %(status_code)s",
+                        "datefmt": "%Y-%m-%d %H:%M:%S",
+                    },
+                },
+                "handlers": {
+                    "default": {
+                        "class": "logging.FileHandler",
+                        "filename": log_file,
+                        "formatter": "default",
+                    },
+                    "access": {
+                        "class": "logging.FileHandler",
+                        "filename": log_file,
+                        "formatter": "access",
+                    },
+                },
+                "loggers": {
+                    "uvicorn": {"handlers": ["default"], "level": "DEBUG", "propagate": False},
+                    "uvicorn.error": {"handlers": ["default"], "level": "DEBUG", "propagate": False},
+                    "uvicorn.access": {"handlers": ["access"], "level": "DEBUG", "propagate": False},
+                },
+            }
+
             config = uvicorn.Config(
                 starlette_app,
                 host=host,
                 port=actual_port,
-                log_config=None,
-                log_level="warning",
+                log_config=uvicorn_log_config,
+                log_level="debug",
             )
             server = uvicorn.Server(config)
             log_debug("MCP SSE server starting on %s:%d", host, actual_port)
