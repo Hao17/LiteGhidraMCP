@@ -24,6 +24,8 @@ from typing import Any, Dict, Optional
 from urllib.request import urlopen
 from urllib.error import URLError
 
+from utils.logging_config import get_log_file_path, log_debug, log_info
+
 HOST = os.environ.get("GHIDRA_MCP_HOST", "127.0.0.1")
 PORT = int(os.environ.get("GHIDRA_MCP_PORT", "8803"))
 MCP_PORT = int(os.environ.get("GHIDRA_MCP_SSE_PORT", "8804"))
@@ -300,8 +302,11 @@ class GhidraRequestHandler(BaseHTTPRequestHandler):
             raise ValueError(f"Invalid JSON: {exc}") from exc
 
     def log_message(self, format: str, *args: Any) -> None:
-        # Keep console noise minimal inside Ghidra.
-        return
+        # Log HTTP requests to file (not console to avoid Ghidra noise)
+        try:
+            log_debug("HTTP %s", format % args)
+        except Exception:
+            pass  # Ignore logging errors in background threads
 
     def do_GET(self):
         try:
@@ -319,7 +324,10 @@ class GhidraRequestHandler(BaseHTTPRequestHandler):
             # 热重载 API 模块
             if path == "/_reload":
                 result = _discover_and_load_api_modules()
-                print(f"[Ghidra-MCP-Bridge] API modules reloaded: {result}")
+                try:
+                    log_info("API modules reloaded: %s", result)
+                except Exception:
+                    pass  # Ignore logging errors in background threads
                 return self._send_json(result)
 
             # 关闭服务器
@@ -494,6 +502,9 @@ def _print_startup_banner(host: str, port: int, mcp_port: Optional[int] = None, 
     print(f"[Ghidra-MCP-Bridge] HTTP Server: {http_url}")
     if mcp_port:
         print(f"[Ghidra-MCP-Bridge] MCP Server:  http://{host}:{mcp_port}/sse")
+
+    # 显示日志文件路径
+    print(f"[Ghidra-MCP-Bridge] Log file: {get_log_file_path()}")
 
     # 测试服务器并显示程序信息
     info = _test_server(host, port)

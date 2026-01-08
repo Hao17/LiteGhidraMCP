@@ -12,9 +12,15 @@ Usage:
 """
 
 import json
+import os
 import socket
+import sys
 import threading
 from typing import Optional
+
+# Add parent directory to path for utils import
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils.logging_config import log_debug, log_info, log_error, log_exception
 
 from mcp.server.fastmcp import FastMCP
 
@@ -94,17 +100,20 @@ def ghidra_search(
             - results: matched items per type
             - _schema: field names for compact mode
     """
+    log_debug("MCP ghidra_search: query=%s, types=%s, limit=%d", query, types, limit)
     if _ghidra_state is None:
         return {"success": False, "error": "Ghidra state not available"}
 
     from api_v1 import search as v1_search
-    return v1_search.search(
+    result = v1_search.search(
         _ghidra_state,
         q=query,
         types=types,
         limit=limit,
         verbose="true" if verbose else ""
     )
+    log_debug("MCP ghidra_search: success=%s", result.get("success", False))
+    return result
 
 
 def ghidra_view(
@@ -139,11 +148,12 @@ def ghidra_view(
             - For each function: info (name, address, signature, size),
               decompiled code lines, assembly instructions
     """
+    log_debug("MCP ghidra_view: query=%s, type=%s", query, view_type)
     if _ghidra_state is None:
         return {"success": False, "error": "Ghidra state not available"}
 
     from api_v1 import view as v1_view
-    return v1_view.view(
+    result = v1_view.view(
         _ghidra_state,
         q=query,
         type=view_type,
@@ -151,6 +161,8 @@ def ghidra_view(
         limit=limit,
         verbose="true" if verbose else ""
     )
+    log_debug("MCP ghidra_view: success=%s", result.get("success", False))
+    return result
 
 
 def ghidra_list(
@@ -191,11 +203,12 @@ def ghidra_list(
             - summary: count per type
             - results: items per type with relevant fields
     """
+    log_debug("MCP ghidra_list: query=%s, types=%s", query, types)
     if _ghidra_state is None:
         return {"success": False, "error": "Ghidra state not available"}
 
     from api_v1 import list as v1_list
-    return v1_list.list_symbols(
+    result = v1_list.list_symbols(
         _ghidra_state,
         q=query,
         types=types,
@@ -207,6 +220,8 @@ def ghidra_list(
         limit=limit,
         verbose="true" if verbose else ""
     )
+    log_debug("MCP ghidra_list: success=%s", result.get("success", False))
+    return result
 
 
 def ghidra_edit(
@@ -333,6 +348,7 @@ def ghidra_edit(
         ghidra_edit(action="comment.set", address="0x401000", type="EOL", text="Entry point")
         ghidra_edit(action="datatype.create.struct", name="Point", fields='[{"name":"x","type":"int"},{"name":"y","type":"int"}]')
     """
+    log_debug("MCP ghidra_edit: action=%s", action)
     if _ghidra_state is None:
         return {"success": False, "error": "Ghidra state not available"}
 
@@ -404,7 +420,9 @@ def ghidra_edit(
     if verbose:
         body["verbose"] = True
 
-    return v1_edit.edit(_ghidra_state, body)
+    result = v1_edit.edit(_ghidra_state, body)
+    log_debug("MCP ghidra_edit: success=%s", result.get("success", False))
+    return result
 
 
 def ghidra_basic_info() -> dict:
@@ -426,11 +444,14 @@ def ghidra_basic_info() -> dict:
             - function_count: Number of functions
             - symbol_count: Number of symbols
     """
+    log_debug("MCP ghidra_basic_info called")
     if _ghidra_state is None:
         return {"success": False, "error": "Ghidra state not available"}
 
     from api import basic_info
-    return basic_info.basic_info(_ghidra_state)
+    result = basic_info.basic_info(_ghidra_state)
+    log_debug("MCP ghidra_basic_info: success=%s", result.get("success", False))
+    return result
 
 
 def _register_mcp_tools():
@@ -490,9 +511,8 @@ def start_mcp_sse_server(host: str = "127.0.0.1", port: int = 8804) -> Optional[
     try:
         actual_port = _find_available_port(host, port)
     except RuntimeError as e:
-        print(f"[Ghidra-MCP-Bridge] MCP server error: {e}")
+        log_error("MCP server error: %s", e)
         return None
-
 
     # Create FastMCP instance with correct settings
     mcp = _create_mcp_instance(host=host, port=actual_port)
@@ -510,17 +530,22 @@ def start_mcp_sse_server(host: str = "127.0.0.1", port: int = 8804) -> Optional[
             starlette_app = mcp.sse_app()
 
             # Use log_config=None to avoid Ghidrathon stream access issues
+            # Uvicorn's default logging config triggers stdout flush which fails in background threads
             config = uvicorn.Config(
                 starlette_app,
                 host=host,
                 port=actual_port,
-                log_config=None,  # Critical: disable logging config for Ghidrathon
+                log_config=None,
                 log_level="warning",
             )
             server = uvicorn.Server(config)
+            log_debug("MCP SSE server starting on %s:%d", host, actual_port)
             loop.run_until_complete(server.serve())
-        except BaseException:
-            pass  # TODO: Thread logs need file output (Ghidrathon threads can't access console)
+        except Exception as e:
+            log_exception("MCP server error in thread")
+        except BaseException as e:
+            # Catch KeyboardInterrupt, SystemExit, etc.
+            log_info("MCP server thread stopped: %s", type(e).__name__)
 
     _mcp_thread = threading.Thread(
         target=run_server,
