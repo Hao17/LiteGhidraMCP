@@ -29,8 +29,10 @@ This is a Ghidrathon-based MCP (Model Context Protocol) Bridge that runs inside 
   - **`list.py`**: 统一列表 API，提供类似 ls 的符号浏览功能
   - **`edit.py`**: 统一编辑 API，支持批量重命名、类型设置、注释操作
 
-- **`mcp_v1/`**: MCP (Model Context Protocol) 模块目录：
-  - **`server.py`**: MCP SSE 服务器实现，包装 api_v1 为 MCP tools
+- **`scripts/`**: 独立脚本目录：
+  - **`mcp_sse_proxy.py`**: MCP SSE 代理服务器，作为独立子进程运行，通过 HTTP API 与 Ghidra 通信
+  - **`mcp_stdio.py`**: MCP stdio 模式脚本，用于本地 Claude Desktop 调试
+  - **`test_mcp.py`**: MCP 和 HTTP API 测试脚本
 
 ### Key Design Patterns
 
@@ -77,11 +79,20 @@ curl http://127.0.0.1:8803/_shutdown
 
 ### MCP (Model Context Protocol) Support
 
-服务器启动时会同时启动 HTTP API (8803) 和 MCP SSE (8804) 两个服务。
+服务器启动时会同时启动 HTTP API (8803) 和 MCP SSE Proxy (8804) 两个服务。
+
+MCP SSE 作为独立子进程运行（`scripts/mcp_sse_proxy.py`），通过 HTTP API 与 Ghidra 通信，避免 Ghidrathon 线程限制：
+
+```
+┌─────────────────┐     SSE       ┌─────────────────┐     HTTP      ┌─────────────────┐
+│  Claude Desktop │ ◄───────────► │ mcp_sse_proxy   │ ◄───────────► │  Ghidra Bridge  │
+│                 │               │   (subprocess)  │               │  (HTTP Server)  │
+└─────────────────┘               └─────────────────┘               └─────────────────┘
+```
 
 **Dependencies:**
 ```bash
-pip install mcp uvicorn
+pip install mcp uvicorn httpx
 ```
 
 **Claude Desktop Configuration:**
@@ -106,7 +117,7 @@ pip install mcp uvicorn
 
 **MCP stdio Mode (for local debugging):**
 
-除了 SSE 模式，还提供独立的 stdio 模式脚本 `mcp_stdio.py`，用于本地 Claude Desktop 调试。
+除了 SSE 模式，还提供独立的 stdio 模式脚本 `scripts/mcp_stdio.py`，用于本地 Claude Desktop 调试。
 
 stdio 模式作为独立进程运行，通过 HTTP API 与 Ghidra Bridge 通信：
 
@@ -122,7 +133,7 @@ Claude Desktop 配置 (stdio 模式):
   "mcpServers": {
     "ghidra": {
       "command": "/opt/homebrew/anaconda3/envs/ghidra/bin/python",
-      "args": ["/path/to/Bridge/mcp_stdio.py", "--port", "8803"]
+      "args": ["/path/to/Bridge/scripts/mcp_stdio.py", "--port", "8803"]
     }
   }
 }
@@ -136,11 +147,11 @@ Claude Desktop 配置 (stdio 模式):
 
 | 特性 | SSE 模式 | stdio 模式 |
 |------|----------|------------|
-| 进程 | Ghidra 内置线程 | 独立 Python 进程 |
+| 进程 | Ghidra 自动启动子进程 | 手动配置独立进程 |
 | 配置 | `"url": "http://...sse"` | `"command": "python"` |
-| 调试 | 无法直接调试 | 可用 IDE 调试 |
-| 性能 | 直接访问 Ghidra API | 通过 HTTP 代理 |
-| 适用场景 | 生产使用 | 本地开发调试 |
+| 调试 | 查看子进程日志 | 可用 IDE 调试 |
+| 性能 | 通过 HTTP 代理 | 通过 HTTP 代理 |
+| 适用场景 | 生产使用（推荐） | 本地开发调试 |
 
 ### API Testing
 ```bash

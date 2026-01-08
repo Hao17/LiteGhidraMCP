@@ -15,17 +15,10 @@ Modes:
 Requirements:
     pip install mcp httpx
 
-Known Issues (2026-01-08):
-    - MCP SSE: Connection and initialization succeed, but list_tools times out.
-      Possible causes:
-      1. uvicorn SSE responses may be buffered in daemon thread
-      2. FastMCP SSE implementation may not be compatible with Ghidrathon thread environment
-      3. asyncio event loop limitations in sub-threads
-
-      The MCP server runs in a daemon thread (mcp_v1/server.py:525-530),
-      and tool responses may not be properly sent back through SSE stream.
-
-      Workaround: Use stdio mode (mcp_stdio.py) which proxies through HTTP API.
+Note:
+    MCP SSE is now implemented via mcp_sse_proxy.py which runs as an independent
+    subprocess, proxying requests through the HTTP API. This avoids Ghidrathon
+    thread limitations.
 """
 
 import argparse
