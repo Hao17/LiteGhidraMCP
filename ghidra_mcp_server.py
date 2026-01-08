@@ -15,14 +15,12 @@ Entry point is main(script_globals); no side effects at import time.
 import importlib
 import json
 import os
-import socket
 import tempfile
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Dict, Optional
 from urllib.request import urlopen
-from urllib.error import URLError
 
 from utils.logging_config import get_log_file_path, log_debug, log_info
 
@@ -552,41 +550,49 @@ def _check_existing_server(host: str, port: int, timeout: float = 1.0) -> bool:
         return False
 
 
-def _trigger_reload(host: str, port: int, timeout: float = 2.0) -> bool:
+def _trigger_shutdown(host: str, port: int, timeout: float = 2.0) -> bool:
     """
-    触发已运行服务器的热重载。
+    触发已运行服务器的关闭。
     返回 True 表示成功触发。
     """
     try:
-        url = f"http://{host}:{port}/_reload"
+        url = f"http://{host}:{port}/_shutdown"
         with urlopen(url, timeout=timeout) as resp:
             result = json.loads(resp.read().decode("utf-8"))
             return result.get("success", False)
-    except Exception as e:
-        print(f"[Ghidra-MCP-Bridge] Reload request failed: {e}")
-        return False
+    except:
+        # 服务器关闭时连接可能会断开，这是正常的
+        return True
 
 
 def auto_start_or_reload(host: str = HOST, port: int = PORT, mcp_port: int = MCP_PORT):
     """
-    智能启动逻辑：
-    - 如果目标端口已有 Ghidra-MCP-Bridge 服务器在运行，触发热重载
-    - 否则启动新服务器（包括 HTTP API 和 MCP SSE）
+    启动逻辑：
+    - 如果目标端口已有 Ghidra-MCP-Bridge 服务器在运行，先关闭再重启
+    - 否则直接启动新服务器（包括 HTTP API 和 MCP SSE）
+
+    注意：当前临时禁用热重载，总是完全重启服务器。
     """
+    global _server_instance, _server_thread, _mcp_server_thread, _mcp_actual_port
+
+    print("[Ghidra-MCP-Bridge] run auto_start_or_reload")
+
+    # 检测是否已有服务器在运行，如果有则先关闭
+    if _check_existing_server(host, port):
+        print("[Ghidra-MCP-Bridge] Existing server detected, shutting down...")
+        _trigger_shutdown(host, port)
+        # 等待服务器完全关闭
+        time.sleep(0.5)
+        # 清理全局状态
+        _server_instance = None
+        _server_thread = None
+        _mcp_server_thread = None
+        _mcp_actual_port = None
+
+    # 缓存 Ghidra 上下文并加载 API 模块
     routes = _cache_ghidra_context()
 
-    # 检测是否已有服务器在运行
-    if _check_existing_server(host, port):
-        if _trigger_reload(host, port):
-            # 提取唯一模块名
-            modules = sorted(set(r.get("module", "") for r in routes if r.get("module")))
-            print(f"[Ghidra-MCP-Bridge] Reloaded: {', '.join(modules)}")
-            return None
-        else:
-            print(f"[Ghidra-MCP-Bridge] Reload failed")
-            return None
-
-    # 没有已存在的服务器，启动新的
+    # 启动新服务器
     try:
         # Start HTTP API server
         srv, actual_port = start_server(host=host, port=port)

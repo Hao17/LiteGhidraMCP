@@ -81,9 +81,12 @@ def test_http_api(host: str, port: int) -> bool:
         with urllib.request.urlopen(f"{base_url}/api/basic_info", timeout=10) as resp:
             data = json.loads(resp.read().decode())
             if data.get("success"):
-                print(f"    Program: {data.get('name', 'N/A')}")
-                print(f"    Language: {data.get('language', 'N/A')}")
-                print(f"    Functions: {data.get('function_count', 'N/A')}")
+                program = data.get("program", {})
+                lang = program.get("language", {})
+                funcs = program.get("functions", {})
+                print(f"    Program: {program.get('name', 'N/A')}")
+                print(f"    Language: {lang.get('id', 'N/A')}")
+                print(f"    Functions: {funcs.get('total_count', 'N/A')}")
             else:
                 print(f"    Error: {data.get('error')}")
                 return False
@@ -97,7 +100,8 @@ def test_http_api(host: str, port: int) -> bool:
         with urllib.request.urlopen(f"{base_url}/api/v1/list?limit=5", timeout=10) as resp:
             data = json.loads(resp.read().decode())
             if data.get("success"):
-                summary = data.get("summary", {})
+                inner_data = data.get("data", {})
+                summary = inner_data.get("summary", {})
                 print(f"    Found: {summary}")
             else:
                 print(f"    Error: {data.get('error')}")
@@ -110,7 +114,8 @@ def test_http_api(host: str, port: int) -> bool:
         with urllib.request.urlopen(f"{base_url}/api/v1/search?q=main&limit=3", timeout=10) as resp:
             data = json.loads(resp.read().decode())
             if data.get("success"):
-                summary = data.get("summary", {})
+                inner_data = data.get("data", {})
+                summary = inner_data.get("summary", {})
                 print(f"    Results: {summary}")
             else:
                 print(f"    Error: {data.get('error')}")
