@@ -651,27 +651,10 @@ def _trigger_shutdown(host: str, port: int, timeout: float = 2.0) -> bool:
 def auto_start_or_reload(host: str = HOST, port: int = PORT, mcp_port: int = MCP_PORT):
     """
     启动逻辑：
-    - 如果目标端口已有 Ghidra-MCP-Bridge 服务器在运行，先关闭再重启
-    - 否则直接启动新服务器（包括 HTTP API 和 MCP SSE）
-
-    注意：当前临时禁用热重载，总是完全重启服务器。
+    - 直接启动新服务器（包括 HTTP API 和 MCP SSE）
+    - 端口冲突时自动递增找到可用端口
+    - 支持多个 CodeBrowser 实例同时运行独立的服务器
     """
-    global _server_instance, _server_thread, _mcp_process, _mcp_actual_port
-
-    print("[Ghidra-MCP-Bridge] run auto_start_or_reload")
-
-    # 检测是否已有服务器在运行，如果有则先关闭
-    if _check_existing_server(host, port):
-        print("[Ghidra-MCP-Bridge] Existing server detected, shutting down...")
-        _trigger_shutdown(host, port)
-        # 等待服务器完全关闭
-        time.sleep(0.5)
-        # 清理全局状态
-        _server_instance = None
-        _server_thread = None
-        _mcp_process = None
-        _mcp_actual_port = None
-
     # 缓存 Ghidra 上下文并加载 API 模块
     routes = _cache_ghidra_context()
 
