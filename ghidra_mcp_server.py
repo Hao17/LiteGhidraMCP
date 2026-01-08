@@ -462,42 +462,52 @@ def _start_mcp_server(host: str, port: int) -> Optional[int]:
         return None
 
 
+def _test_server(host: str, port: int) -> Optional[dict]:
+    """测试服务器并获取程序基本信息"""
+    try:
+        url = f"http://{host}:{port}/api/basic_info"
+        with urlopen(url, timeout=2.0) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except:
+        return None
+
+
 def _print_startup_banner(host: str, port: int, mcp_port: Optional[int] = None, routes: list = None):
-    """打印启动横幅和 Quick Start 提示"""
-    base_url = f"http://{host}:{port}"
+    """打印简洁的启动信息"""
+    print(f"[Ghidra-MCP-Bridge] ────────────────────────────────────────────────")
     routes = routes or []
-
-    print(f"[Ghidra-MCP-Bridge] ═══════════════════════════════════════════════════════════")
-    print(f"[Ghidra-MCP-Bridge] Loaded {len(routes)} API routes:")
-
-    # 按模块分组显示路由
-    modules = {}
+    # 按包分组显示模块
+    packages = {}
     for r in routes:
-        mod = r.get("module", "unknown")
-        path = r.get("path", "")
-        if mod not in modules:
-            modules[mod] = []
-        modules[mod].append(path)
+        module = r.get("module", "")
+        if "." in module:
+            pkg, name = module.split(".", 1)
+            if pkg not in packages:
+                packages[pkg] = []
+            if name not in packages[pkg]:
+                packages[pkg].append(name)
+    for pkg in sorted(packages.keys()):
+        modules = sorted(packages[pkg])
+        print(f"[Ghidra-MCP-Bridge] Loaded {pkg}: {', '.join(modules)}")
 
-    for mod, paths in sorted(modules.items()):
-        print(f"[Ghidra-MCP-Bridge]   {mod}: {', '.join(paths)}")
-
-    print(f"[Ghidra-MCP-Bridge] ───────────────────────────────────────────────────────────")
-    print(f"[Ghidra-MCP-Bridge] HTTP API Server: {base_url}")
+    http_url = f"http://{host}:{port}"
+    print(f"[Ghidra-MCP-Bridge] HTTP Server: {http_url}")
     if mcp_port:
-        mcp_url = f"http://{host}:{mcp_port}/sse"
-        print(f"[Ghidra-MCP-Bridge] MCP SSE Server: {mcp_url}")
+        print(f"[Ghidra-MCP-Bridge] MCP Server:  http://{host}:{mcp_port}/sse")
+
+    # 测试服务器并显示程序信息
+    info = _test_server(host, port)
+    if info and info.get("success"):
+        prog = info.get("program", {})
+        name = prog.get("name", "?")
+        lang = prog.get("language", {})
+        arch = lang.get("processor", "?")
+        bits = lang.get("size", "?")
+        funcs = prog.get("functions", {}).get("total_count", "?")
+        print(f"[Ghidra-MCP-Bridge] Current Loaded Program: {name} ({arch}/{bits}-bit, {funcs} functions)")
     else:
-        print(f"[Ghidra-MCP-Bridge] MCP SSE Server: (not started)")
-    print(f"[Ghidra-MCP-Bridge] ───────────────────────────────────────────────────────────")
-    print(f"[Ghidra-MCP-Bridge] Quick Start:")
-    print(f"[Ghidra-MCP-Bridge]   {base_url}/api/basic_info")
-    print(f"[Ghidra-MCP-Bridge]   {base_url}/api/search/functions?q=main")
-    print(f"[Ghidra-MCP-Bridge]   {base_url}/_shutdown")
-    if mcp_port:
-        print(f"[Ghidra-MCP-Bridge] MCP Config (Claude Desktop):")
-        print(f'[Ghidra-MCP-Bridge]   {{"mcpServers": {{"ghidra": {{"url": "http://{host}:{mcp_port}/sse"}}}}}}')
-    print(f"[Ghidra-MCP-Bridge] ═══════════════════════════════════════════════════════════")
+        print(f"[Ghidra-MCP-Bridge] Try: {http_url}/api/basic_info")
+    print(f"[Ghidra-MCP-Bridge] ────────────────────────────────────────────────")
 
 
 def main(script_globals: Dict[str, Any] | None = None, host: str = HOST, port: int = PORT):
@@ -552,18 +562,17 @@ def auto_start_or_reload(host: str = HOST, port: int = PORT, mcp_port: int = MCP
     - 如果目标端口已有 Ghidra-MCP-Bridge 服务器在运行，触发热重载
     - 否则启动新服务器（包括 HTTP API 和 MCP SSE）
     """
-    # 先缓存 Ghidra 上下文
-    print("[Ghidra-MCP-Bridge] Caching Ghidra context...")
     routes = _cache_ghidra_context()
 
     # 检测是否已有服务器在运行
     if _check_existing_server(host, port):
-        print(f"[Ghidra-MCP-Bridge] Existing server detected, triggering reload...")
         if _trigger_reload(host, port):
-            print(f"[Ghidra-MCP-Bridge] API modules reloaded successfully")
-            return None  # 不返回服务器实例，因为我们没有启动新的
+            # 提取唯一模块名
+            modules = sorted(set(r.get("module", "") for r in routes if r.get("module")))
+            print(f"[Ghidra-MCP-Bridge] Reloaded: {', '.join(modules)}")
+            return None
         else:
-            print(f"[Ghidra-MCP-Bridge] Reload failed, existing server may be unresponsive")
+            print(f"[Ghidra-MCP-Bridge] Reload failed")
             return None
 
     # 没有已存在的服务器，启动新的

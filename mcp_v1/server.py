@@ -493,8 +493,6 @@ def start_mcp_sse_server(host: str = "127.0.0.1", port: int = 8804) -> Optional[
         print(f"[Ghidra-MCP-Bridge] MCP server error: {e}")
         return None
 
-    if actual_port != port:
-        print(f"[Ghidra-MCP-Bridge] MCP port {port} in use, using {actual_port}")
 
     # Create FastMCP instance with correct settings
     mcp = _create_mcp_instance(host=host, port=actual_port)
