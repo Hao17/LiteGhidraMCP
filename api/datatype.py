@@ -1740,41 +1740,29 @@ def parse_c_code(state, code="", category="/"):
     for dt in dtm.getAllDataTypes():
         initial_types.add(dt.getPathName())
 
-    # Write code to temp file
-    temp_path = None
-    try:
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.h', delete=False) as f:
-            f.write(code)
-            temp_path = f.name
-    except Exception as e:
-        return _make_error(f"Failed to create temp file: {str(e)}")
-
     tx_id = prog.startTransaction("Parse C Code")
     try:
         from ghidra.app.util.cparser.C import CParser
+        from ghidra.program.model.data import DataTypeConflictHandler
 
-        parser = CParser(dtm, True)  # True = store data types
-        parser.parse(temp_path)
+        # 初始化 CParser
+        parser = CParser(dtm)
+
+        # 直接传入 C 代码字符串
+        parsed_dt = parser.parse(code)
+
+        # 将解析出的类型添加到 Manager 中
+        if parsed_dt is not None:
+            dtm.addDataType(parsed_dt, DataTypeConflictHandler.DEFAULT_HANDLER)
 
         prog.endTransaction(tx_id, True)
     except Exception as e:
         prog.endTransaction(tx_id, False)
-        if temp_path:
-            try:
-                os.remove(temp_path)
-            except:
-                pass
         error_msg = str(e)
         # Parse error messages are often verbose, try to extract key info
         if "line" in error_msg.lower():
             return _make_error(f"Parse error: {error_msg}")
         return _make_error(f"Failed to parse C code: {error_msg}")
-    finally:
-        if temp_path:
-            try:
-                os.remove(temp_path)
-            except:
-                pass
 
     # Find newly added types
     new_types = []
