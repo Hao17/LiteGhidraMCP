@@ -1712,7 +1712,7 @@ def move_datatype(state, source="", dest_category="/"):
 # ============================================================
 
 @route("/api/datatype/parse/c")
-def parse_c_code(state, code="", category="/"):
+def parse_c_code(state, code="", category=""):
     """
     解析 C 代码创建数据类型。
 
@@ -1720,7 +1720,7 @@ def parse_c_code(state, code="", category="/"):
 
     参数:
         code: C 代码（URL 编码）
-        category: 类别路径 (默认 /)
+        category: 类别路径 (可选，新类型默认放在 /ai_gen_structs/，修改已有类型则保持原位置)
 
     示例 code:
         typedef struct { int x; int y; } Point;
@@ -1736,10 +1736,16 @@ def parse_c_code(state, code="", category="/"):
 
     dtm = prog.getDataTypeManager()
 
-    # Get initial type count
-    initial_types = set()
+    # Get initial types (for detecting new vs existing)
+    # name -> (path, category_path)
+    initial_types = {}
+    initial_paths = set()  # For detecting truly new types
     for dt in dtm.getAllDataTypes():
-        initial_types.add(dt.getPathName())
+        initial_types[dt.getName()] = (dt.getPathName(), str(dt.getCategoryPath()))
+        initial_paths.add(dt.getPathName())
+
+    # Default category for new types
+    default_new_category = "/ai_gen_structs"
 
     tx_id = prog.startTransaction("Parse C Code")
     try:
@@ -1753,9 +1759,27 @@ def parse_c_code(state, code="", category="/"):
         parsed_dt = parser.parse(code)
 
         # 将解析出的类型添加到 Manager 中
-        # 使用 REPLACE_HANDLER 以支持修改已存在的类型
         if parsed_dt is not None:
-            dtm.addDataType(parsed_dt, DataTypeConflictHandler.REPLACE_HANDLER)
+            type_name = parsed_dt.getName()
+            is_existing = type_name in initial_types
+
+            if is_existing:
+                # 修改已有类型：设置为原来的 category，然后替换
+                original_path, original_category = initial_types[type_name]
+                cat_path = CategoryPath(original_category)
+                parsed_dt.setCategoryPath(cat_path)
+                dtm.addDataType(parsed_dt, DataTypeConflictHandler.REPLACE_HANDLER)
+            else:
+                # 新类型：放到指定目录或默认的 ai_gen_structs
+                target_category = category if category else default_new_category
+                cat_path = CategoryPath(target_category)
+
+                # 确保类别存在
+                dtm.createCategory(cat_path)
+
+                # 设置类别并添加
+                parsed_dt.setCategoryPath(cat_path)
+                dtm.addDataType(parsed_dt, DataTypeConflictHandler.REPLACE_HANDLER)
 
         prog.endTransaction(tx_id, True)
     except Exception as e:
@@ -1770,7 +1794,7 @@ def parse_c_code(state, code="", category="/"):
     new_types = []
     for dt in dtm.getAllDataTypes():
         path = dt.getPathName()
-        if path not in initial_types:
+        if path not in initial_paths:
             new_types.append({
                 "name": dt.getName(),
                 "path": path,

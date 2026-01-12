@@ -251,9 +251,9 @@ def _parse_query_params(query_string):
     for pair in query_string.split("&"):
         if "=" in pair:
             key, value = pair.split("=", 1)
-            # URL解码
-            from urllib.parse import unquote
-            params[unquote(key)] = unquote(value)
+            # URL解码 (unquote_plus 会把 + 转换成空格)
+            from urllib.parse import unquote_plus
+            params[unquote_plus(key)] = unquote_plus(value)
     return params
 
 
