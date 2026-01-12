@@ -1753,9 +1753,9 @@ def parse_c_code(state, code="", category="/"):
         parsed_dt = parser.parse(code)
 
         # 将解析出的类型添加到 Manager 中
-        # 使用 REPLACE_EXISTING 以支持修改已存在的类型
+        # 使用 REPLACE_HANDLER 以支持修改已存在的类型
         if parsed_dt is not None:
-            dtm.addDataType(parsed_dt, DataTypeConflictHandler.REPLACE_EXISTING_DATA_TYPE)
+            dtm.addDataType(parsed_dt, DataTypeConflictHandler.REPLACE_HANDLER)
 
         prog.endTransaction(tx_id, True)
     except Exception as e:
