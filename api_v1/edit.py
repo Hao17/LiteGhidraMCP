@@ -49,23 +49,19 @@ def _err(message):
 
 ACTION_HANDLERS = {
     # ==================== Rename Actions ====================
-    "rename.function": rename_api.rename_function,
+    # Function signature: use rename.function_signature for name/return/params
     "rename.variable": rename_api.rename_variable,
-    "rename.parameter": rename_api.rename_parameter,
     "rename.global": rename_api.rename_global,
     "rename.label": rename_api.rename_label,
     "rename.datatype": rename_api.rename_datatype,
     "rename.namespace": rename_api.rename_namespace,
     "rename.decompiler.variable": rename_api.rename_decompiler_variable,
-    "rename.decompiler.parameter": rename_api.rename_decompiler_parameter,
     "rename.decompiler.split": rename_api.split_variable,
     "rename.function_signature": rename_api.rename_function_signature,
 
     # ==================== DataType Set Actions ====================
-    "datatype.set.return": datatype_api.set_return_type,
-    "datatype.set.parameter": datatype_api.set_parameter_type,
+    # Function signature types: use rename.function_signature instead
     "datatype.set.decompiler.variable": datatype_api.set_decompiler_variable_type,
-    "datatype.set.decompiler.parameter": datatype_api.set_decompiler_parameter_type,
     "datatype.set.global": datatype_api.set_global_type,
     "datatype.set.field": datatype_api.set_struct_field_type,
 
