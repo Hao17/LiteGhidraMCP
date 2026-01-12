@@ -221,76 +221,86 @@ def _decompile_function(prog, func, timeout=30):
 
 
 # Built-in type mapping
-_BUILTIN_TYPES = {
-    # Signed integers
-    "int": IntegerDataType.dataType,
-    "int32": IntegerDataType.dataType,
-    "int32_t": IntegerDataType.dataType,
-    "char": CharDataType.dataType,
-    "short": ShortDataType.dataType,
-    "int16": ShortDataType.dataType,
-    "int16_t": ShortDataType.dataType,
-    "long": LongDataType.dataType,
-    "longlong": LongLongDataType.dataType,
-    "long long": LongLongDataType.dataType,
-    "int64": LongLongDataType.dataType,
-    "int64_t": LongLongDataType.dataType,
-    "int8": SignedByteDataType.dataType,
-    "int8_t": SignedByteDataType.dataType,
+# Cache in sys.modules to survive module reloads (reloads happen on worker threads
+# where Java class access fails in Ghidrathon)
+import sys
+_BUILTIN_TYPES_CACHE_KEY = '_ghidra_api_datatype_builtin_types'
 
-    # Unsigned integers
-    "uint": UnsignedIntegerDataType.dataType,
-    "uint32": UnsignedIntegerDataType.dataType,
-    "uint32_t": UnsignedIntegerDataType.dataType,
-    "unsigned int": UnsignedIntegerDataType.dataType,
-    "unsigned": UnsignedIntegerDataType.dataType,
-    "uchar": UnsignedCharDataType.dataType,
-    "unsigned char": UnsignedCharDataType.dataType,
-    "ushort": UnsignedShortDataType.dataType,
-    "unsigned short": UnsignedShortDataType.dataType,
-    "uint16": UnsignedShortDataType.dataType,
-    "uint16_t": UnsignedShortDataType.dataType,
-    "ulong": UnsignedLongDataType.dataType,
-    "unsigned long": UnsignedLongDataType.dataType,
-    "ulonglong": UnsignedLongLongDataType.dataType,
-    "unsigned long long": UnsignedLongLongDataType.dataType,
-    "uint64": UnsignedLongLongDataType.dataType,
-    "uint64_t": UnsignedLongLongDataType.dataType,
-    "uint8": ByteDataType.dataType,
-    "uint8_t": ByteDataType.dataType,
+if _BUILTIN_TYPES_CACHE_KEY not in sys.modules:
+    # First load on main thread - initialize the cache
+    sys.modules[_BUILTIN_TYPES_CACHE_KEY] = {
+        # Signed integers
+        "int": IntegerDataType.dataType,
+        "int32": IntegerDataType.dataType,
+        "int32_t": IntegerDataType.dataType,
+        "char": CharDataType.dataType,
+        "short": ShortDataType.dataType,
+        "int16": ShortDataType.dataType,
+        "int16_t": ShortDataType.dataType,
+        "long": LongDataType.dataType,
+        "longlong": LongLongDataType.dataType,
+        "long long": LongLongDataType.dataType,
+        "int64": LongLongDataType.dataType,
+        "int64_t": LongLongDataType.dataType,
+        "int8": SignedByteDataType.dataType,
+        "int8_t": SignedByteDataType.dataType,
 
-    # Floating point
-    "float": FloatDataType.dataType,
-    "double": DoubleDataType.dataType,
+        # Unsigned integers
+        "uint": UnsignedIntegerDataType.dataType,
+        "uint32": UnsignedIntegerDataType.dataType,
+        "uint32_t": UnsignedIntegerDataType.dataType,
+        "unsigned int": UnsignedIntegerDataType.dataType,
+        "unsigned": UnsignedIntegerDataType.dataType,
+        "uchar": UnsignedCharDataType.dataType,
+        "unsigned char": UnsignedCharDataType.dataType,
+        "ushort": UnsignedShortDataType.dataType,
+        "unsigned short": UnsignedShortDataType.dataType,
+        "uint16": UnsignedShortDataType.dataType,
+        "uint16_t": UnsignedShortDataType.dataType,
+        "ulong": UnsignedLongDataType.dataType,
+        "unsigned long": UnsignedLongDataType.dataType,
+        "ulonglong": UnsignedLongLongDataType.dataType,
+        "unsigned long long": UnsignedLongLongDataType.dataType,
+        "uint64": UnsignedLongLongDataType.dataType,
+        "uint64_t": UnsignedLongLongDataType.dataType,
+        "uint8": ByteDataType.dataType,
+        "uint8_t": ByteDataType.dataType,
 
-    # Other
-    "void": VoidDataType.dataType,
-    "bool": BooleanDataType.dataType,
-    "boolean": BooleanDataType.dataType,
-    "_Bool": BooleanDataType.dataType,
+        # Floating point
+        "float": FloatDataType.dataType,
+        "double": DoubleDataType.dataType,
 
-    # Ghidra specific
-    "byte": ByteDataType.dataType,
-    "word": WordDataType.dataType,
-    "dword": DWordDataType.dataType,
-    "qword": QWordDataType.dataType,
-    "sbyte": SignedByteDataType.dataType,
-    "sword": SignedWordDataType.dataType,
-    "sdword": SignedDWordDataType.dataType,
-    "sqword": SignedQWordDataType.dataType,
-    "undefined": Undefined1DataType.dataType,
-    "undefined1": Undefined1DataType.dataType,
-    "undefined2": Undefined2DataType.dataType,
-    "undefined4": Undefined4DataType.dataType,
-    "undefined8": Undefined8DataType.dataType,
+        # Other
+        "void": VoidDataType.dataType,
+        "bool": BooleanDataType.dataType,
+        "boolean": BooleanDataType.dataType,
+        "_Bool": BooleanDataType.dataType,
 
-    # Size-specific (platform dependent in reality, but commonly)
-    "size_t": UnsignedLongLongDataType.dataType,
-    "ssize_t": LongLongDataType.dataType,
-    "ptrdiff_t": LongLongDataType.dataType,
-    "intptr_t": LongLongDataType.dataType,
-    "uintptr_t": UnsignedLongLongDataType.dataType,
-}
+        # Ghidra specific
+        "byte": ByteDataType.dataType,
+        "word": WordDataType.dataType,
+        "dword": DWordDataType.dataType,
+        "qword": QWordDataType.dataType,
+        "sbyte": SignedByteDataType.dataType,
+        "sword": SignedWordDataType.dataType,
+        "sdword": SignedDWordDataType.dataType,
+        "sqword": SignedQWordDataType.dataType,
+        "undefined": Undefined1DataType.dataType,
+        "undefined1": Undefined1DataType.dataType,
+        "undefined2": Undefined2DataType.dataType,
+        "undefined4": Undefined4DataType.dataType,
+        "undefined8": Undefined8DataType.dataType,
+
+        # Size-specific (platform dependent in reality, but commonly)
+        "size_t": UnsignedLongLongDataType.dataType,
+        "ssize_t": LongLongDataType.dataType,
+        "ptrdiff_t": LongLongDataType.dataType,
+        "intptr_t": LongLongDataType.dataType,
+        "uintptr_t": UnsignedLongLongDataType.dataType,
+    }
+
+# Use the cached version
+_BUILTIN_TYPES = sys.modules[_BUILTIN_TYPES_CACHE_KEY]
 
 
 def _resolve_datatype(dtm, type_str):

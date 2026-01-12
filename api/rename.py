@@ -2,7 +2,10 @@
 """Rename API - 重命名函数、变量、参数、标签、数据类型、命名空间等"""
 
 from api import route
+from api.datatype import _resolve_datatype_safe
 from ghidra.program.model.symbol import SourceType, SymbolType
+from ghidra.program.model.listing import ParameterImpl, Function, ReturnParameterImpl
+from ghidra.program.model.data import DataTypePath
 from ghidra.app.decompiler import DecompInterface
 from ghidra.program.model.pcode import HighFunctionDBUtil
 from ghidra.util.task import ConsoleTaskMonitor
@@ -431,7 +434,6 @@ def rename_datatype(state, name="", path="", new_name=""):
 
     if path:
         # 按路径查找
-        from ghidra.program.model.data import DataTypePath
         try:
             dt_path = DataTypePath(path)
             target_dt = dtm.getDataType(dt_path)
@@ -1184,14 +1186,11 @@ def rename_function_signature(state, function="", function_address="", signature
     dtm = prog.getDataTypeManager()
 
     # 解析返回类型
-    from api.datatype import _resolve_datatype_safe
     return_dt, err = _resolve_datatype_safe(dtm, parsed["return_type"])
     if err:
         return _make_error(f"Invalid return type '{parsed['return_type']}': {err['error']}")
 
     # 解析参数类型
-    from ghidra.program.model.listing import ParameterImpl
-    from ghidra.program.model.data import DataType
     new_params = []
 
     for i, param_info in enumerate(parsed["params"]):
@@ -1236,16 +1235,16 @@ def rename_function_signature(state, function="", function_address="", signature
         for i, p in enumerate(parsed["params"])
     ]
 
+    # 创建返回参数（updateFunction 需要 Variable，不是 DataType）
+    return_param = ReturnParameterImpl(return_dt, prog)
+
     # 执行更新
     tx_id = prog.startTransaction("Update Function Signature")
     try:
-        from ghidra.program.model.symbol import SourceType
-        from ghidra.program.model.listing import Function
-
         # 1. 更新函数签名（返回类型、参数）
         func.updateFunction(
             new_calling_conv if new_calling_conv else old_calling_conv,
-            return_dt,
+            return_param,
             new_params,
             Function.FunctionUpdateType.DYNAMIC_STORAGE_ALL_PARAMS,
             True,  # force
