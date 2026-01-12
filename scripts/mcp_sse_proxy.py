@@ -140,14 +140,14 @@ def ghidra_search(
 
 @mcp.tool()
 def ghidra_view(
-    query: str,
+    query: str = "",
     view_type: str = "both",
     timeout: int = 30,
     limit: int = 500,
     verbose: bool = False
 ) -> dict:
     """
-    View decompiled code and/or disassembly for functions.
+    View decompiled code, disassembly, or export data types as C header.
 
     Supports batch queries for multiple functions at once.
 
@@ -156,10 +156,12 @@ def ghidra_view(
                - By name: "main", "init"
                - By address: "0x401000"
                - Batch: "main,init,0x401000"
+               - For type=header: category path filter (default "/" for all)
         view_type: What to return:
                - "both": Decompiled C code + assembly (default)
                - "decompile": Only decompiled C code
                - "disassemble": Only assembly instructions
+               - "header": Export data types as C header format
         timeout: Decompilation timeout in seconds (default: 30)
         limit: Max assembly instructions per function (default: 500)
         verbose: If True, return full dict format; if False, compact
@@ -167,9 +169,8 @@ def ghidra_view(
     Returns:
         dict with:
             - success: bool
-            - data.functions: list of function results
-            - For each function: info (name, address, signature, size),
-              decompiled code lines, assembly instructions
+            - For functions: data.functions list with info, decompiled code, assembly
+            - For header: data.header with C header content
     """
     params = f"q={query}&type={view_type}&timeout={timeout}&limit={limit}"
     if verbose:
@@ -246,18 +247,15 @@ def ghidra_edit(
     # Type-related parameters
     type: str = "",
     var_name: str = "",
-    param: str = "",
+    # Function signature parameter
+    signature: str = "",
     # Comment parameters
     text: str = "",
-    # DataType creation parameters
-    fields: str = "",
-    members: str = "",
-    base_type: str = "",
-    return_type: str = "",
-    params_json: str = "",
-    category: str = "/",
-    # Other parameters
+    # C code for datatype.parse.c
+    code: str = "",
+    # Split variable parameter
     use_address: str = "",
+    # Other parameters
     timeout: int = 30,
     verbose: bool = False
 ) -> dict:
@@ -270,40 +268,21 @@ def ghidra_edit(
     Args:
         action: The edit action to perform. Available actions:
             Rename actions:
-            - "rename.function": Rename a function
+            - "rename.function_signature": Modify function name, return type, calling convention,
+              and parameters via C signature string (RECOMMENDED for function modifications)
             - "rename.variable": Rename a local variable (Listing level)
-            - "rename.parameter": Rename a function parameter (Listing level)
             - "rename.global": Rename a global variable
             - "rename.label": Rename a label
             - "rename.datatype": Rename a data type
             - "rename.namespace": Rename a namespace/class
             - "rename.decompiler.variable": Rename variable in decompiler view (recommended)
-            - "rename.decompiler.parameter": Rename parameter in decompiler view
             - "rename.decompiler.split": Split a variable at specific use point
 
-            DataType set actions:
-            - "datatype.set.return": Set function return type
-            - "datatype.set.parameter": Set function parameter type
+            DataType actions:
+            - "datatype.parse.c": Parse C code to create types (struct/enum/typedef/union/funcdef)
             - "datatype.set.decompiler.variable": Set variable type in decompiler
-            - "datatype.set.decompiler.parameter": Set parameter type in decompiler
             - "datatype.set.global": Set global variable type
             - "datatype.set.field": Set struct field type
-
-            DataType create actions:
-            - "datatype.create.struct": Create a new struct
-            - "datatype.create.enum": Create a new enum
-            - "datatype.create.typedef": Create a typedef alias
-            - "datatype.create.union": Create a union type
-            - "datatype.create.funcdef": Create a function pointer type
-
-            DataType management:
-            - "datatype.struct.field.add": Add field to struct
-            - "datatype.struct.field.delete": Delete field from struct
-            - "datatype.struct.field.modify": Modify struct field
-            - "datatype.enum.member.add": Add enum member
-            - "datatype.enum.member.delete": Delete enum member
-            - "datatype.delete": Delete a data type
-            - "datatype.parse.c": Parse C code to create types
 
             Comment actions:
             - "comment.set": Set or delete a comment
@@ -311,18 +290,15 @@ def ghidra_edit(
         name: Symbol/type name (for rename, datatype operations)
         address: Address in hex (e.g., "0x401000")
         new_name: New name for rename operations
-        function: Function name for variable/parameter operations
+        function: Function name for variable operations
         function_address: Function address (alternative to function name)
         type: Type string (e.g., "int", "char *", "MyStruct *")
         var_name: Variable name for variable operations
-        param: Parameter index (0-based) or name
+        signature: C function signature for rename.function_signature
+                   (e.g., "int main(int argc, char **argv)")
+                   Supports calling conventions: __stdcall, __cdecl, __fastcall, etc.
         text: Comment text (empty string to delete)
-        fields: JSON array for struct fields: [{"name": "x", "type": "int"}]
-        members: JSON for enum members: {"OK": 0, "ERROR": 1}
-        base_type: Base type for typedef
-        return_type: Return type for function definitions
-        params_json: JSON array of parameters for function definitions
-        category: Category path for new types (default: "/")
+        code: C code for datatype.parse.c action
         use_address: Address for split variable operation
         timeout: Timeout for decompiler operations (default: 30)
         verbose: If True, return detailed input/output info
@@ -334,11 +310,10 @@ def ghidra_edit(
             - For batch: results array with individual outcomes
 
     Examples:
-        ghidra_edit(action="rename.function", name="FUN_00401000", new_name="main")
-        ghidra_edit(action="datatype.set.return", function="main", type="int")
+        ghidra_edit(action="rename.function_signature", function="FUN_00401000", signature="int main(int argc, char **argv)")
         ghidra_edit(action="rename.decompiler.variable", function="main", var_name="local_8", new_name="counter")
         ghidra_edit(action="comment.set", address="0x401000", type="EOL", text="Entry point")
-        ghidra_edit(action="datatype.create.struct", name="Point", fields='[{"name":"x","type":"int"},{"name":"y","type":"int"}]')
+        ghidra_edit(action="datatype.parse.c", code="typedef struct { int x; int y; } Point;")
     """
     body = {"action": action}
 
@@ -357,22 +332,12 @@ def ghidra_edit(
         body["type"] = type
     if var_name:
         body["var_name"] = var_name
-    if param:
-        body["param"] = param
+    if signature:
+        body["signature"] = signature
     if text:
         body["text"] = text
-    if fields:
-        body["fields"] = fields
-    if members:
-        body["members"] = members
-    if base_type:
-        body["base_type"] = base_type
-    if return_type:
-        body["return_type"] = return_type
-    if params_json:
-        body["params"] = params_json
-    if category != "/":
-        body["category"] = category
+    if code:
+        body["code"] = code
     if use_address:
         body["use_address"] = use_address
     if timeout != 30:

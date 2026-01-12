@@ -74,18 +74,19 @@ def ghidra_search(
 
 @mcp.tool()
 def ghidra_view(
-    query: str,
+    query: str = "",
     view_type: str = "both",
     timeout: int = 30,
     limit: int = 500,
     verbose: bool = False
 ) -> dict:
     """
-    View decompiled code and/or disassembly for functions.
+    View decompiled code, disassembly, or export data types as C header.
 
     Args:
         query: Function name or address (e.g., "main", "0x401000")
-        view_type: "both", "decompile", or "disassemble"
+               For type=header: category path filter (default "/" for all)
+        view_type: "both", "decompile", "disassemble", or "header"
         timeout: Decompilation timeout in seconds
         limit: Maximum instructions for disassembly
         verbose: Return full dict format if True
@@ -139,34 +140,44 @@ def ghidra_edit(
     address: str = "",
     new_name: str = "",
     function: str = "",
+    function_address: str = "",
     var_name: str = "",
-    param: str = "",
     type: str = "",
+    signature: str = "",
     text: str = "",
-    fields: str = "",
-    members: str = "",
     code: str = "",
+    use_address: str = "",
+    timeout: int = 30,
     verbose: bool = False
 ) -> dict:
     """
-    Edit the binary (rename, set types, add comments, create structures).
+    Edit the binary (rename, set types, add comments).
 
     Args:
-        action: Operation to perform, e.g.:
-            - "rename.function", "rename.decompiler.variable"
-            - "datatype.set.return", "datatype.create.struct"
+        action: Operation to perform. Available actions:
+            Rename:
+            - "rename.function_signature": Modify function via C signature (RECOMMENDED)
+            - "rename.variable", "rename.global", "rename.label"
+            - "rename.datatype", "rename.namespace"
+            - "rename.decompiler.variable", "rename.decompiler.split"
+            DataType:
+            - "datatype.parse.c": Create types from C code
+            - "datatype.set.decompiler.variable", "datatype.set.global", "datatype.set.field"
+            Comment:
             - "comment.set"
         name: Symbol name (for rename operations)
         address: Address (hex string like "0x401000")
         new_name: New name for rename operations
-        function: Function name/address for variable operations
+        function: Function name for variable operations
+        function_address: Function address (alternative to function name)
         var_name: Variable name
-        param: Parameter index or name
         type: Data type string
+        signature: C function signature for rename.function_signature
+                   (e.g., "int main(int argc, char **argv)")
         text: Comment text
-        fields: JSON array for struct fields
-        members: JSON for enum members
         code: C code for datatype.parse.c
+        use_address: Address for split variable operation
+        timeout: Timeout for decompiler operations
         verbose: Include input params in response
     """
     body = {"action": action}
@@ -174,13 +185,14 @@ def ghidra_edit(
     if address: body["address"] = address
     if new_name: body["new_name"] = new_name
     if function: body["function"] = function
+    if function_address: body["function_address"] = function_address
     if var_name: body["var_name"] = var_name
-    if param: body["param"] = param
     if type: body["type"] = type
+    if signature: body["signature"] = signature
     if text: body["text"] = text
-    if fields: body["fields"] = json.loads(fields) if isinstance(fields, str) else fields
-    if members: body["members"] = json.loads(members) if isinstance(members, str) else members
     if code: body["code"] = code
+    if use_address: body["use_address"] = use_address
+    if timeout != 30: body["timeout"] = timeout
     if verbose: body["verbose"] = True
 
     return _call_api("/api/v1/edit", method="POST", body=body)
