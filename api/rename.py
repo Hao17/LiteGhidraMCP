@@ -1005,3 +1005,273 @@ def list_variable_instances(state, function="", function_address="", var_name=""
         "can_split": len(instances) > 1,
         "instances": instances
     })
+
+
+# ============================================================
+# 函数签名修改（完整签名一次性设置）
+# ============================================================
+
+import re
+
+# 支持的调用约定
+_CALLING_CONVENTIONS = {
+    "__stdcall", "__cdecl", "__fastcall", "__thiscall", "__vectorcall"
+}
+
+
+def _parse_function_signature(signature):
+    """
+    解析 C 函数签名字符串。
+
+    输入: "int main(int argc, char **argv)"
+          "int __stdcall MessageBoxA(HWND hWnd, LPCSTR lpText, LPCSTR lpCaption, UINT uType)"
+    输出: {
+        "return_type": "int",
+        "calling_convention": "__stdcall",  # 可选
+        "name": "main",
+        "params": [
+            {"type": "int", "name": "argc"},
+            {"type": "char **", "name": "argv"}
+        ]
+    }
+    """
+    signature = signature.strip()
+    if not signature:
+        return None, "Empty signature"
+
+    # 匹配: 返回类型 [调用约定] 函数名(参数列表)
+    # 正则: ^(.+?)\s+(?:(__\w+)\s+)?(\w+)\s*\((.*)\)\s*$
+    pattern = r'^(.+?)\s+(?:(__\w+)\s+)?(\w+)\s*\((.*)\)\s*$'
+    match = re.match(pattern, signature)
+
+    if not match:
+        return None, f"Invalid signature format: {signature}"
+
+    return_type = match.group(1).strip()
+    calling_conv = match.group(2)  # 可能为 None
+    func_name = match.group(3).strip()
+    params_str = match.group(4).strip()
+
+    # 验证调用约定
+    if calling_conv and calling_conv not in _CALLING_CONVENTIONS:
+        return None, f"Unknown calling convention: {calling_conv}"
+
+    result = {
+        "return_type": return_type,
+        "name": func_name,
+        "params": []
+    }
+
+    if calling_conv:
+        result["calling_convention"] = calling_conv
+
+    # 解析参数列表
+    if params_str and params_str.lower() != "void":
+        # 简单的逗号分隔（不处理函数指针等复杂类型）
+        params_list = params_str.split(",")
+        for i, param_str in enumerate(params_list):
+            param_str = param_str.strip()
+            if not param_str:
+                continue
+
+            # 参数格式: type name 或 type (无名称)
+            # 从后往前找最后一个单词作为名称
+            # 处理指针: "char **argv" -> type="char **", name="argv"
+            # 处理数组: "int arr[10]" -> type="int[10]", name="arr" (需要特殊处理)
+
+            param_info = _parse_parameter(param_str, i)
+            if param_info is None:
+                return None, f"Invalid parameter: {param_str}"
+            result["params"].append(param_info)
+
+    return result, None
+
+
+def _parse_parameter(param_str, index):
+    """
+    解析单个参数。
+
+    处理格式:
+    - "int x" -> {"type": "int", "name": "x"}
+    - "char **argv" -> {"type": "char **", "name": "argv"}
+    - "void *" -> {"type": "void *", "name": "param_N"}
+    - "int arr[10]" -> {"type": "int[10]", "name": "arr"}
+    """
+    param_str = param_str.strip()
+
+    # 处理数组: "int arr[10]" 或 "int arr[]"
+    array_match = re.match(r'^(.+?)\s+(\w+)\s*(\[.*\])$', param_str)
+    if array_match:
+        base_type = array_match.group(1).strip()
+        name = array_match.group(2).strip()
+        array_suffix = array_match.group(3).strip()
+        return {"type": base_type + array_suffix, "name": name}
+
+    # 处理普通参数: "type name" 或 "type * name" 或 "type"
+    # 查找最后一个标识符作为名称
+    # 但需要区分 "char *" (无名称) 和 "char *p" (有名称)
+
+    # 先尝试匹配有名称的情况
+    # 名称必须是标识符且不是类型关键字
+    type_keywords = {"void", "int", "char", "short", "long", "float", "double",
+                     "signed", "unsigned", "const", "volatile", "struct", "enum", "union"}
+
+    # 从后往前扫描，找到最后一个可能是名称的标识符
+    tokens = param_str.split()
+    if not tokens:
+        return None
+
+    # 如果只有一个 token 且是类型，认为没有名称
+    if len(tokens) == 1:
+        return {"type": tokens[0], "name": f"param_{index}"}
+
+    # 最后一个 token
+    last_token = tokens[-1]
+
+    # 如果最后一个 token 以 * 结尾，说明是类型的一部分 (如 "void *")
+    if last_token.endswith("*"):
+        return {"type": param_str, "name": f"param_{index}"}
+
+    # 如果最后一个 token 是类型关键字，说明没有名称
+    if last_token.lower() in type_keywords:
+        return {"type": param_str, "name": f"param_{index}"}
+
+    # 否则最后一个 token 是名称
+    # 类型是前面所有 token 的组合
+    name = last_token
+    type_part = " ".join(tokens[:-1])
+
+    # 整理类型字符串: "char * *" -> "char **"
+    type_part = re.sub(r'\s+\*', '*', type_part)
+    type_part = re.sub(r'\*\s+', '* ', type_part)
+    type_part = type_part.strip()
+
+    return {"type": type_part, "name": name}
+
+
+@route("/api/rename/function_signature")
+def rename_function_signature(state, function="", function_address="", signature="", timeout=30):
+    """
+    通过 C 签名字符串修改完整函数签名。
+
+    一次性设置函数名、返回类型、调用约定和参数（类型+名称）。
+
+    路由: GET /api/rename/function_signature?function=FUN_00401000&signature=int main(int argc, char **argv)
+          GET /api/rename/function_signature?function_address=0x401000&signature=int __stdcall foo(int x)
+
+    参数:
+        function: 当前函数名 (与 function_address 二选一)
+        function_address: 函数地址 (与 function 二选一)
+        signature: C 风格函数签名字符串 (必填)
+            例如: "int main(int argc, char **argv)"
+                  "int __stdcall MessageBoxA(HWND hWnd, LPCSTR lpText, LPCSTR lpCaption, UINT uType)"
+        timeout: 反编译超时秒数 (默认 30)
+
+    支持的调用约定: __stdcall, __cdecl, __fastcall, __thiscall, __vectorcall
+    """
+    if not signature:
+        return _make_error("signature is required")
+
+    prog, func, err = _find_function(state, function_address, function)
+    if err:
+        return err
+
+    # 解析签名字符串
+    parsed, err = _parse_function_signature(signature)
+    if err:
+        return _make_error(err)
+
+    dtm = prog.getDataTypeManager()
+
+    # 解析返回类型
+    from api.datatype import _resolve_datatype_safe
+    return_dt, err = _resolve_datatype_safe(dtm, parsed["return_type"])
+    if err:
+        return _make_error(f"Invalid return type '{parsed['return_type']}': {err['error']}")
+
+    # 解析参数类型
+    from ghidra.program.model.listing import ParameterImpl
+    from ghidra.program.model.data import DataType
+    new_params = []
+
+    for i, param_info in enumerate(parsed["params"]):
+        param_dt, err = _resolve_datatype_safe(dtm, param_info["type"])
+        if err:
+            return _make_error(f"Invalid parameter type '{param_info['type']}' at index {i}: {err['error']}")
+
+        param_impl = ParameterImpl(
+            param_info["name"],
+            param_dt,
+            prog
+        )
+        new_params.append(param_impl)
+
+    # 获取旧签名信息
+    old_signature = str(func.getSignature())
+    old_name = func.getName()
+    old_return_type = str(func.getReturnType())
+    old_calling_conv = func.getCallingConventionName()
+    old_params = [(p.getName(), str(p.getDataType())) for p in func.getParameters()]
+
+    # 准备变更记录
+    changes = {}
+
+    # 检查是否需要更改函数名
+    new_name = parsed["name"]
+    if new_name != old_name:
+        changes["name"] = {"old": old_name, "new": new_name}
+
+    # 检查返回类型变化
+    if str(return_dt) != old_return_type:
+        changes["return_type"] = {"old": old_return_type, "new": str(return_dt)}
+
+    # 检查调用约定变化
+    new_calling_conv = parsed.get("calling_convention")
+    if new_calling_conv and new_calling_conv != old_calling_conv:
+        changes["calling_convention"] = {"old": old_calling_conv, "new": new_calling_conv}
+
+    # 记录参数变化
+    changes["parameters"] = [
+        {"index": i, "name": p["name"], "type": p["type"]}
+        for i, p in enumerate(parsed["params"])
+    ]
+
+    # 执行更新
+    tx_id = prog.startTransaction("Update Function Signature")
+    try:
+        from ghidra.program.model.symbol import SourceType
+        from ghidra.program.model.listing import Function
+
+        # 1. 更新函数签名（返回类型、参数）
+        func.updateFunction(
+            new_calling_conv if new_calling_conv else old_calling_conv,
+            return_dt,
+            new_params,
+            Function.FunctionUpdateType.DYNAMIC_STORAGE_ALL_PARAMS,
+            True,  # force
+            SourceType.USER_DEFINED
+        )
+
+        # 2. 如果函数名不同，重命名函数
+        if new_name != old_name:
+            func.setName(new_name, SourceType.USER_DEFINED)
+
+        prog.endTransaction(tx_id, True)
+    except Exception as e:
+        prog.endTransaction(tx_id, False)
+        error_msg = str(e)
+        if "Duplicate" in error_msg or "already exists" in error_msg.lower():
+            return _make_error(f"Name already exists: {new_name}")
+        return _make_error(f"Failed to update function signature: {error_msg}")
+
+    # 获取新签名
+    new_signature_str = str(func.getSignature())
+
+    return _make_success({
+        "function": func.getName(),
+        "address": str(func.getEntryPoint()),
+        "old_signature": old_signature,
+        "new_signature": new_signature_str,
+        "changes": changes,
+        "type": "function_signature"
+    })

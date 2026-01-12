@@ -59,6 +59,7 @@ ACTION_HANDLERS = {
     "rename.decompiler.variable": rename_api.rename_decompiler_variable,
     "rename.decompiler.parameter": rename_api.rename_decompiler_parameter,
     "rename.decompiler.split": rename_api.split_variable,
+    "rename.function_signature": rename_api.rename_function_signature,
 
     # ==================== DataType Set Actions ====================
     "datatype.set.return": datatype_api.set_return_type,

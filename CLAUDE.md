@@ -215,6 +215,10 @@ curl "http://127.0.0.1:8803/api/rename/decompiler/parameter?function=main&param=
 curl "http://127.0.0.1:8803/api/rename/decompiler/variable/instances?function=main&var_name=uVar1"  # 先查看使用点
 curl "http://127.0.0.1:8803/api/rename/decompiler/split?function=main&var_name=uVar1&use_address=0x401050&new_name=result"
 
+# Function Signature API 测试 (完整签名修改)
+curl "http://127.0.0.1:8803/api/rename/function_signature?function=FUN_00401000&signature=int%20main(int%20argc,%20char%20**argv)"
+curl "http://127.0.0.1:8803/api/rename/function_signature?function=sub_401000&signature=int%20__stdcall%20MessageBoxA(HWND%20hWnd,%20LPCSTR%20lpText)"
+
 # V1 View API 测试
 curl "http://127.0.0.1:8803/api/v1/view?q=main"
 curl "http://127.0.0.1:8803/api/v1/view?q=main,init&type=decompile"
@@ -235,6 +239,7 @@ curl -X POST http://127.0.0.1:8803/api/v1/edit -H "Content-Type: application/jso
 curl -X POST http://127.0.0.1:8803/api/v1/edit -H "Content-Type: application/json" -d '{"action": "rename.decompiler.variable", "function": "main", "var_name": "local_8", "new_name": "counter"}'
 curl -X POST http://127.0.0.1:8803/api/v1/edit -H "Content-Type: application/json" -d '{"action": "comment.set", "address": "0x401000", "type": "EOL", "text": "Entry point"}'
 curl -X POST http://127.0.0.1:8803/api/v1/edit -H "Content-Type: application/json" -d '{"action": "datatype.parse.c", "code": "typedef struct { int x; int y; } Point;"}'
+curl -X POST http://127.0.0.1:8803/api/v1/edit -H "Content-Type: application/json" -d '{"action": "rename.function_signature", "function": "FUN_00401000", "signature": "int main(int argc, char **argv)"}'
 # V1 Edit API 批量操作
 curl -X POST http://127.0.0.1:8803/api/v1/edit -H "Content-Type: application/json" -d '{"actions": [{"action": "rename.function", "name": "FUN_00401000", "new_name": "main"}, {"action": "datatype.set.return", "function": "main", "type": "int"}, {"action": "comment.set", "name": "main", "type": "PLATE", "text": "Main entry"}]}'
 
@@ -340,6 +345,12 @@ curl "http://127.0.0.1:8803/api/datatype/export/c?category=/MyTypes"         # �
 - `GET /api/rename/decompiler/split?function=<func>&var_name=<old>&use_address=<addr>&new_name=<new>` - 拆分变量（Split out as new variable）
 - `GET /api/rename/decompiler/variable/instances?function=<func>&var_name=<name>` - 列出变量的所有使用点（用于确定拆分位置）
 
+*函数签名修改*（一次性设置完整函数签名）:
+- `GET /api/rename/function_signature?function=<func>&signature=<c_signature>` - 通过 C 签名字符串修改函数签名
+  - 支持函数名、返回类型、调用约定、参数（类型+名称）一次性设置
+  - 签名格式: `int main(int argc, char **argv)` 或 `int __stdcall MessageBoxA(HWND hWnd, ...)`
+  - 支持的调用约定: `__stdcall`, `__cdecl`, `__fastcall`, `__thiscall`, `__vectorcall`
+
 > **注意**: Listing 级别的 `variable/parameter` 操作的是底层存储单元（栈变量、寄存器变量），
 > 反编译器可能会将多个底层变量聚合为一个逻辑变量，导致修改不生效。
 > 推荐使用 `decompiler/*` 系列 API，直接操作反编译视图中显示的变量。
@@ -420,7 +431,7 @@ curl "http://127.0.0.1:8803/api/datatype/export/c?category=/MyTypes"         # �
   - 请求体: `{"action": "<action>", ...params}` 单操作
   - 批量: `{"actions": [{...}, {...}]}` 多操作
   - `verbose`: `true` 返回详细输入输出
-  - **Rename actions**: `rename.function`, `rename.variable`, `rename.parameter`, `rename.global`, `rename.label`, `rename.datatype`, `rename.namespace`, `rename.decompiler.variable`, `rename.decompiler.parameter`, `rename.decompiler.split`
+  - **Rename actions**: `rename.function`, `rename.variable`, `rename.parameter`, `rename.global`, `rename.label`, `rename.datatype`, `rename.namespace`, `rename.decompiler.variable`, `rename.decompiler.parameter`, `rename.decompiler.split`, `rename.function_signature`
   - **DataType set**: `datatype.set.return`, `datatype.set.parameter`, `datatype.set.decompiler.variable`, `datatype.set.decompiler.parameter`, `datatype.set.global`, `datatype.set.field`
   - **DataType parse**: `datatype.parse.c` - 通过 C 代码创建类型（struct/enum/typedef/union/funcdef）
   - **Comment**: `comment.set`
