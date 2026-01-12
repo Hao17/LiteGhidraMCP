@@ -251,6 +251,12 @@ curl "http://127.0.0.1:8803/api/datatype/info?name=Point"
 curl "http://127.0.0.1:8803/api/datatype/list?category=/&limit=50"
 curl "http://127.0.0.1:8803/api/datatype/list?q=*Struct*"
 
+# DataType API 测试 - 导出为 C header
+curl "http://127.0.0.1:8803/api/datatype/export/c"                           # 导出全部
+curl "http://127.0.0.1:8803/api/datatype/export/c?category=/MyTypes"         # 导出指定类别
+curl "http://127.0.0.1:8803/api/datatype/export/c?types=Point,Status,DWORD"  # 导出指定类型
+curl "http://127.0.0.1:8803/api/datatype/export/c?archive=BuiltInTypes&types=size_t"  # 从归档导出
+
 ```
 
 ## Code Conventions
@@ -379,6 +385,13 @@ curl "http://127.0.0.1:8803/api/datatype/list?q=*Struct*"
 *类型查询*:
 - `GET /api/datatype/info?name=<name>` 或 `?path=<path>` - 获取数据类型详细信息
 - `GET /api/datatype/list?category=/&q=<query>&limit=100` - 列出数据类型（支持通配符）
+
+*类型导出*:
+- `GET /api/datatype/export/c` - 导出全部类型为 C header
+- `GET /api/datatype/export/c?category=<path>` - 导出指定类别
+- `GET /api/datatype/export/c?types=<name1>,<name2>` - 导出指定类型
+- `GET /api/datatype/export/c?archive=<name>&types=<type>` - 从指定归档导出
+  - 注意：函数声明不会导出（Ghidra 限制），除非是 function pointer typedef
 
 > **类型字符串格式**: 支持内置类型（`int`, `char`, `void`, `float`, `double` 等）、指针（`int *`, `char **`）、数组（`int[10]`, `char[256]`）、路径（`/MyCategory/MyStruct`）
 

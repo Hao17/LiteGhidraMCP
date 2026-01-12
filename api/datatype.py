@@ -51,7 +51,8 @@ from ghidra.program.model.data import (
 from ghidra.app.decompiler import DecompInterface
 from ghidra.program.model.pcode import HighFunctionDBUtil
 from ghidra.util.task import ConsoleTaskMonitor
-from ghidra.program.model.data import BuiltInDataTypeManager
+from ghidra.program.model.data import BuiltInDataTypeManager, DataTypeWriter
+from java.io import StringWriter
 
 
 # ============================================================
@@ -2029,4 +2030,97 @@ def list_datatypes(state, category="/", q="", limit=100, archive=""):
         "count": len(results),
         "limit": limit,
         "datatypes": results
+    })
+
+
+# ============================================================
+# 数据类型导出 API
+# ============================================================
+
+@route("/api/datatype/export/c")
+def export_c_header(state, category="/", types="", archive=""):
+    """
+    导出数据类型为 C header 格式。
+
+    路由: GET /api/datatype/export/c
+          GET /api/datatype/export/c?category=/MyTypes
+          GET /api/datatype/export/c?types=Point,Status,DWORD
+          GET /api/datatype/export/c?archive=BuiltInTypes&types=size_t
+
+    参数:
+        category: 类别路径 (默认 / 表示全部)
+        types: 逗号分隔的类型名称列表 (可选，指定后忽略 category)
+        archive: 数据类型库名称 (可选，默认当前程序)
+
+    返回:
+        c_header: C header 格式的类型定义
+
+    注意:
+        - 函数声明不会被导出（Ghidra 限制），除非是 function pointer typedef
+        - 导出内容包括 struct, enum, typedef, union 等
+    """
+    # Get DTM
+    if archive:
+        dtm, err = _get_dtm_by_name(state, archive)
+        if err:
+            return err
+    else:
+        prog, err = _get_program(state)
+        if err:
+            return err
+        dtm = prog.getDataTypeManager()
+
+    sw = StringWriter()
+    dtw = DataTypeWriter(dtm, sw)
+    monitor = ConsoleTaskMonitor()
+
+    exported_types = []
+
+    try:
+        if types:
+            # 导出指定类型
+            type_names = [t.strip() for t in types.split(",") if t.strip()]
+            dt_list = []
+            for type_name in type_names:
+                dt, err = _resolve_datatype_safe(dtm, type_name)
+                if err:
+                    return _make_error(f"Type not found: {type_name}")
+                dt_list.append(dt)
+                exported_types.append(dt.getName())
+
+            # 使用 Java ArrayList
+            from java.util import ArrayList
+            java_list = ArrayList()
+            for dt in dt_list:
+                java_list.add(dt)
+            dtw.write(java_list, monitor)
+
+        elif category != "/":
+            # 导出指定类别
+            cat_path = CategoryPath(category)
+            cat = dtm.getCategory(cat_path)
+            if cat is None:
+                return _make_error(f"Category not found: {category}")
+            dtw.write(cat, monitor)
+            # 收集导出的类型名
+            for dt in cat.getDataTypes():
+                exported_types.append(dt.getName())
+
+        else:
+            # 导出全部
+            dtw.write(dtm, monitor)
+            exported_types = ["(all)"]
+
+    except Exception as e:
+        return _make_error(f"Export failed: {str(e)}")
+
+    c_header = sw.toString()
+
+    return _make_success({
+        "c_header": c_header,
+        "archive": archive if archive else "program",
+        "category": category,
+        "types": exported_types,
+        "length": len(c_header),
+        "action": "export_c_header"
     })
