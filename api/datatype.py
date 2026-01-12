@@ -1866,122 +1866,124 @@ def list_archives(state):
     })
 
 
-@route("/api/datatype/info")
-def get_datatype_info(state, path="", name="", archive=""):
-    """
-    获取数据类型的详细信息。
-
-    路由: GET /api/datatype/info?path=/MyStruct
-          GET /api/datatype/info?name=MyStruct
-          GET /api/datatype/info?name=size_t&archive=BuiltInTypes
-
-    参数:
-        path: 数据类型路径 (与 name 二选一)
-        name: 数据类型名称 (与 path 二选一)
-        archive: 数据类型库名称 (可选，默认搜索所有库)
-    """
-    if not path and not name:
-        return _make_error("Must provide 'path' or 'name'")
-
-    # If archive specified, search only in that archive
-    if archive:
-        dtm, err = _get_dtm_by_name(state, archive)
-        if err:
-            return err
-        dtms_to_search = [(archive, dtm)]
-    else:
-        # Search all archives
-        dtms_to_search = _get_all_dtms(state)
-
-    # Try to find the datatype in any of the DTMs
-    dt = None
-    found_archive = None
-    search_key = path or name
-
-    for arch_name, dtm in dtms_to_search:
-        try:
-            resolved, _ = _resolve_datatype_safe(dtm, search_key)
-            if resolved:
-                dt = resolved
-                found_archive = arch_name
-                break
-        except Exception:
-            continue
-
-    if dt is None:
-        return _make_error(f"Data type not found: {search_key}")
-
-    result = {
-        "name": dt.getName(),
-        "path": dt.getPathName(),
-        "category": str(dt.getCategoryPath()),
-        "archive": found_archive,
-        "size": dt.getLength(),
-        "description": dt.getDescription() or "",
-        "display_name": dt.getDisplayName(),
-        "kind": dt.__class__.__name__.replace("DataType", "")
-    }
-
-    # Add structure-specific info
-    # 注意: TypeDef 而不是 Typedef（大写 D）
-    from ghidra.program.model.data import Structure, Enum, Union, TypeDef, FunctionDefinition
-
-    if isinstance(dt, Structure):
-        fields = []
-        for i in range(dt.getNumComponents()):
-            comp = dt.getComponent(i)
-            fields.append({
-                "ordinal": i,
-                "name": comp.getFieldName() or f"field_{i}",
-                "type": str(comp.getDataType()),
-                "offset": comp.getOffset(),
-                "size": comp.getLength(),
-                "comment": comp.getComment() or ""
-            })
-        result["fields"] = fields
-        result["field_count"] = len(fields)
-        result["is_packed"] = dt.isPackingEnabled() if hasattr(dt, 'isPackingEnabled') else False
-
-    elif isinstance(dt, Enum):
-        members = []
-        for member_name in dt.getNames():
-            members.append({
-                "name": member_name,
-                "value": dt.getValue(member_name)
-            })
-        result["members"] = members
-        result["member_count"] = len(members)
-
-    elif isinstance(dt, Union):
-        members = []
-        for i in range(dt.getNumComponents()):
-            comp = dt.getComponent(i)
-            members.append({
-                "ordinal": i,
-                "name": comp.getFieldName() or f"member_{i}",
-                "type": str(comp.getDataType()),
-                "size": comp.getLength(),
-                "comment": comp.getComment() or ""
-            })
-        result["members"] = members
-        result["member_count"] = len(members)
-
-    elif isinstance(dt, TypeDef):
-        result["base_type"] = str(dt.getDataType())
-
-    elif isinstance(dt, FunctionDefinition):
-        result["return_type"] = str(dt.getReturnType())
-        result["calling_convention"] = dt.getCallingConventionName() or "default"
-        params = []
-        for arg in dt.getArguments():
-            params.append({
-                "name": arg.getName(),
-                "type": str(arg.getDataType())
-            })
-        result["params"] = params
-        result["signature"] = dt.getPrototypeString()
-
-    return _make_success(result)
+# TODO: 待修复 - 在工作线程上调用时会出现 "No Jep instance available on current thread" 错误
+# 原因: _get_all_dtms 和 _resolve_datatype_safe 中的 Java 类访问在非主线程上不可用
+# @route("/api/datatype/info")
+# def get_datatype_info(state, path="", name="", archive=""):
+#     """
+#     获取数据类型的详细信息。
+#
+#     路由: GET /api/datatype/info?path=/MyStruct
+#           GET /api/datatype/info?name=MyStruct
+#           GET /api/datatype/info?name=size_t&archive=BuiltInTypes
+#
+#     参数:
+#         path: 数据类型路径 (与 name 二选一)
+#         name: 数据类型名称 (与 path 二选一)
+#         archive: 数据类型库名称 (可选，默认搜索所有库)
+#     """
+#     if not path and not name:
+#         return _make_error("Must provide 'path' or 'name'")
+#
+#     # If archive specified, search only in that archive
+#     if archive:
+#         dtm, err = _get_dtm_by_name(state, archive)
+#         if err:
+#             return err
+#         dtms_to_search = [(archive, dtm)]
+#     else:
+#         # Search all archives
+#         dtms_to_search = _get_all_dtms(state)
+#
+#     # Try to find the datatype in any of the DTMs
+#     dt = None
+#     found_archive = None
+#     search_key = path or name
+#
+#     for arch_name, dtm in dtms_to_search:
+#         try:
+#             resolved, _ = _resolve_datatype_safe(dtm, search_key)
+#             if resolved:
+#                 dt = resolved
+#                 found_archive = arch_name
+#                 break
+#         except Exception:
+#             continue
+#
+#     if dt is None:
+#         return _make_error(f"Data type not found: {search_key}")
+#
+#     result = {
+#         "name": dt.getName(),
+#         "path": dt.getPathName(),
+#         "category": str(dt.getCategoryPath()),
+#         "archive": found_archive,
+#         "size": dt.getLength(),
+#         "description": dt.getDescription() or "",
+#         "display_name": dt.getDisplayName(),
+#         "kind": dt.__class__.__name__.replace("DataType", "")
+#     }
+#
+#     # Add structure-specific info
+#     # 注意: TypeDef 而不是 Typedef（大写 D）
+#     from ghidra.program.model.data import Structure, Enum, Union, TypeDef, FunctionDefinition
+#
+#     if isinstance(dt, Structure):
+#         fields = []
+#         for i in range(dt.getNumComponents()):
+#             comp = dt.getComponent(i)
+#             fields.append({
+#                 "ordinal": i,
+#                 "name": comp.getFieldName() or f"field_{i}",
+#                 "type": str(comp.getDataType()),
+#                 "offset": comp.getOffset(),
+#                 "size": comp.getLength(),
+#                 "comment": comp.getComment() or ""
+#             })
+#         result["fields"] = fields
+#         result["field_count"] = len(fields)
+#         result["is_packed"] = dt.isPackingEnabled() if hasattr(dt, 'isPackingEnabled') else False
+#
+#     elif isinstance(dt, Enum):
+#         members = []
+#         for member_name in dt.getNames():
+#             members.append({
+#                 "name": member_name,
+#                 "value": dt.getValue(member_name)
+#             })
+#         result["members"] = members
+#         result["member_count"] = len(members)
+#
+#     elif isinstance(dt, Union):
+#         members = []
+#         for i in range(dt.getNumComponents()):
+#             comp = dt.getComponent(i)
+#             members.append({
+#                 "ordinal": i,
+#                 "name": comp.getFieldName() or f"member_{i}",
+#                 "type": str(comp.getDataType()),
+#                 "size": comp.getLength(),
+#                 "comment": comp.getComment() or ""
+#             })
+#         result["members"] = members
+#         result["member_count"] = len(members)
+#
+#     elif isinstance(dt, TypeDef):
+#         result["base_type"] = str(dt.getDataType())
+#
+#     elif isinstance(dt, FunctionDefinition):
+#         result["return_type"] = str(dt.getReturnType())
+#         result["calling_convention"] = dt.getCallingConventionName() or "default"
+#         params = []
+#         for arg in dt.getArguments():
+#             params.append({
+#                 "name": arg.getName(),
+#                 "type": str(arg.getDataType())
+#             })
+#         result["params"] = params
+#         result["signature"] = dt.getPrototypeString()
+#
+#     return _make_success(result)
 
 
 @route("/api/datatype/list")
