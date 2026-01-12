@@ -228,7 +228,6 @@ curl -X POST http://127.0.0.1:8803/api/v1/edit -H "Content-Type: application/jso
 curl -X POST http://127.0.0.1:8803/api/v1/edit -H "Content-Type: application/json" -d '{"action": "datatype.set.return", "function": "main", "type": "int"}'
 curl -X POST http://127.0.0.1:8803/api/v1/edit -H "Content-Type: application/json" -d '{"action": "rename.decompiler.variable", "function": "main", "var_name": "local_8", "new_name": "counter"}'
 curl -X POST http://127.0.0.1:8803/api/v1/edit -H "Content-Type: application/json" -d '{"action": "comment.set", "address": "0x401000", "type": "EOL", "text": "Entry point"}'
-curl -X POST http://127.0.0.1:8803/api/v1/edit -H "Content-Type: application/json" -d '{"action": "datatype.create.struct", "name": "Point", "fields": [{"name": "x", "type": "int"}, {"name": "y", "type": "int"}]}'
 curl -X POST http://127.0.0.1:8803/api/v1/edit -H "Content-Type: application/json" -d '{"action": "datatype.parse.c", "code": "typedef struct { int x; int y; } Point;"}'
 # V1 Edit API 批量操作
 curl -X POST http://127.0.0.1:8803/api/v1/edit -H "Content-Type: application/json" -d '{"actions": [{"action": "rename.function", "name": "FUN_00401000", "new_name": "main"}, {"action": "datatype.set.return", "function": "main", "type": "int"}, {"action": "comment.set", "name": "main", "type": "PLATE", "text": "Main entry"}]}'
@@ -241,25 +240,11 @@ curl "http://127.0.0.1:8803/api/datatype/set/decompiler/parameter?function=main&
 curl "http://127.0.0.1:8803/api/datatype/set/global?address=0x404000&type=int"
 curl "http://127.0.0.1:8803/api/datatype/set/field?struct=MyStruct&field=0&type=int"
 
-# DataType API 测试 - 类型创建
-curl "http://127.0.0.1:8803/api/datatype/create/struct?name=Point&fields=[{\"name\":\"x\",\"type\":\"int\"},{\"name\":\"y\",\"type\":\"int\"}]"
-curl "http://127.0.0.1:8803/api/datatype/create/enum?name=Status&members={\"OK\":0,\"ERROR\":1}"
-curl "http://127.0.0.1:8803/api/datatype/create/typedef?name=DWORD&base_type=uint"
-curl "http://127.0.0.1:8803/api/datatype/create/union?name=Value&members=[{\"name\":\"i\",\"type\":\"int\"},{\"name\":\"f\",\"type\":\"float\"}]"
-curl "http://127.0.0.1:8803/api/datatype/create/funcdef?name=CallbackFn&return_type=void&params=[{\"name\":\"ctx\",\"type\":\"void *\"}]"
-
-# DataType API 测试 - 类型管理
-curl "http://127.0.0.1:8803/api/datatype/struct/field/add?struct=Point&type=int&name=z"
-curl "http://127.0.0.1:8803/api/datatype/struct/field/delete?struct=Point&field=z"
-curl "http://127.0.0.1:8803/api/datatype/struct/field/modify?struct=Point&field=x&new_name=x_pos"
-curl "http://127.0.0.1:8803/api/datatype/enum/member/add?enum=Status&name=PENDING&value=2"
-curl "http://127.0.0.1:8803/api/datatype/enum/member/delete?enum=Status&name=PENDING"
-curl "http://127.0.0.1:8803/api/datatype/delete?name=OldStruct"
-curl "http://127.0.0.1:8803/api/datatype/copy?source=/Point&dest_category=/Geometry&new_name=Point2D"
-curl "http://127.0.0.1:8803/api/datatype/move?source=/Point&dest_category=/Geometry"
-
-# DataType API 测试 - C 解析
+# DataType API 测试 - C 代码解析（创建类型的推荐方式）
 curl "http://127.0.0.1:8803/api/datatype/parse/c?code=typedef%20struct%20{%20int%20x;%20int%20y;%20}%20Point;"
+curl "http://127.0.0.1:8803/api/datatype/parse/c?code=enum%20Status%20{%20OK%20=%200,%20ERROR%20=%201%20};"
+curl "http://127.0.0.1:8803/api/datatype/parse/c?code=typedef%20unsigned%20int%20DWORD;"
+curl "http://127.0.0.1:8803/api/datatype/parse/c?code=typedef%20void%20(*CallbackFn)(void%20*ctx);"
 
 # DataType API 测试 - 查询
 curl "http://127.0.0.1:8803/api/datatype/info?name=Point"
@@ -421,8 +406,7 @@ curl "http://127.0.0.1:8803/api/datatype/list?q=*Struct*"
   - `verbose`: `true` 返回详细输入输出
   - **Rename actions**: `rename.function`, `rename.variable`, `rename.parameter`, `rename.global`, `rename.label`, `rename.datatype`, `rename.namespace`, `rename.decompiler.variable`, `rename.decompiler.parameter`, `rename.decompiler.split`
   - **DataType set**: `datatype.set.return`, `datatype.set.parameter`, `datatype.set.decompiler.variable`, `datatype.set.decompiler.parameter`, `datatype.set.global`, `datatype.set.field`
-  - **DataType create**: `datatype.create.struct`, `datatype.create.enum`, `datatype.create.typedef`, `datatype.create.union`, `datatype.create.funcdef`
-  - **DataType manage**: `datatype.struct.field.add`, `datatype.struct.field.delete`, `datatype.struct.field.modify`, `datatype.enum.member.add`, `datatype.enum.member.delete`, `datatype.delete`, `datatype.parse.c`
+  - **DataType parse**: `datatype.parse.c` - 通过 C 代码创建类型（struct/enum/typedef/union/funcdef）
   - **Comment**: `comment.set`
 
 **Error Handling**: Minimal logging to avoid Ghidra console noise, but preserve error context in API responses

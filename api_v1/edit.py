@@ -68,20 +68,7 @@ ACTION_HANDLERS = {
     "datatype.set.global": datatype_api.set_global_type,
     "datatype.set.field": datatype_api.set_struct_field_type,
 
-    # ==================== DataType Create Actions ====================
-    "datatype.create.struct": datatype_api.create_struct,
-    "datatype.create.enum": datatype_api.create_enum,
-    "datatype.create.typedef": datatype_api.create_typedef,
-    "datatype.create.union": datatype_api.create_union,
-    "datatype.create.funcdef": datatype_api.create_funcdef,
-
-    # ==================== DataType Manage Actions ====================
-    "datatype.struct.field.add": datatype_api.struct_field_add,
-    "datatype.struct.field.delete": datatype_api.struct_field_delete,
-    "datatype.struct.field.modify": datatype_api.struct_field_modify,
-    "datatype.enum.member.add": datatype_api.enum_member_add,
-    "datatype.enum.member.delete": datatype_api.enum_member_delete,
-    "datatype.delete": datatype_api.delete_datatype,
+    # ==================== DataType Parse (C code) ====================
     "datatype.parse.c": datatype_api.parse_c_code,
 
     # ==================== Comment Actions ====================
