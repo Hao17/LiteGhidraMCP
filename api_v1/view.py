@@ -281,13 +281,19 @@ def view(state, q="", type="both", timeout=30, limit=500, verbose=""):
     # 强制转为字符串，防止纯数字被服务器参数解析转为 int
     q = str(q) if q else ""
 
-    if not q or not q.strip():
-        return _err("Query parameter 'q' is required")
-
     # Validate view type
     view_type = type.lower()
-    if view_type not in ("both", "decompile", "disassemble"):
-        return _err(f"Invalid type: {type}. Valid: both, decompile, disassemble")
+    if view_type not in ("both", "decompile", "disassemble", "header"):
+        return _err(f"Invalid type: {type}. Valid: both, decompile, disassemble, header")
+
+    # Handle header type specially - export C header (q is optional, defaults to "/")
+    if view_type == "header":
+        from api import datatype as datatype_api
+        return datatype_api.export_c_header(state, category=q if q else "/")
+
+    # For function views, q is required
+    if not q or not q.strip():
+        return _err("Query parameter 'q' is required")
 
     # Parse query - support comma-separated batch queries
     queries = [item.strip() for item in q.split(",") if item.strip()]

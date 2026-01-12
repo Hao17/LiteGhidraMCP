@@ -215,6 +215,12 @@ curl "http://127.0.0.1:8803/api/rename/decompiler/parameter?function=main&param=
 curl "http://127.0.0.1:8803/api/rename/decompiler/variable/instances?function=main&var_name=uVar1"  # 先查看使用点
 curl "http://127.0.0.1:8803/api/rename/decompiler/split?function=main&var_name=uVar1&use_address=0x401050&new_name=result"
 
+# V1 View API 测试
+curl "http://127.0.0.1:8803/api/v1/view?q=main"
+curl "http://127.0.0.1:8803/api/v1/view?q=main,init&type=decompile"
+curl "http://127.0.0.1:8803/api/v1/view?type=header"                         # 导出全部数据类型为 C header
+curl "http://127.0.0.1:8803/api/v1/view?type=header&q=/MyCategory"           # 导出指定类别
+
 # V1 List API 测试
 curl "http://127.0.0.1:8803/api/v1/list"
 curl "http://127.0.0.1:8803/api/v1/list?q=init*"
@@ -399,8 +405,9 @@ curl "http://127.0.0.1:8803/api/datatype/export/c?category=/MyTypes"         # �
   - `types`: `auto`(智能推断) / `all` / 逗号分隔（如 `functions,symbols,strings`）
   - `verbose`: `true` 返回完整 dict，默认 compact 数组格式
 - `GET /api/v1/view?q=<query>&type=both&timeout=30&limit=500&verbose=false` - 统一查看（支持批量查询）
-  - `q`: 函数名或地址，逗号分隔支持批量（如 `main,init,0x401000`）
-  - `type`: `both`(默认) / `decompile` / `disassemble`
+  - `q`: 函数名或地址，逗号分隔支持批量（如 `main,init,0x401000`）；当 `type=header` 时作为 category 过滤
+  - `type`: `both`(默认) / `decompile` / `disassemble` / `header`
+    - `header`: 导出程序数据类型为 C header 格式，`q` 参数作为 category 路径（默认 "/" 导出全部）
   - `verbose`: `true` 返回完整 dict，默认 compact info 数组格式
 - `GET /api/v1/list?q=<query>&types=auto&limit=100&verbose=false` - 统一列表（类似 ls 的符号浏览）
   - `q`: 名称过滤（支持通配符 `*` `?`）
