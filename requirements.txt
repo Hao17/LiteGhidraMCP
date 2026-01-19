@@ -1,0 +1,11 @@
+# Ghidra MCP Bridge - Python Dependencies
+#
+# Install: pip install -r requirements.txt
+#
+# Note: Ghidra and Ghidrathon are required but installed separately.
+# See: https://github.com/mandiant/Ghidrathon
+
+# MCP (Model Context Protocol) support
+mcp>=1.0.0
+uvicorn>=0.30.0
+httpx>=0.27.0
