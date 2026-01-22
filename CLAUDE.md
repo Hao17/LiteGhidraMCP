@@ -498,3 +498,31 @@ If encountering issues:
 3. Ensure API module files are in Ghidra's script path
 
 The bridge handles both GUI and headless modes with appropriate threading models for each environment.
+
+### Jep "No Jep instance available on current thread" Error
+
+**重要**: 当遇到 `No Jep instance available on current thread` 错误时，**这通常不是真正的线程问题**，而是以下两种情况之一：
+
+1. **Java 类名大小写错误** - Ghidra 的 Java 类名区分大小写
+   - 错误示例: `from ghidra.program.model.data import Typedef` (小写 d)
+   - 正确示例: `from ghidra.program.model.data import TypeDef` (大写 D)
+   - 参考 commit: `caa2a0f` (Fix TypeDef class name)
+
+2. **热重载时的 Java 类导入问题** - 热重载 (`/_reload`) 在 HTTP 工作线程上执行，无法通过 Jep 导入新的 Java 类
+   - **解决方案**: 使用 `sys.modules` 缓存机制，确保 Java 类在主线程（服务器启动时）导入并缓存
+   - 参考实现 (`api/datatype.py`):
+   ```python
+   # Cache CParser in sys.modules to survive hot reloads on worker threads
+   import sys
+   _CPARSER_CACHE_KEY = '_ghidra_api_datatype_cparser'
+   if _CPARSER_CACHE_KEY not in sys.modules:
+       from ghidra.app.util.cparser.C import CParser as _CParser
+       sys.modules[_CPARSER_CACHE_KEY] = _CParser
+   CParser = sys.modules[_CPARSER_CACHE_KEY]
+   ```
+
+**诊断步骤**:
+1. 首先检查 Java 类名拼写和大小写是否正确（查阅 Ghidra API 文档）
+2. 如果类名正确，检查导入是否在函数内部（lazy import）
+3. 将 lazy import 改为模块级导入，并使用 `sys.modules` 缓存
+4. 重启 Ghidra 服务器（在主线程执行模块加载）验证修复

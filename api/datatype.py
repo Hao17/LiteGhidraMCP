@@ -54,6 +54,15 @@ from ghidra.util.task import ConsoleTaskMonitor
 from ghidra.program.model.data import BuiltInDataTypeManager, DataTypeWriter
 from java.io import StringWriter
 
+# Cache CParser in sys.modules to survive hot reloads on worker threads
+# (hot reload runs on worker thread where Java class import fails via Jep)
+import sys
+_CPARSER_CACHE_KEY = '_ghidra_api_datatype_cparser'
+if _CPARSER_CACHE_KEY not in sys.modules:
+    from ghidra.app.util.cparser.C import CParser as _CParser
+    sys.modules[_CPARSER_CACHE_KEY] = _CParser
+CParser = sys.modules[_CPARSER_CACHE_KEY]
+
 
 # ============================================================
 # 辅助函数
@@ -1759,10 +1768,7 @@ def parse_c_code(state, code="", category=""):
 
     tx_id = prog.startTransaction("Parse C Code")
     try:
-        from ghidra.app.util.cparser.C import CParser
-        from ghidra.program.model.data import DataTypeConflictHandler
-
-        # 初始化 CParser
+        # CParser 已在模块级别导入并缓存
         parser = CParser(dtm)
 
         # 直接传入 C 代码字符串
