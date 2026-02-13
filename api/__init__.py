@@ -61,3 +61,28 @@ def get_route_list():
         {"path": path, "module": info["module"], "handler": info["name"]}
         for path, info in sorted(_routes.items())
     ]
+
+
+def dispatch_route(path, state, params=None):
+    """
+    分发路由请求到对应的处理函数
+
+    Args:
+        path: 请求路径
+        state: Ghidra state 对象
+        params: 查询参数字典（可选，默认为空字典）
+
+    Returns:
+        处理函数的返回结果，通常是字典
+    """
+    if path not in _routes:
+        return None
+
+    if params is None:
+        params = {}
+
+    route_info = _routes[path]
+    handler = route_info["handler"]
+
+    # 调用处理函数，传递 state 和参数
+    return handler(state, **params)

@@ -25,6 +25,12 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Dict, Optional
 from urllib.request import urlopen
+from urllib.parse import urlparse, parse_qs
+
+# Add /app to sys.path for module imports
+script_dir = os.path.dirname(os.path.abspath(__file__))
+if script_dir not in sys.path:
+    sys.path.insert(0, script_dir)
 
 # Import PyGhidra before any Ghidra imports
 import pyghidra
@@ -117,11 +123,13 @@ def _init_ghidra_project():
 
         # Try to open the first program in the project
         # In headless mode, we need to specify which binary to analyze
-        program_names = _ghidra_project.getProjectData().getRootFolder().getPrograms()
+        root_folder = _ghidra_project.getProjectData().getRootFolder()
+        program_files = list(root_folder.getFiles())
 
-        if program_names:
+        if program_files:
             # Open first program
-            program_name = str(program_names[0])
+            program_file = program_files[0]
+            program_name = program_file.getName()
             _current_program = _ghidra_project.openProgram("/", program_name, False)
             print(f"[PyGhidra-MCP-Bridge] ✓ Program loaded: {program_name}")
         else:
@@ -155,6 +163,11 @@ def _discover_and_load_api_modules():
     自动发现并加载 api/ 和 api_v*/ 目录下所有模块。
     模块使用 @route 装饰器自动注册路由。
     """
+    # Ensure script directory is in sys.path (PyGhidra may reset it)
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    if script_dir not in sys.path:
+        sys.path.insert(0, script_dir)
+
     # 先 reload api 包本身，确保使用最新版本
     import api
     importlib.reload(api)
@@ -165,8 +178,6 @@ def _discover_and_load_api_modules():
 
     reloaded = []
     errors = []
-
-    script_dir = os.path.dirname(os.path.abspath(__file__))
 
     # 收集所有 API 目录: api/ + api_v*/
     api_dirs = []
@@ -266,12 +277,19 @@ class GhidraRequestHandler(BaseHTTPRequestHandler):
 
         # Dispatch to API routes
         try:
+            # Parse URL to separate path and query string
+            parsed = urlparse(self.path)
+            path = parsed.path
+            query_params = parse_qs(parsed.query)
+            # Convert query params to single values (instead of lists)
+            params = {k: v[0] if len(v) == 1 else v for k, v in query_params.items()}
+
             # Pass mock state to route handlers
-            result = dispatch_route(self.path, _mock_state)
+            result = dispatch_route(path, _mock_state, params)
             if result is not None:
                 self._send_json(result)
             else:
-                self._send_json({"error": f"Unknown route: {self.path}"}, 404)
+                self._send_json({"error": f"Unknown route: {path}"}, 404)
         except Exception as exc:
             log_debug(f"Error handling GET {self.path}: {exc}")
             self._send_json({"error": str(exc)}, 500)
