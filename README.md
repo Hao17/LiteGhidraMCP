@@ -61,6 +61,24 @@ python3 -m ghidrathon.configure
 
 ## 快速开始
 
+### 部署方式选择
+
+**本地开发模式**（Ghidra GUI + Python 脚本）：
+- ✅ 适合逆向工程师日常使用
+- ✅ 可与 Ghidra GUI 交互
+- ✅ 支持代码热重载
+- 📖 见下方 "本地开发" 章节
+
+**Docker 无头模式**（Headless + API 服务）：
+- ✅ 适合持续运行的 AI 协作
+- ✅ 容器化部署，易于管理
+- ✅ 支持 Ghidra Shared Project 多用户协作
+- 📖 见下方 "Docker 部署" 章节
+
+---
+
+## 本地开发
+
 ### 1. 启动 Ghidra Bridge
 
 1. 在 Ghidra CodeBrowser 中打开一个二进制文件
@@ -195,6 +213,164 @@ curl http://127.0.0.1:8803/_shutdown
 ```
 
 完整 API 文档参见 [CLAUDE.md](CLAUDE.md)。
+
+---
+
+## Docker 部署
+
+Docker 模式运行 Ghidra 无头服务器 + MCP Bridge，适合作为持续运行的 AI 协作服务。
+
+### 特性
+
+- **无头运行**：无需 GUI，纯 API 访问
+- **容器化**：一键启动，易于管理
+- **项目模式**：
+  - **本地模式**：挂载本地 Ghidra shared project（volume）
+  - **服务器模式**：连接到 Ghidra Server（多用户协作）
+- **健康检查**：自动监控和重启
+- **日志持久化**：容器重启后日志保留
+
+### 快速开始
+
+#### 1. 构建镜像
+
+```bash
+cd docker
+docker build -f Dockerfile -t ghidra-mcp-bridge:latest ..
+```
+
+#### 2. 选择部署模式
+
+**本地项目模式**（推荐新手）：
+
+```bash
+cd examples/docker/local-project
+
+# 编辑 .env 文件，配置你的项目路径
+nano .env
+
+# 启动服务
+docker-compose up -d
+```
+
+`.env` 配置示例：
+
+```bash
+# 主机上的 Ghidra 项目路径
+HOST_PROJECT_PATH=/Users/username/ghidra-projects/my_binary
+
+# 项目名称（必须与 .gpr 文件名匹配）
+PROJECT_NAME=my_binary
+
+# 端口配置
+GHIDRA_MCP_PORT=8803
+GHIDRA_MCP_SSE_PORT=8804
+```
+
+**Ghidra Server 模式**（团队协作）：
+
+```bash
+cd examples/docker/ghidra-server
+
+# 编辑 .env 文件，配置服务器连接
+nano .env
+
+# 启动服务
+docker-compose up -d
+```
+
+`.env` 配置示例：
+
+```bash
+PROJECT_MODE=server
+GHIDRA_SERVER_HOST=ghidra-server.local
+GHIDRA_SERVER_PORT=13100
+GHIDRA_SERVER_USER=analyst
+PROJECT_NAME=shared_project
+```
+
+#### 3. 验证部署
+
+```bash
+# 查看容器状态
+docker ps
+
+# 查看日志
+docker logs ghidra-mcp-bridge
+
+# 测试 API
+curl http://localhost:8803/api/status
+curl http://localhost:8803/api/basic_info
+```
+
+#### 4. 配置 AI 客户端
+
+与本地模式相同，连接到 `http://localhost:8804/sse`（如果使用默认端口）。
+
+### 架构说明
+
+**本地项目模式**：
+
+```
+┌─────────────────────────────┐
+│  Ghidra Shared Project      │
+│  (Host Volume)              │
+└──────────┬──────────────────┘
+           │ bind mount
+┌──────────v──────────────────┐
+│  Docker Container           │
+│  - Ghidra Headless          │
+│  - MCP Bridge               │
+│  - HTTP API :8803           │
+│  - MCP SSE  :8804           │
+└─────────────────────────────┘
+```
+
+**服务器模式**：
+
+```
+┌─────────────────────────────┐
+│  Ghidra Server              │
+│  (Network)                  │
+└──────────┬──────────────────┘
+           │ TCP :13100
+┌──────────v──────────────────┐
+│  Docker Container           │
+│  - Connects to server       │
+│  - MCP Bridge               │
+│  - HTTP API :8803           │
+│  - MCP SSE  :8804           │
+└─────────────────────────────┘
+```
+
+### 多用户协作
+
+Docker 实例可作为"协作者"连接到外部 Ghidra shared project：
+
+```
+┌───────────────┐         ┌───────────────┐
+│ Ghidra GUI    │         │ Docker Bridge │
+│ (用户手动分析) │         │ (AI 自动分析)  │
+└───────┬───────┘         └───────┬───────┘
+        │                         │
+        v                         v
+┌───────────────────────────────────────┐
+│     Ghidra Shared Project             │
+│     (共享文件系统或 Ghidra Server)     │
+└───────────────────────────────────────┘
+```
+
+- **Ghidra GUI** 用于手动交互式分析
+- **Docker Bridge** 提供 AI 访问，自动化任务
+- 双方修改通过项目同步机制共享
+
+### 详细文档
+
+- **部署指南**: [`docs/setup/docker-deployment.md`](docs/setup/docker-deployment.md)
+- **架构设计**: [`docs/architecture/docker-architecture.md`](docs/architecture/docker-architecture.md)
+- **示例配置**: [`examples/docker/`](examples/docker/)
+
+---
 
 ## 高级选项
 

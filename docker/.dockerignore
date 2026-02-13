@@ -1,0 +1,45 @@
+# Git and version control
+.git
+.gitignore
+.github
+
+# Python cache and virtual environments
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+env/
+*.egg-info/
+
+# IDE configuration
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs and temporary files
+logs/
+*.log
+tmp/
+temp/
+
+# Tests and documentation
+tests/
+docs/
+examples/
+
+# Claude Code configuration (contains user privacy)
+.claude/
+
+# Docker related (avoid recursion)
+docker/*.log
+docker/tmp/
+
+# macOS system files
+.DS_Store
+
+# README and documentation (optional, depends on whether image needs docs)
+# README.md
+# CLAUDE.md

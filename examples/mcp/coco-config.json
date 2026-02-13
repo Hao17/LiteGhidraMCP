@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "ghidra": {
+      "url": "http://localhost:8804/sse",
+      "metadata": {
+        "name": "Ghidra MCP Bridge",
+        "description": "Ghidra reverse engineering capabilities via MCP",
+        "version": "1.0.0"
+      }
+    }
+  }
+}

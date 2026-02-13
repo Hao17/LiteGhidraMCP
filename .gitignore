@@ -17,7 +17,7 @@ htmlcov/
 *~
 
 # Environment
-.env
+/.env
 .venv/
 venv/
 ENV/
@@ -29,6 +29,14 @@ build/
 
 # Logs
 *.log
+logs/
+
+# Configuration
+config/.env
+
+# Temporary files
+tmp/
+temp/
 
 # OS
 .DS_Store

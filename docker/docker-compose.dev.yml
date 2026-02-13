@@ -1,0 +1,67 @@
+version: '3.8'
+
+# Development mode with code hot-reload
+# Usage: docker-compose -f docker/docker-compose.dev.yml up
+
+services:
+  ghidra-bridge-dev:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: ghidra-mcp-bridge-dev
+
+    environment:
+      - GHIDRA_MCP_HOST=0.0.0.0
+      - GHIDRA_MCP_PORT=8803
+      - GHIDRA_MCP_SSE_PORT=8804
+      - PROJECT_MODE=local
+      - PROJECT_PATH=/ghidra-projects
+      - PROJECT_NAME=${PROJECT_NAME:-default}
+      - LOG_LEVEL=DEBUG  # More verbose logging for development
+      - LOG_DIR=/app/logs
+
+    ports:
+      - "8803:8803"
+      - "8804:8804"
+
+    volumes:
+      # Mount Ghidra project
+      - ${HOST_PROJECT_PATH:-/tmp/ghidra-project}:/ghidra-projects:rw
+
+      # Mount source code for hot-reload
+      # Changes to these files will be immediately available via /_reload API
+      - ../api:/app/api:ro
+      - ../api_v1:/app/api_v1:ro
+      - ../utils:/app/utils:ro
+      - ../scripts:/app/scripts:ro
+      - ../ghidra_mcp_server.py:/app/ghidra_mcp_server.py:ro
+
+      # Logs (read-write for development)
+      - ../logs:/app/logs:rw
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "/healthcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    # Optional: interactive terminal for debugging
+    # stdin_open: true
+    # tty: true
+
+# Development tips:
+# 1. Set HOST_PROJECT_PATH environment variable before starting:
+#    export HOST_PROJECT_PATH=/path/to/your/ghidra-project
+#    docker-compose -f docker/docker-compose.dev.yml up
+#
+# 2. After modifying code, trigger hot-reload:
+#    curl http://localhost:8803/_reload
+#
+# 3. View live logs:
+#    docker-compose -f docker/docker-compose.dev.yml logs -f
+#
+# 4. Access container shell for debugging:
+#    docker exec -it ghidra-mcp-bridge-dev /bin/bash

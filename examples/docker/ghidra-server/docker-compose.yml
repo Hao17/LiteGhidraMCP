@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  ghidra-bridge:
+    build:
+      context: ../../..
+      dockerfile: docker/Dockerfile
+    container_name: ghidra-mcp-bridge-server
+
+    env_file:
+      - .env
+
+    ports:
+      - "${GHIDRA_MCP_PORT:-8803}:8803"
+      - "${GHIDRA_MCP_SSE_PORT:-8804}:8804"
+
+    volumes:
+      # Log persistence
+      - ./logs:/app/logs:rw
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "/healthcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    # If Ghidra Server is in the same Docker network
+    # depends_on:
+    #   - ghidra-server
+
+# Optional: Deploy Ghidra Server alongside
+# services:
+#   ghidra-server:
+#     image: blacktop/ghidra:11.0-server
+#     container_name: ghidra-server
+#     ports:
+#       - "13100:13100"
+#     volumes:
+#       - ghidra-server-data:/repos
+#     environment:
+#       - GHIDRA_USERS=analyst:password
+#
+# volumes:
+#   ghidra-server-data:

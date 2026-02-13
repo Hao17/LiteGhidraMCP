@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  ghidra-bridge:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: ghidra-mcp-bridge
+
+    environment:
+      # Load from .env file or specify directly
+      - GHIDRA_MCP_HOST=0.0.0.0
+      - GHIDRA_MCP_PORT=8803
+      - GHIDRA_MCP_SSE_PORT=8804
+      - PROJECT_MODE=local
+      - PROJECT_PATH=/ghidra-projects
+      - PROJECT_NAME=my_binary
+      - LOG_LEVEL=INFO
+      - LOG_DIR=/app/logs
+
+    ports:
+      - "8803:8803"   # HTTP API
+      - "8804:8804"   # MCP SSE
+
+    volumes:
+      # Mount Ghidra shared project directory
+      # Replace /path/to/your/ghidra-project with actual path
+      - /path/to/your/ghidra-project:/ghidra-projects:rw
+      # Log persistence
+      - ./logs:/app/logs:rw
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "/healthcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+# Optional: Deploy Ghidra Server alongside
+# services:
+#   ghidra-server:
+#     image: blacktop/ghidra:11.0-server
+#     ports:
+#       - "13100:13100"
+#     volumes:
+#       - ghidra-server-data:/repos
+#
+# volumes:
+#   ghidra-server-data:
