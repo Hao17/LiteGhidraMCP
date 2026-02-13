@@ -11,24 +11,37 @@ services:
     container_name: ghidra-mcp-bridge-pyghidra
     image: ghidra-mcp-bridge:pyghidra
 
+    # Use host networking to access Ghidra Server on 127.0.0.1
+    # This avoids SSL certificate hostname mismatch with host.docker.internal
+    network_mode: "host"
+
     environment:
       # Server configuration
-      - GHIDRA_MCP_HOST=0.0.0.0
-      - GHIDRA_MCP_PORT=8803
-      - GHIDRA_MCP_SSE_PORT=8804
+      - GHIDRA_MCP_HOST=${GHIDRA_MCP_HOST:-0.0.0.0}
+      - GHIDRA_MCP_PORT=${GHIDRA_MCP_PORT:-8803}
+      - GHIDRA_MCP_SSE_PORT=${GHIDRA_MCP_SSE_PORT:-8804}
 
       # Project configuration
-      - PROJECT_MODE=local
-      - PROJECT_PATH=/ghidra-projects
+      - PROJECT_MODE=${PROJECT_MODE:-local}
+      - PROJECT_PATH=${PROJECT_PATH:-/ghidra-projects}
       - PROJECT_NAME=${PROJECT_NAME:-default}
 
+      # Ghidra Server configuration (for server mode)
+      - GHIDRA_SERVER_HOST=${GHIDRA_SERVER_HOST:-localhost}
+      - GHIDRA_SERVER_PORT=${GHIDRA_SERVER_PORT:-13100}
+      - GHIDRA_SERVER_USER=${GHIDRA_SERVER_USER:-}
+      - GHIDRA_SERVER_PASSWORD=${GHIDRA_SERVER_PASSWORD:-}
+      - GHIDRA_SERVER_REPO=${GHIDRA_SERVER_REPO:-}
+
       # Logging
-      - LOG_LEVEL=INFO
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_DIR=/app/logs
 
-    ports:
-      - "8803:8803"   # HTTP API
-      - "8804:8804"   # MCP SSE
+    # Note: ports section is ignored with network_mode: host
+    # Services are directly accessible on host at ports 8803 and 8804
+    #ports:
+    #  - "8803:8803"   # HTTP API
+    #  - "8804:8804"   # MCP SSE
 
     volumes:
       # Mount Ghidra project directory

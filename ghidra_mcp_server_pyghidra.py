@@ -141,13 +141,130 @@ def _init_ghidra_project():
         # Ghidra Server mode
         server_host = os.environ.get("GHIDRA_SERVER_HOST", "localhost")
         server_port = int(os.environ.get("GHIDRA_SERVER_PORT", "13100"))
-        server_user = os.environ.get("GHIDRA_SERVER_USER", "analyst")
-        server_repo = os.environ.get("GHIDRA_SERVER_REPO", "/")
+        server_user = os.environ.get("GHIDRA_SERVER_USER", "")
+        server_password = os.environ.get("GHIDRA_SERVER_PASSWORD", "")
 
         print(f"[PyGhidra-MCP-Bridge] Connecting to Ghidra Server: {server_host}:{server_port}")
-        # TODO: Implement Ghidra Server connection via PyGhidra
-        # This requires additional PyGhidra API usage
-        raise NotImplementedError("Ghidra Server mode not yet implemented in PyGhidra version")
+        print(f"[PyGhidra-MCP-Bridge] User: {server_user if server_user else '(anonymous)'}")
+
+        try:
+            from ghidra.framework.client import ClientUtil, HeadlessClientAuthenticator
+            from java.lang import System
+            from javax.net.ssl import HttpsURLConnection, SSLContext
+            from java.security import SecureRandom
+            import jpype
+
+            # Disable SSL hostname verification for Docker networking (host.docker.internal)
+            # This is needed because the server's SSL certificate contains "localhost"
+            # but Docker connects via "host.docker.internal"
+
+            # Create a trust manager that accepts all certificates using JProxy
+            @jpype.JImplements("javax.net.ssl.X509TrustManager")
+            class AllTrustManager:
+                @jpype.JOverride
+                def checkClientTrusted(self, chain, authType):
+                    pass
+                @jpype.JOverride
+                def checkServerTrusted(self, chain, authType):
+                    pass
+                @jpype.JOverride
+                def getAcceptedIssuers(self):
+                    return None
+
+            # Create a hostname verifier that accepts all hostnames using JProxy
+            @jpype.JImplements("javax.net.ssl.HostnameVerifier")
+            class AllHostnameVerifier:
+                @jpype.JOverride
+                def verify(self, hostname, session):
+                    return True
+
+            # Install the permissive trust manager and hostname verifier
+            sc = SSLContext.getInstance("TLS")
+            trust_managers = jpype.JArray(jpype.JClass("javax.net.ssl.TrustManager"))([AllTrustManager()])
+            sc.init(None, trust_managers, SecureRandom())
+            HttpsURLConnection.setDefaultSSLSocketFactory(sc.getSocketFactory())
+            HttpsURLConnection.setDefaultHostnameVerifier(AllHostnameVerifier())
+
+            print(f"[PyGhidra-MCP-Bridge] SSL hostname verification disabled for Docker compatibility")
+
+            # Install headless authenticator before connecting
+            # For anonymous access: username=None, keystorePath=None, allowPasswordPrompt=False
+            # For authenticated access: username=<user>, keystorePath=None, allowPasswordPrompt=True
+            if server_user:
+                print(f"[PyGhidra-MCP-Bridge] Installing headless authenticator with user: {server_user}")
+                HeadlessClientAuthenticator.installHeadlessClientAuthenticator(
+                    server_user, None, True  # Allow password prompt for authenticated mode
+                )
+            else:
+                print(f"[PyGhidra-MCP-Bridge] Installing headless authenticator for anonymous access")
+                HeadlessClientAuthenticator.installHeadlessClientAuthenticator(
+                    None, None, False  # No password prompt for anonymous mode
+                )
+
+            # Connect to Ghidra Server (already authenticated via HeadlessClientAuthenticator)
+            server_handle = ClientUtil.getRepositoryServer(server_host, server_port, True)
+
+            # Check connection status
+            if not server_handle.isConnected():
+                server_msg = server_handle.getServerInfo() if hasattr(server_handle, 'getServerInfo') else "unknown"
+                print(f"[PyGhidra-MCP-Bridge] Server handle created but not connected. Server info: {server_msg}")
+                print(f"[PyGhidra-MCP-Bridge] Anonymous access allowed: {server_handle.anonymousAccessAllowed() if hasattr(server_handle, 'anonymousAccessAllowed') else 'unknown'}")
+                raise Exception(f"Failed to establish server connection - isConnected() returned False")
+
+            print(f"[PyGhidra-MCP-Bridge] ✓ Connected to server")
+            print(f"[PyGhidra-MCP-Bridge] Server user: {server_handle.getUser()}")
+
+            # List available repositories
+            repos = server_handle.getRepositoryNames()
+            print(f"[PyGhidra-MCP-Bridge] Available repositories: {list(repos) if repos else '(none)'}")
+
+            # Open repository (default to root "/")
+            repo_name = os.environ.get("GHIDRA_SERVER_REPO", "")
+            if not repo_name and repos and len(repos) > 0:
+                repo_name = repos[0]
+                print(f"[PyGhidra-MCP-Bridge] Using first repository: {repo_name}")
+
+            if repo_name:
+                repo_handle = server_handle.getRepository(repo_name)
+                print(f"[PyGhidra-MCP-Bridge] ✓ Opened repository: {repo_name}")
+
+                # List projects in repository
+                items = repo_handle.getItemList("/")
+                print(f"[PyGhidra-MCP-Bridge] Repository items: {len(items) if items else 0}")
+
+                # Try to open the specified project
+                if project_name and project_name != "default":
+                    try:
+                        # Open project from server
+                        project_item = repo_handle.getItem("/", project_name)
+                        if project_item:
+                            # TODO: Open program from server project
+                            print(f"[PyGhidra-MCP-Bridge] ✓ Found project: {project_name}")
+                            _current_program = None
+                            print("[PyGhidra-MCP-Bridge] ⚠ Server mode: Program opening not yet fully implemented")
+                        else:
+                            print(f"[PyGhidra-MCP-Bridge] ⚠ Project not found: {project_name}")
+                            _current_program = None
+                    except Exception as e:
+                        print(f"[PyGhidra-MCP-Bridge] ⚠ Error opening project: {e}")
+                        _current_program = None
+                else:
+                    print("[PyGhidra-MCP-Bridge] ⚠ No project specified (PROJECT_NAME)")
+                    _current_program = None
+
+                # Create a minimal project handle for API compatibility
+                # Note: This is a simplified implementation
+                _ghidra_project = None  # Server mode doesn't use local GhidraProject
+            else:
+                print("[PyGhidra-MCP-Bridge] ⚠ No repositories found on server")
+                _current_program = None
+                _ghidra_project = None
+
+        except Exception as e:
+            print(f"[PyGhidra-MCP-Bridge] ✗ Failed to connect to server: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
 
     else:
         raise ValueError(f"Invalid PROJECT_MODE: {project_mode} (must be 'local' or 'server')")
