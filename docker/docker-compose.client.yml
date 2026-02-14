@@ -1,0 +1,85 @@
+version: '3.8'
+
+# Ghidra MCP Bridge - Client for Server Mode
+# This compose file creates a Bridge client that connects to Ghidra Server
+#
+# Usage:
+#   make client-up          # Start first client (ports 8803/8804)
+#   make client2-up         # Start second client (ports 8813/8814)
+#   make client-down        # Stop client
+#
+# Connection Modes:
+#   1. Docker Network Mode (default):
+#      GHIDRA_SERVER_HOST=ghidra-server (joins ghidra-shared-network)
+#   2. External Server Mode:
+#      GHIDRA_SERVER_HOST=host.docker.internal or external IP
+#
+# Multi-Client Support:
+#   Set CLIENT_CONTAINER_NAME, CLIENT_MCP_PORT, CLIENT_MCP_SSE_PORT
+#   to run multiple clients on different ports
+
+services:
+  ghidra-bridge-client:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: ${CLIENT_CONTAINER_NAME:-ghidra-mcp-bridge-client-1}
+    image: ghidra-mcp-bridge
+    networks:
+      - ghidra-shared-network
+    environment:
+      # API Server configuration
+      - GHIDRA_MCP_HOST=0.0.0.0
+      - GHIDRA_MCP_PORT=${CLIENT_MCP_PORT:-8803}
+      - GHIDRA_MCP_SSE_PORT=${CLIENT_MCP_SSE_PORT:-8804}
+
+      # Project configuration - SERVER MODE
+      - PROJECT_MODE=server
+      - PROJECT_NAME=${PROJECT_NAME:-default}
+
+      # Ghidra Server connection
+      - GHIDRA_SERVER_HOST=${GHIDRA_SERVER_HOST:-ghidra-server}
+      - GHIDRA_SERVER_PORT=${GHIDRA_SERVER_PORT:-13100}
+      - GHIDRA_SERVER_USER=${GHIDRA_SERVER_USER:-bridge}
+      - GHIDRA_SERVER_REPO=${GHIDRA_SERVER_REPO:-/mcp-projects}
+
+      # SSH key authentication
+      - GHIDRA_SERVER_KEYSTORE=/root/.ghidra/ssh_key
+
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_DIR=/app/logs
+
+    ports:
+      - "${CLIENT_MCP_PORT:-8803}:${CLIENT_MCP_PORT:-8803}"
+      - "${CLIENT_MCP_SSE_PORT:-8804}:${CLIENT_MCP_SSE_PORT:-8804}"
+
+    volumes:
+      # SSH key (read-only, from server's SSH directory)
+      - ${CLIENT_SSH_KEY_PATH:-./server-data/ssh/bridge_key}:/root/.ghidra/ssh_key:ro
+
+      # Log persistence
+      - ${CLIENT_LOG_DIR:-./logs/client-1}:/app/logs:rw
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "/healthcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
+    # Resource limits (optional)
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 8G
+        reservations:
+          memory: 4G
+
+# Join external network created by server
+networks:
+  ghidra-shared-network:
+    external: true

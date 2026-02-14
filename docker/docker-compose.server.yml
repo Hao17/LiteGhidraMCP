@@ -1,21 +1,31 @@
 version: '3.8'
 
-# Ghidra MCP Bridge - Auto-Server Mode
-# This compose file adds a bundled Ghidra Server for shared project access
-# Usage: docker-compose -f docker-compose.yml -f docker-compose.server.yml up -d
+# Ghidra MCP Bridge - Standalone Ghidra Server
+# This compose file creates an independent Ghidra Server for shared project access
+# Multiple clients can connect to this server via docker-compose.client.yml
+#
+# Usage:
+#   make server-up          # Start standalone server
+#   make server-down        # Stop server
+#   make server-logs        # View logs
+#
+# Network: Creates external network ghidra-shared-network (172.28.0.0/16)
+# Server IP: 172.28.0.10 (fixed)
 
 services:
-  # Ghidra Server - Auto-deployed for shared project access
+  # Ghidra Server - Standalone deployment
   ghidra-server:
     image: blacktop/ghidra:12.0-server
-    container_name: ghidra-server
+    container_name: ghidra-server-standalone
     hostname: ghidra-server
     ports:
-      - "13100-13102:13100-13102"
+      - "${GHIDRA_SERVER_PORT:-13100}:13100"
+    networks:
+      ghidra-shared-network:
+        ipv4_address: 172.28.0.10
     volumes:
-      - ghidra-server-repos:/repos:rw
-      - ghidra-server-config:/ghidra/.ghidraServer:rw
-      - ${AUTO_SERVER_SSH_DIR:-~/.ghidra}:/root/.ssh:rw
+      - ghidra-server-repos-standalone:/repos:rw
+      - ghidra-server-config-standalone:/root/.ghidraServer:rw
     environment:
       - MAXMEM=${GHIDRA_SERVER_MAXMEM:-4G}
     restart: unless-stopped
@@ -26,30 +36,38 @@ services:
       retries: 5
       start_period: 30s
 
-  # Server initialization service (runs once)
+  # Server initialization service (runs once on first start)
   ghidra-server-init:
     image: blacktop/ghidra:12.0-server
-    container_name: ghidra-server-init
+    container_name: ghidra-server-init-standalone
     depends_on:
       ghidra-server:
         condition: service_healthy
+    networks:
+      - ghidra-shared-network
     volumes:
-      - ${AUTO_SERVER_SSH_DIR:-~/.ghidra}:/root/.ghidra:rw
+      - ${SERVER_SSH_DIR:-./server-data/ssh}:/root/.ghidra:rw
       - ./scripts/init-ghidra-server.sh:/init.sh:ro
+    environment:
+      - GHIDRA_SERVER_HOST=ghidra-server
+      - GHIDRA_SERVER_PORT=${GHIDRA_SERVER_PORT:-13100}
+      - AUTO_SERVER_REPO=${SERVER_REPO_NAME:-/mcp-projects}
+      - AUTO_SERVER_USER=${SERVER_USER_NAME:-bridge}
     command: ["/bin/bash", "/init.sh"]
     restart: "no"
 
-  # Bridge service override - wait for init to complete and mount SSH key
-  ghidra-bridge:
-    depends_on:
-      ghidra-server-init:
-        condition: service_completed_successfully
-    volumes:
-      # Mount generated SSH key
-      - ${AUTO_SERVER_SSH_DIR:-~/.ghidra}/bridge_key:/root/.ghidra/ssh_key:ro
+# External network for server-client communication
+networks:
+  ghidra-shared-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+          gateway: 172.28.0.1
 
+# Named volumes for server data persistence (isolated from legacy volumes)
 volumes:
-  ghidra-server-repos:
-    driver: local
-  ghidra-server-config:
-    driver: local
+  ghidra-server-repos-standalone:
+    name: ghidra-server-repos-standalone
+  ghidra-server-config-standalone:
+    name: ghidra-server-config-standalone

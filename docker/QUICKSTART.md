@@ -7,12 +7,13 @@
 > - **Local Project** (`PROJECT_MODE=local`): Mount local .gpr file
 >   - ⚠️ **Limitation**: Docker locks the project - **GUI cannot open it while container is running!**
 >   - Good for: Pure automation, no GUI interaction
-> - **Auto-Server** ⭐ **Recommended for AI+GUI** (`PROJECT_MODE=auto-server`): Auto-deploy bundled Ghidra Server
+> - **Separated Server-Client** ⭐ **Recommended for AI+GUI** (`PROJECT_MODE=server`): Standalone server + scalable clients
 >   - ✅ **AI (Docker) + GUI (human) can work simultaneously!**
->   - ✅ **Zero manual server configuration - one command setup**
->   - Good for: Quick shared project setup, AI-human collaboration
->   - See [Auto-Server Mode section](#auto-server-mode-recommended-for-aigu-collaboration) below
-> - **External Ghidra Server** (`PROJECT_MODE=server`): Connect to existing Server
+>   - ✅ **Multiple clients can connect to shared server**
+>   - ✅ **Independent server management - no coupling**
+>   - Good for: AI-human collaboration, multiple AI agents, production deployments
+>   - See [Separated Server-Client Mode section](#separated-server-client-mode-recommended-for-aigu-collaboration) below
+> - **External Ghidra Server** (`PROJECT_MODE=server`): Connect to existing external Server
 >   - ✅ **AI (Docker) + GUI (human) can work simultaneously!**
 >   - Good for: Production deployments with existing infrastructure
 >   - See [README.md - Ghidra Server Connection](../README.md#option-2-ghidra-server-connection--production-recommended)
@@ -29,7 +30,7 @@ This guide covers all three deployment modes.
 
 **This Local Project mode uses Non-Shared Project:**
 - When Docker container opens the project, **Ghidra GUI cannot open it simultaneously**
-- If you need AI (Docker) + GUI (human) to work together, use **Auto-Server mode** above instead
+- If you need AI (Docker) + GUI (human) to work together, use **Separated Server-Client mode** above instead
 
 ### Step 1: Prepare Your Ghidra Project
 
@@ -155,56 +156,67 @@ Add to your Coco configuration:
 
 ---
 
-## Auto-Server Mode (Recommended for AI+GUI Collaboration)
+## Separated Server-Client Mode (Recommended for AI+GUI Collaboration)
 
-**Best for**: AI + GUI collaboration without external server setup
+**Best for**: AI + GUI collaboration, multiple AI agents, production deployments
 
-This mode automatically deploys a Ghidra Server alongside the Bridge, enabling both the AI (Docker) and human analysts (Ghidra GUI) to work on the same project simultaneously.
+This mode runs a **standalone Ghidra Server** that multiple **Bridge clients** can connect to. The server and clients are completely independent, enabling:
+- Multiple AI agents working simultaneously
+- Human analysts (Ghidra GUI) + AI collaboration
+- Flexible scaling - add/remove clients without affecting the server
 
 ### Prerequisites
 
 1. **Docker** and **Docker Compose** installed
-2. **8GB RAM** recommended (4GB for Bridge + 4GB for Server)
-3. **SSH keys** will be auto-generated in `~/.ghidra/` on first run
+2. **8GB RAM** recommended (4GB for Server + 4GB per client)
+3. **SSH keys** will be auto-generated in `./server-data/ssh/` on first run
 
-### Quick Start
+### Quick Start (One Command)
 
-**Option 1: Using Makefile (Recommended)**
+**Start both server and client:**
 
 ```bash
 cd docker/
 
 # Start everything with one command
-make up-auto-server
+make up-separated
 
-# View logs to verify initialization
-make logs-auto-server
+# View logs
+make logs-separated
 ```
 
-**Option 2: Using docker-compose directly**
+This starts:
+1. **Ghidra Server** on port `13100`
+2. **Bridge Client** on ports `8803` (HTTP API) and `8804` (MCP SSE)
+
+### Manual Control (Two Commands)
+
+**For granular control, start server and client separately:**
 
 ```bash
 cd docker/
 
-# Optional: Copy pre-configured example
-cp .env.auto-server.example .env
+# 1. Start server
+make server-up
 
-# Start services
-docker-compose -f docker-compose.yml -f docker-compose.server.yml up -d
-
-# View logs
-docker-compose -f docker-compose.yml -f docker-compose.server.yml logs -f
+# 2. Start client(s)
+make client-up           # First client (8803/8804)
+make client2-up          # Second client (8813/8814)
 ```
 
 ### What Gets Created
 
-The auto-server deployment creates:
+**Server:**
+- Port: `13100`
+- SSH Keys: `./server-data/ssh/bridge_key*`
+- Repository: `/mcp-projects`
+- User: `bridge`
+- Data: Docker volumes (`ghidra-server-repos-standalone`, `ghidra-server-config-standalone`)
 
-1. **Ghidra Server** on port `13100`
-2. **SSH keys** in `~/.ghidra/bridge_key` (auto-generated if not exists)
-3. **Default repository**: `/mcp-projects`
-4. **Default user**: `bridge`
-5. **Server data** persists in Docker volumes
+**Client:**
+- HTTP API: `http://localhost:8803`
+- MCP SSE: `http://localhost:8804/sse`
+- Logs: `./logs/client-1/`
 
 ### Connect Ghidra GUI
 
@@ -222,7 +234,7 @@ Once the server is running, connect your Ghidra GUI:
    - User ID: `bridge`
    - Password: (leave empty)
    - Use PKI authentication: **✓ Checked**
-   - PKI Keystore: Browse to `~/.ghidra/bridge_key`
+   - PKI Keystore: Browse to `./server-data/ssh/bridge_key`
 
 4. **Repository**:
    - Select repository: `/mcp-projects`
@@ -231,6 +243,43 @@ Once the server is running, connect your Ghidra GUI:
 5. **Import Binary**:
    - Right-click repository → Import File
    - Select your binary and analyze
+
+### Multiple Clients
+
+**Start second client on different ports:**
+
+```bash
+make client2-up  # Ports 8813/8814
+```
+
+**Start custom client:**
+
+```bash
+CLIENT_CONTAINER_NAME=ghidra-mcp-bridge-client-3 \
+CLIENT_MCP_PORT=8823 \
+CLIENT_MCP_SSE_PORT=8824 \
+CLIENT_LOG_DIR=./logs/client-3 \
+docker-compose -f docker-compose.client.yml up -d
+```
+
+### External Server Mode
+
+**To connect client to external Ghidra Server:**
+
+**1. Edit `.env.client`:**
+```bash
+cp .env.client.example .env.client
+
+# Edit:
+GHIDRA_SERVER_HOST=your-server-ip  # or host.docker.internal
+GHIDRA_SERVER_PORT=13100
+CLIENT_SSH_KEY_PATH=/path/to/keystore
+```
+
+**2. Start client:**
+```bash
+docker-compose -f docker-compose.client.yml --env-file .env.client up -d
+```
 
 ### Verify It's Working
 
@@ -250,14 +299,14 @@ curl "http://localhost:8803/api/search/functions?q=main&limit=10"
 **Check logs:**
 
 ```bash
-# All services (Bridge + Server)
-make logs-auto-server
+# Server logs
+make server-logs
 
-# Server only
-make logs-server
+# Client logs
+make client-logs
 
-# Bridge only
-docker logs ghidra-mcp-bridge -f
+# All logs
+make logs-separated
 ```
 
 ### Connect MCP Client
@@ -280,68 +329,96 @@ Restart Claude Desktop - now you can use Ghidra MCP tools while working in the G
 
 ```bash
 # Stop everything
-make down-auto-server
+make down-separated
 
-# Or using docker-compose
-docker-compose -f docker-compose.yml -f docker-compose.server.yml down
+# Or stop individually
+make server-down
+make client-down
 ```
 
 **Note**: Server data persists in Docker volumes. To remove everything:
 
 ```bash
-docker-compose -f docker-compose.yml -f docker-compose.server.yml down -v
-rm -rf ~/.ghidra/bridge_key*  # Remove SSH keys if desired
+make server-clean  # ⚠️ Destructive - removes all data
 ```
 
-### Troubleshooting Auto-Server
+### Troubleshooting
 
 **Server won't start:**
 
 ```bash
 # Check server logs
-docker logs ghidra-server
+make server-logs
 
 # Check initialization logs
-docker logs ghidra-server-init
+docker logs ghidra-server-init-standalone
 
 # Verify port is available
 lsof -i :13100
 ```
 
-**Bridge can't connect to server:**
+**Client can't connect to server:**
 
 ```bash
 # Check server is running
 docker ps | grep ghidra-server
 
-# Verify SSH key permissions
-ls -la ~/.ghidra/bridge_key*  # Should be -rw------- (600)
+# Verify network connectivity
+docker exec ghidra-mcp-bridge-client-1 nc -z ghidra-server 13100
 
-# Check bridge logs
-docker logs ghidra-mcp-bridge | grep -i server
+# Verify SSH key exists
+ls -la ./server-data/ssh/bridge_key*
+
+# Check client logs
+make client-logs
 ```
 
 **GUI connection fails:**
 
 1. Verify server is accessible: `nc -zv localhost 13100`
-2. Check SSH key path is correct: `~/.ghidra/bridge_key` (not `.pub`)
+2. Check SSH key path: `./server-data/ssh/bridge_key` (not `.pub`)
 3. Ensure "Use PKI authentication" is checked
-4. Try manually: `ssh -i ~/.ghidra/bridge_key bridge@localhost -p 13100`
 
 **Re-initialize server:**
 
 ```bash
-# Stop everything
-make down-auto-server
-
-# Remove volumes
-docker volume rm ghidra-server-repos ghidra-server-config
-
-# Remove SSH keys
-rm -rf ~/.ghidra/bridge_key*
+# Stop and clean everything
+make down-separated
+make server-clean
 
 # Start fresh
-make up-auto-server
+make up-separated
+```
+
+### Advanced: Custom Configuration
+
+**Server Configuration (`.env.server`):**
+```bash
+cp .env.server.example .env.server
+
+# Edit as needed:
+GHIDRA_SERVER_PORT=13100
+GHIDRA_SERVER_MAXMEM=8G
+SERVER_SSH_DIR=./server-data/ssh
+SERVER_REPO_NAME=/my-projects
+SERVER_USER_NAME=myuser
+```
+
+**Client Configuration (`.env.client`):**
+```bash
+cp .env.client.example .env.client
+
+# Edit as needed:
+CLIENT_MCP_PORT=8803
+CLIENT_MCP_SSE_PORT=8804
+GHIDRA_SERVER_HOST=ghidra-server
+PROJECT_NAME=my-binary
+```
+
+**Start with custom config:**
+```bash
+docker-compose -f docker-compose.server.yml --env-file .env.server up -d
+docker-compose -f docker-compose.client.yml --env-file .env.client up -d
 ```
 
 ---

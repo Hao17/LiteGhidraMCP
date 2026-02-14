@@ -1,7 +1,7 @@
 # Ghidra MCP Bridge
 # Makefile for common Docker operations
 
-.PHONY: help build up down logs shell test clean rebuild up-auto-server down-auto-server logs-auto-server init-server up-with-server down-with-server logs-server
+.PHONY: help build up down logs shell test clean rebuild server-up server-down server-logs server-restart server-clean client-up client-down client-logs client-restart client2-up up-separated down-separated logs-separated help-separated
 
 # Default target
 help:
@@ -14,10 +14,12 @@ help:
 	@echo "  up              - Start services (local project)"
 	@echo "  down            - Stop services"
 	@echo ""
-	@echo "Server Mode (AI + GUI collaboration):"
-	@echo "  up-with-server  - Start with auto-deployed Ghidra Server ⭐"
-	@echo "  down-with-server - Stop all services including server"
-	@echo "  logs-server     - View Ghidra Server logs"
+	@echo "Separated Server-Client Mode (AI + GUI collaboration):"
+	@echo "  up-separated    - Start server + client (one command) ⭐"
+	@echo "  server-up       - Start standalone Ghidra Server"
+	@echo "  client-up       - Start client (connects to server)"
+	@echo "  down-separated  - Stop all services"
+	@echo "  help-separated  - Detailed help for separated mode"
 	@echo ""
 	@echo "Development & Testing:"
 	@echo "  up-dev          - Start in development mode (with logs)"
@@ -107,24 +109,24 @@ rebuild: clean build up
 	@echo "✓ Rebuild complete"
 
 # ============================================
-# Ghidra Server Mode Targets
+# Separated Server-Client Mode Targets
 # ============================================
 
-# Start with auto-deployed Ghidra Server
-up-with-server up-auto-server:
+# Quick start - Start both server and client with one command
+up-separated:
 	@echo "=================================================="
-	@echo "  Starting Ghidra MCP Bridge + Ghidra Server"
+	@echo "  Starting Separated Server + Client"
 	@echo "=================================================="
 	@echo ""
-	@echo "This will start:"
-	@echo "  - Ghidra Server (blacktop/ghidra:12.0-server)"
-	@echo "  - Server Initialization (creates user, repo, SSH keys)"
-	@echo "  - Ghidra MCP Bridge (connected to server)"
+	@$(MAKE) server-up
 	@echo ""
-	docker-compose -f docker-compose.yml -f docker-compose.server.yml up -d
+	@echo "Waiting for server initialization..."
+	@sleep 8
+	@echo ""
+	@$(MAKE) client-up
 	@echo ""
 	@echo "=================================================="
-	@echo "  ✓ Services Started"
+	@echo "  ✓ Server + Client Started"
 	@echo "=================================================="
 	@echo ""
 	@echo "Access:"
@@ -132,53 +134,157 @@ up-with-server up-auto-server:
 	@echo "  MCP SSE:       http://localhost:8804/sse"
 	@echo "  Ghidra Server: localhost:13100"
 	@echo ""
-	@echo "Server credentials (auto-configured):"
-	@echo "  User:     bridge"
-	@echo "  SSH Key:  ~/.ghidra/bridge_key"
-	@echo "  Repo:     /mcp-projects"
-	@echo ""
-	@echo "Connect Ghidra GUI:"
-	@echo "  File → New Project → Shared Project"
-	@echo "  Server: localhost:13100"
-	@echo "  User: bridge"
-	@echo "  SSH Key: ~/.ghidra/bridge_key"
-	@echo ""
 	@echo "Commands:"
-	@echo "  make logs-auto-server   - View all logs (Bridge + Server)"
-	@echo "  make logs-server        - View Server logs only"
-	@echo "  make test               - Test API"
-	@echo "  make down-auto-server   - Stop all services"
+	@echo "  make logs-separated - View all logs"
+	@echo "  make test           - Test API"
+	@echo "  make down-separated - Stop all services"
 	@echo ""
 
-# Stop all services including server
-down-with-server down-auto-server:
-	@echo "Stopping all services (Bridge + Server)..."
-	docker-compose -f docker-compose.yml -f docker-compose.server.yml down
+# Stop all services (server + client)
+down-separated:
+	@echo "Stopping all services..."
+	@docker-compose -f docker-compose.client.yml down 2>/dev/null || true
+	@docker-compose -f docker-compose.server.yml down
 	@echo "✓ All services stopped"
-	@echo ""
-	@echo "Note: Server data persists in Docker volumes:"
-	@echo "  - ghidra-server-repos (repositories)"
-	@echo "  - ghidra-server-config (configuration)"
-	@echo "  - ~/.ghidra/bridge_key* (SSH keys)"
-	@echo ""
-	@echo "To remove volumes: docker-compose -f docker-compose.yml -f docker-compose.server.yml down -v"
 
-# View all auto-server logs (Bridge + Server + Init)
-logs-auto-server:
+# View all logs (server + client)
+logs-separated:
 	@echo "All service logs (Ctrl+C to exit):"
 	@echo ""
-	docker-compose -f docker-compose.yml -f docker-compose.server.yml logs -f
-
-# View Ghidra Server logs only
-logs-server:
-	@echo "Ghidra Server logs (Ctrl+C to exit):"
+	@echo "Use: docker logs <container> -f  to view individual logs"
 	@echo ""
-	docker logs -f ghidra-server
+	@docker logs ghidra-server-standalone -f &
+	@docker logs ghidra-mcp-bridge-client-1 -f
 
-# Manually trigger server initialization (if needed)
-init-server:
-	@echo "Manually triggering server initialization..."
-	docker-compose -f docker-compose.yml -f docker-compose.server.yml up ghidra-server-init
+# ============================================
+# Server Management
+# ============================================
+
+# Start standalone Ghidra Server
+server-up:
+	@echo "Starting Ghidra Server..."
+	@docker-compose -f docker-compose.server.yml up -d
+	@echo ""
+	@echo "✓ Server Started"
+	@echo "  Port: 13100"
+	@echo "  SSH Keys: ./server-data/ssh/"
+	@echo ""
+	@echo "Run 'make server-logs' to view logs"
+
+# Stop Ghidra Server
+server-down:
+	@echo "Stopping Ghidra Server..."
+	@docker-compose -f docker-compose.server.yml down
+	@echo "✓ Server stopped"
+
+# View server logs
+server-logs:
+	@echo "Server logs (Ctrl+C to exit):"
+	@echo ""
+	@docker logs ghidra-server-standalone -f
+
+# Restart server
+server-restart:
+	@$(MAKE) server-down
+	@$(MAKE) server-up
+
+# Clean server data (WARNING: destructive!)
+server-clean:
+	@echo "⚠️  WARNING: This will remove all server data!"
+	@echo "  - Docker volumes (repos + config)"
+	@echo "  - SSH keys (./server-data/ssh/)"
+	@echo ""
+	@read -p "Continue? [y/N] " confirm && [ "$$confirm" = "y" ]
+	@echo "Removing server data..."
+	@docker-compose -f docker-compose.server.yml down -v
+	@rm -rf ./server-data/ssh/
+	@echo "✓ Server data removed"
+
+# ============================================
+# Client Management
+# ============================================
+
+# Start client (connects to server)
+client-up:
+	@echo "Starting Bridge Client..."
+	@docker-compose -f docker-compose.client.yml up -d
+	@echo ""
+	@echo "✓ Client Started"
+	@echo "  HTTP API: http://localhost:8803"
+	@echo "  MCP SSE:  http://localhost:8804/sse"
+	@echo ""
+	@echo "Run 'make client-logs' to view logs"
+
+# Stop client
+client-down:
+	@echo "Stopping Bridge Client..."
+	@docker-compose -f docker-compose.client.yml down
+	@echo "✓ Client stopped"
+
+# View client logs
+client-logs:
+	@echo "Client logs (Ctrl+C to exit):"
+	@echo ""
+	@docker logs ghidra-mcp-bridge-client-1 -f
+
+# Restart client
+client-restart:
+	@$(MAKE) client-down
+	@$(MAKE) client-up
+
+# Start second client on different ports (for testing multi-client)
+client2-up:
+	@echo "Starting second Bridge Client..."
+	@CLIENT_CONTAINER_NAME=ghidra-mcp-bridge-client-2 \
+	 CLIENT_MCP_PORT=8813 \
+	 CLIENT_MCP_SSE_PORT=8814 \
+	 CLIENT_LOG_DIR=./logs/client-2 \
+	 docker-compose -f docker-compose.client.yml up -d
+	@echo ""
+	@echo "✓ Second Client Started"
+	@echo "  HTTP API: http://localhost:8813"
+	@echo "  MCP SSE:  http://localhost:8814/sse"
+
+# ============================================
+# Separated Mode Help
+# ============================================
+
+help-separated:
+	@echo "=================================================="
+	@echo "  Separated Server-Client Architecture"
+	@echo "=================================================="
+	@echo ""
+	@echo "Quick Start:"
+	@echo "  make up-separated   - Start server + client (one command)"
+	@echo "  make down-separated - Stop all services"
+	@echo ""
+	@echo "Server Management:"
+	@echo "  make server-up      - Start standalone server"
+	@echo "  make server-down    - Stop server"
+	@echo "  make server-logs    - View server logs"
+	@echo "  make server-restart - Restart server"
+	@echo "  make server-clean   - Remove all server data (⚠️ destructive)"
+	@echo ""
+	@echo "Client Management:"
+	@echo "  make client-up      - Start client (ports 8803/8804)"
+	@echo "  make client-down    - Stop client"
+	@echo "  make client-logs    - View client logs"
+	@echo "  make client-restart - Restart client"
+	@echo "  make client2-up     - Start second client (ports 8813/8814)"
+	@echo ""
+	@echo "Multiple Clients:"
+	@echo "  CLIENT_CONTAINER_NAME=ghidra-mcp-bridge-client-3 \\"
+	@echo "  CLIENT_MCP_PORT=8823 \\"
+	@echo "  CLIENT_MCP_SSE_PORT=8824 \\"
+	@echo "  CLIENT_LOG_DIR=./logs/client-3 \\"
+	@echo "  docker-compose -f docker-compose.client.yml up -d"
+	@echo ""
+	@echo "Connect Ghidra GUI:"
+	@echo "  1. File → New Project → Shared Project"
+	@echo "  2. Server: localhost:13100"
+	@echo "  3. User: bridge"
+	@echo "  4. PKI Authentication → ./server-data/ssh/bridge_key"
+	@echo ""
 
 # Check configuration
 check-env:

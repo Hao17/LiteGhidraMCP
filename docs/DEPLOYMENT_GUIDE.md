@@ -57,7 +57,7 @@ Docker mode can connect to projects in two ways (same deployment, different conf
 - Multiple AI agents will work on the same project
 - You want to track who made which modifications
 
-**TIP**: Use `make up-with-server` for **auto-deployment** - server setup happens automatically!
+**TIP**: Use `make up-separated` for **auto-deployment** - server and client start with one command!
 
 ---
 
@@ -313,50 +313,55 @@ There are now **two ways** to set up Ghidra Server mode:
 
 ##### Option 1: Auto-Deploy Server (Easiest) ⭐
 
-**Use the pre-configured `docker-compose.with-server.yml` for zero-configuration setup:**
+**Use the separated server-client architecture for clean deployment:**
 
 ```bash
 cd docker
-cp .env.example .env
-# Defaults work fine - no configuration needed!
 
-# Start both Bridge and Server
-make up-with-server
-# Or: docker-compose -f docker-compose.with-server.yml up -d
+# Start both Server and Client with one command
+make up-separated
+
+# Or start separately for granular control
+make server-up   # Start standalone Ghidra Server
+make client-up   # Start Bridge client
 ```
 
 **What this does:**
-- ✅ Deploys Ghidra Server (blacktop/ghidra:12.0-server)
-- ✅ Creates default repository `/default`
-- ✅ Configures Bridge to connect automatically
-- ✅ Enables anonymous access (no SSH keys needed)
+- ✅ Deploys Ghidra Server independently (blacktop/ghidra:12.0-server)
+- ✅ Creates default repository `/mcp-projects`
+- ✅ Configures Bridge client to connect automatically
+- ✅ Generates SSH keys for authentication (`./server-data/ssh/bridge_key`)
 - ✅ Sets up persistent Docker volumes
+- ✅ Enables multiple clients to connect simultaneously
 
 **Connect Ghidra GUI:**
 ```
 File → New Project → Shared Project
   Server: localhost
   Port: 13100
-  User: <leave empty for anonymous>
-  Repository: /default
+  User: bridge
+  PKI Authentication: ✓ (use ./server-data/ssh/bridge_key)
+  Repository: /mcp-projects
 ```
 
 **Commands:**
 ```bash
-make logs              # View Bridge logs
-make logs-server       # View Server logs
-make down-with-server  # Stop all services
+make server-logs       # View Server logs
+make client-logs       # View Client logs
+make logs-separated    # View all logs
+make down-separated    # Stop all services
 ```
 
 **Data Persistence:**
 Data is stored in Docker volumes that persist across restarts:
-- `ghidra-mcp-server-repos` - Repository data
-- `ghidra-mcp-server-config` - Server configuration
+- `ghidra-server-repos-standalone` - Repository data
+- `ghidra-server-config-standalone` - Server configuration
+- `./server-data/ssh/` - SSH keys
 
-**Optional SSH Authentication:**
-If you want authenticated access, edit `.env` before starting:
+**Multiple Clients:**
+Scale to multiple clients on different ports:
 ```bash
-GHIDRA_SERVER_USERS=ai_analyst,human_analyst
+make client2-up  # Start second client (ports 8813/8814)
 GHIDRA_SERVER_USER=ai_analyst
 HOST_SSH_KEYSTORE=./ssh-keys
 
