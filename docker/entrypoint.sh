@@ -5,6 +5,45 @@ echo "==================================================="
 echo "Ghidra MCP Bridge"
 echo "==================================================="
 
+# 0. Determine run mode (SERVER or CLIENT)
+RUN_MODE="${RUN_MODE:-CLIENT}"
+echo "Run Mode: ${RUN_MODE}"
+echo "==================================================="
+
+# Handle SERVER mode separately
+if [ "$RUN_MODE" = "SERVER" ]; then
+    echo "Starting Ghidra Server..."
+
+    # Server configuration
+    SERVER_PORT="${GHIDRA_SERVER_PORT:-13100}"
+    SERVER_DIR="/repos"
+    MAXMEM="${MAXMEM:-4G}"
+
+    # Create server directory structure
+    mkdir -p "${SERVER_DIR}"
+
+    echo "Server configuration:"
+    echo "  Port: ${SERVER_PORT}"
+    echo "  Repository: ${SERVER_DIR}"
+    echo "  Max Memory: ${MAXMEM}"
+    echo "  Ghidra: ${GHIDRA_INSTALL_DIR}"
+    echo "==================================================="
+
+    # Navigate to Ghidra server directory
+    cd "${GHIDRA_INSTALL_DIR}/server"
+
+    # Start Ghidra Server in console mode (foreground)
+    exec ./ghidraSvr console \
+        -ip 0.0.0.0 \
+        -p "${SERVER_PORT}" \
+        -d "${SERVER_DIR}" \
+        -e0 \
+        -a2 \
+        -u
+fi
+
+# CLIENT mode continues below...
+
 # 1. Parse configuration
 PROJECT_MODE="${PROJECT_MODE:-local}"
 PROJECT_PATH="${PROJECT_PATH:-/ghidra-projects}"

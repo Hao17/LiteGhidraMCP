@@ -526,3 +526,40 @@ The bridge handles both GUI and headless modes with appropriate threading models
 2. 如果类名正确，检查导入是否在函数内部（lazy import）
 3. 将 lazy import 改为模块级导入，并使用 `sys.modules` 缓存
 4. 重启 Ghidra 服务器（在主线程执行模块加载）验证修复
+
+## Docker Deployment
+
+### Unified Image Architecture
+
+本项目使用**单一镜像**通过 `RUN_MODE` 环境变量控制运行模式：
+- `RUN_MODE=SERVER` - 作为 Ghidra Server 运行
+- `RUN_MODE=CLIENT` (默认) - 作为 MCP Bridge Client 运行
+
+详细架构说明见 `docker/ARCHITECTURE.md`。
+
+### Data Persistence (Important)
+
+Ghidra Server 需要持久化以下关键目录：
+
+1. **`/repos`** (🔴 Critical) - 项目仓库、用户数据、版本历史
+   - Docker Volume: `ghidra-server-repos-standalone`
+   - 包含: `.users/` (用户认证), `changesets/` (版本历史), `~admin/` (仓库元数据)
+
+2. **`/root/.ghidraServer`** (🟡 Recommended) - Server 配置和日志
+   - Docker Volume: `ghidra-server-config-standalone`
+
+3. **`./server-data/ssh/`** (🔴 Critical) - SSH 私钥（Client 认证）
+   - Host directory mount
+
+**当前配置**: 已在 `docker-compose.server.yml` 中正确配置所有持久化 volumes。
+
+**注意事项**:
+- 删除 `/repos/` 会丢失所有分析数据和版本历史
+- 删除 `/repos/.users/` 会导致用户无法登录
+- SSH 私钥权限必须是 600
+- 容器删除不会影响数据（使用 Named Volumes）
+
+**TODO (Future Iterations)**:
+- [ ] 实现自动备份机制
+- [ ] Volume 监控和容量告警
+- [ ] 跨主机迁移流程
