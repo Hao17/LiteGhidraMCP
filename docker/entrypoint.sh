@@ -24,7 +24,43 @@ echo "HTTP API: http://$GHIDRA_MCP_HOST:$GHIDRA_MCP_PORT"
 echo "MCP SSE: http://$GHIDRA_MCP_HOST:$GHIDRA_MCP_SSE_PORT"
 echo "==================================================="
 
-# 2. Validate configuration based on mode
+# 2. Handle auto-server mode (before validation)
+if [ "$PROJECT_MODE" = "auto-server" ]; then
+    echo "Auto-Server mode detected"
+    echo "Waiting for Ghidra Server to initialize..."
+
+    # Wait for server to be ready (max 120s for initialization)
+    for i in {1..120}; do
+        if nc -z ${GHIDRA_SERVER_HOST:-ghidra-server} ${GHIDRA_SERVER_PORT:-13100}; then
+            echo "✓ Ghidra Server is ready"
+            break
+        fi
+        if [ $i -eq 120 ]; then
+            echo "✗ Ghidra Server timeout - initialization took too long"
+            echo "Check server logs: docker logs ghidra-server"
+            exit 1
+        fi
+        sleep 1
+    done
+
+    # Set server connection variables
+    export GHIDRA_SERVER_HOST="${GHIDRA_SERVER_HOST:-ghidra-server}"
+    export GHIDRA_SERVER_PORT="${GHIDRA_SERVER_PORT:-13100}"
+    export GHIDRA_SERVER_USER="${AUTO_SERVER_USER:-bridge}"
+    export GHIDRA_SERVER_REPO="${AUTO_SERVER_REPO:-/mcp-projects}"
+    export GHIDRA_SERVER_KEYSTORE="/root/.ghidra/ssh_key"
+
+    echo "✓ Auto-server configuration:"
+    echo "  Server: ${GHIDRA_SERVER_HOST}:${GHIDRA_SERVER_PORT}"
+    echo "  User: ${GHIDRA_SERVER_USER}"
+    echo "  Repository: ${GHIDRA_SERVER_REPO}"
+    echo "  SSH Key: ${GHIDRA_SERVER_KEYSTORE}"
+
+    # Override PROJECT_MODE to "server" for the Python script
+    export PROJECT_MODE="server"
+fi
+
+# 3. Validate configuration based on mode
 if [ "$PROJECT_MODE" = "local" ]; then
     echo "Validating local project..."
 
@@ -98,7 +134,7 @@ elif [ "$PROJECT_MODE" = "server" ]; then
     export GHIDRA_SERVER_REPO
 fi
 
-# 3. Start MCP Bridge
+# 4. Start MCP Bridge
 echo "---------------------------------------------------"
 echo "Starting Ghidra MCP Bridge..."
 echo "---------------------------------------------------"

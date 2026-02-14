@@ -117,38 +117,47 @@ Docker mode runs Ghidra headless + MCP Bridge in a container, based on Ghidra 12
 
 ### Deployment Options Comparison
 
-| Feature | Local GUI | Docker + Local Project | Docker + Ghidra Server |
-|---------|-----------|------------------------|------------------------|
-| **Use Case** | Daily analysis | Automation only | Production/Collaboration |
-| **Deployment** | Ghidra GUI | Docker container | Docker container |
-| **Ghidra Source** | Local installation | Containerized | Containerized |
-| **Project Source** | GUI-opened | Volume mount (.gpr) | Ghidra Server |
-| **AI + GUI Simultaneously** | N/A | **No - GUI locked** | **Yes - Full collaboration** |
-| **Persistence** | Session-based | Volume mount | Server storage |
-| **Concurrent Access** | Single user | Locked by container | Multi-user safe |
-| **Version Control** | No | No | Built-in |
-| **User Isolation** | No | No | Separate sessions |
-| **Container Restart** | N/A | Remount needed | Auto recovery |
+| Feature | Local GUI | Docker + Local Project | Docker + Auto-Server ⭐ | Docker + External Server |
+|---------|-----------|------------------------|------------------------|--------------------------|
+| **Use Case** | Daily analysis | Automation only | Quick AI+GUI setup | Production/Team |
+| **Deployment** | Ghidra GUI | Docker container | Docker container | Docker container |
+| **Ghidra Source** | Local installation | Containerized | Containerized | Containerized |
+| **Project Source** | GUI-opened | Volume mount (.gpr) | Bundled Ghidra Server | External Ghidra Server |
+| **AI + GUI Simultaneously** | N/A | **No - GUI locked** | **Yes - Full collaboration** | **Yes - Full collaboration** |
+| **Setup Complexity** | Low | Low | **Low - Auto-config** | Medium - Manual setup |
+| **Persistence** | Session-based | Volume mount | Docker volumes | Server storage |
+| **Concurrent Access** | Single user | Locked by container | Multi-user safe | Multi-user safe |
+| **Version Control** | No | No | Built-in | Built-in |
+| **User Isolation** | No | No | Separate sessions | Separate sessions |
+| **Container Restart** | N/A | Remount needed | Auto recovery | Auto recovery |
 
-> **Important Limitation**:
-> - **Local Project mode** uses Non-Shared Project - Docker container **locks** the project, **GUI cannot open it simultaneously**
-> - **Server mode** uses Shared Project - Docker (AI analyst) and GUI (human analyst) can work **together in parallel**
+> **Deployment Mode Summary**:
+> - **Local Project mode**: Docker locks project - **GUI cannot open it simultaneously**
+> - **Auto-Server mode** ⭐: Auto-deploys bundled Ghidra Server - **AI + GUI can work together** with zero manual setup
+> - **External Server mode**: Connect to existing Ghidra Server - for production environments with existing infrastructure
 
 ### Choose Your Deployment Scenario
 
-**Currently available modes** (configured via `PROJECT_MODE` environment variable):
+**Available deployment modes** (configured via `PROJECT_MODE` environment variable):
 
 1. **Local Project** (`PROJECT_MODE=local`): Mount local .gpr file
    - Good for: Pure automation, no GUI interaction needed
    - Limitation: Docker locks the project, GUI cannot open it simultaneously
+   - Setup: Edit `.env`, run `make up`
 
-2. **Ghidra Server** (`PROJECT_MODE=server`): Connect to Ghidra Server (recommended for production)
-   - Good for: AI + human collaboration, team work, production deployment
-   - Advantage: AI and GUI can work together, persistent storage, version control
+2. **Auto-Server** ⭐ **Recommended for AI+GUI** (`PROJECT_MODE=auto-server`): Auto-deploy bundled Ghidra Server
+   - Good for: Quick shared project setup, AI + human collaboration, learning
+   - Advantage: **Zero manual configuration** - server auto-deploys, AI and GUI can work together
+   - Setup: Run `make up-auto-server` (or `docker-compose -f docker-compose.yml -f docker-compose.server.yml up -d`)
+
+3. **External Ghidra Server** (`PROJECT_MODE=server`): Connect to existing Ghidra Server
+   - Good for: Production deployment, team work with existing infrastructure
+   - Advantage: AI and GUI can work together, enterprise-grade persistence
+   - Setup: Configure server connection in `.env`, run `make up`
 
 **Future planned mode** (not yet implemented):
 
-3. **Local Ghidra Instance** (`PROJECT_MODE=host-ghidra`): Use host's Ghidra installation
+4. **Local Ghidra Instance** (`PROJECT_MODE=host-ghidra`): Use host's Ghidra installation
    - Will enable: Access to your existing plugins and scripts
    - Status: Not yet implemented
 
@@ -230,9 +239,63 @@ Same as local mode, connect to `http://localhost:8804/sse`.
 
 ---
 
-### Option 2: Ghidra Server Connection - Production Recommended
+### Option 2: Auto-Server Mode ⭐ Recommended for AI+GUI Collaboration
 
-**The ONLY way to use AI (Docker) + GUI (Human) simultaneously!**
+**Quick setup for AI (Docker) + GUI (Human) collaboration with zero manual configuration!**
+
+**Configuration:** Run `make up-auto-server` (or `docker-compose -f docker-compose.yml -f docker-compose.server.yml up -d`)
+
+**What is Auto-Server Mode?**
+
+Auto-Server mode automatically deploys a bundled Ghidra Server alongside the Bridge, providing:
+
+- ✅ **Zero manual server setup** - Server auto-deploys and configures itself
+- ✅ **AI + GUI collaboration** - Both can work on the same project simultaneously
+- ✅ **Auto-generated SSH keys** - Stored in `~/.ghidra/bridge_key`
+- ✅ **Persistent storage** - Data survives container restarts
+- ✅ **One-command deployment** - Start everything with `make up-auto-server`
+
+**Quick Start**
+
+```bash
+cd docker/
+
+# Start with auto-deployed Ghidra Server
+make up-auto-server
+
+# View logs
+make logs-auto-server
+
+# Test API
+make test
+```
+
+**Connect Ghidra GUI**
+
+After starting the services:
+
+1. File → New Project → **Shared Project**
+2. Server: `localhost:13100`
+3. User: `bridge`
+4. SSH Key: `~/.ghidra/bridge_key` (auto-generated)
+5. Repository: `/mcp-projects`
+
+**What Gets Created:**
+
+- Ghidra Server on port `13100`
+- SSH keys in `~/.ghidra/bridge_key` (auto-generated if not exists)
+- Default repository: `/mcp-projects`
+- Default user: `bridge`
+- HTTP API: `http://localhost:8803`
+- MCP SSE: `http://localhost:8804/sse`
+
+**Detailed Guide**: See [docker/QUICKSTART.md - Auto-Server Mode](docker/QUICKSTART.md#auto-server-mode-recommended-for-aigu-collaboration)
+
+---
+
+### Option 3: External Ghidra Server Connection - Production
+
+**For production environments with existing Ghidra Server infrastructure**
 
 **Configuration:** Set `PROJECT_MODE=server` in `.env` + configure Server connection variables
 
@@ -306,6 +369,56 @@ In this architecture, Ghidra Server is the **central coordinator**, while MCP Br
 
 #### Deployment Steps
 
+**⭐ Easy Setup: Auto-Deploy Ghidra Server (Recommended)**
+
+The simplest way to enable AI + GUI collaboration is using the pre-configured Docker Compose file:
+
+```bash
+cd docker
+cp .env.example .env
+
+# Start both Bridge and Server with one command
+make up-with-server
+# Or: docker-compose -f docker-compose.with-server.yml up -d
+
+# Wait for initialization (automatic)
+```
+
+This will:
+- ✅ Deploy Ghidra Server automatically (blacktop/ghidra:12.0-server)
+- ✅ Create default repository `/default`
+- ✅ Configure Bridge to connect to server
+- ✅ Enable anonymous access (no SSH keys needed)
+- ✅ Persist data in Docker volumes
+
+**Connect Ghidra GUI:**
+- File → New Project → Shared Project
+- Server: `localhost`, Port: `13100`
+- User: *(leave empty for anonymous)*
+- Repository: `/default`
+
+**Optional SSH Authentication:**
+
+For authenticated access, edit `.env` before starting:
+
+```bash
+GHIDRA_SERVER_USERS=ai_analyst,human_analyst
+GHIDRA_SERVER_USER=ai_analyst
+HOST_SSH_KEYSTORE=./ssh-keys
+
+# Generate keys
+mkdir -p docker/ssh-keys
+ssh-keygen -t rsa -b 2048 -f docker/ssh-keys/ssh_key -N ""
+```
+
+See [docker/QUICKSTART.md - Auto-Deploy Section](docker/QUICKSTART.md#alternative-auto-deploy-ghidra-server-recommended-) for detailed guide.
+
+---
+
+**Advanced: Manual Ghidra Server Deployment**
+
+If you need custom server configuration or want to connect to an existing server:
+
 **1. Generate SSH Keys (for Server authentication)**
 
 Generate keys for AI analyst (MCP Bridge) and human analyst separately:
@@ -320,9 +433,9 @@ ssh-keygen -t rsa -b 4096 -f ~/.ghidra/ai_analyst_key -N ""
 ssh-keygen -t rsa -b 4096 -f ~/.ghidra/human_analyst_key -N ""
 ```
 
-**2. Deploy Ghidra Server + Bridge**
+**2. Deploy Ghidra Server + Bridge Manually**
 
-Add Ghidra Server to your Docker Compose configuration, and configure Bridge with `PROJECT_MODE=server`:
+Add Ghidra Server to your own Docker Compose configuration, and configure Bridge with `PROJECT_MODE=server`:
 
 ```yaml
 version: '3.8'

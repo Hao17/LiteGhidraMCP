@@ -1,0 +1,55 @@
+version: '3.8'
+
+# Ghidra MCP Bridge - Auto-Server Mode
+# This compose file adds a bundled Ghidra Server for shared project access
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.server.yml up -d
+
+services:
+  # Ghidra Server - Auto-deployed for shared project access
+  ghidra-server:
+    image: blacktop/ghidra:12.0-server
+    container_name: ghidra-server
+    hostname: ghidra-server
+    ports:
+      - "13100-13102:13100-13102"
+    volumes:
+      - ghidra-server-repos:/repos:rw
+      - ghidra-server-config:/ghidra/.ghidraServer:rw
+      - ${AUTO_SERVER_SSH_DIR:-~/.ghidra}:/root/.ssh:rw
+    environment:
+      - MAXMEM=${GHIDRA_SERVER_MAXMEM:-4G}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "sh", "-c", "nc -z localhost 13100 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # Server initialization service (runs once)
+  ghidra-server-init:
+    image: blacktop/ghidra:12.0-server
+    container_name: ghidra-server-init
+    depends_on:
+      ghidra-server:
+        condition: service_healthy
+    volumes:
+      - ${AUTO_SERVER_SSH_DIR:-~/.ghidra}:/root/.ghidra:rw
+      - ./scripts/init-ghidra-server.sh:/init.sh:ro
+    command: ["/bin/bash", "/init.sh"]
+    restart: "no"
+
+  # Bridge service override - wait for init to complete and mount SSH key
+  ghidra-bridge:
+    depends_on:
+      ghidra-server-init:
+        condition: service_completed_successfully
+    volumes:
+      # Mount generated SSH key
+      - ${AUTO_SERVER_SSH_DIR:-~/.ghidra}/bridge_key:/root/.ghidra/ssh_key:ro
+
+volumes:
+  ghidra-server-repos:
+    driver: local
+  ghidra-server-config:
+    driver: local
