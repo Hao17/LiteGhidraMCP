@@ -8,49 +8,29 @@
 
 基于 PyGhidra 的 MCP (Model Context Protocol) Bridge，在 Ghidra 12.0+ 内部运行，为 AI 系统提供对 Ghidra 逆向工程能力的编程访问。
 
-## 前置要求
+## 快速开始指引
 
-### 1. Ghidra
+**普通用户：从 GUI 模式开始**
+- → [在 Ghidra GUI 中运行 MCP](#快速开始)：最简单的设置，直接在 Ghidra 中运行脚本
+- 无需 Docker，无需复杂配置
+- 适合学习和日常分析工作
 
-**版本要求**：Ghidra 12.0+
+**专业逆向工程师：**
 
-下载地址：https://ghidra-sre.org/
-
-> **注意**：本项目使用 Ghidra 12.0+ 内置的 PyGhidra 支持，无需额外插件。
-> 如果使用 Ghidra 11.x，请切换到 `ghidra-11-ghidrathon` 分支。
-
-### 2. Python 依赖（用于 MCP）
-
-**仅用于 MCP SSE 服务器和 stdio 模式。** Ghidra Bridge 本身使用 Ghidra 12.0+ 内置的 PyGhidra。
-
-```bash
-pip install -r requirements.txt
-```
-
-**依赖说明**：
-- `mcp`：Model Context Protocol SDK
-- `uvicorn`：ASGI 服务器（用于 MCP SSE 代理）
-- `httpx`：HTTP 客户端（用于 Bridge 通信）
-
-## 快速开始
-
-### 部署方式选择
-
-**本地开发模式**（Ghidra GUI + Python 脚本）：
-- ✅ 适合逆向工程师日常使用
-- ✅ 可与 Ghidra GUI 交互
-- ✅ 支持代码热重载
-- 📖 见下方 "本地开发" 章节
-
-**Docker 无头模式**（Headless + API 服务）：
-- ✅ 适合持续运行的 AI 协作
-- ✅ 容器化部署，易于管理
-- ✅ 支持 Ghidra Shared Project 多用户协作
-- 📖 见下方 "Docker 部署" 章节
+如需生产级部署或团队协作，查看 [Docker 部署](#docker-部署) 章节：
+- 容器化部署选项
+- 本地项目模式（仅自动化）
+- Ghidra Server 模式（AI + GUI 协作）
 
 ---
 
-## 本地开发
+## 快速开始
+
+**环境要求：**
+- Ghidra 12.0+（下载：https://ghidra-sre.org/）
+- Python 依赖：`pip install -r requirements.txt`
+
+> **注意**：使用 Ghidra 12.0+ 内置的 PyGhidra。Docker 模式无需本地安装，所有依赖已包含在容器中。
 
 ### 1. 启动 Ghidra Bridge
 
@@ -68,9 +48,17 @@ pip install -r requirements.txt
    MCP SSE server started on http://127.0.0.1:8804
    ```
 
-**热重载：** 再次执行脚本会自动触发 API 模块重载，无需重启服务器。
+### 2. 可用工具
 
-### 2. 配置 AI 客户端
+配置成功后，AI 客户端将自动获得以下 Ghidra 工具：
+
+- **ghidra_search**: 搜索函数、符号、字符串、交叉引用等
+- **ghidra_view**: 反编译/反汇编查看
+- **ghidra_list**: 符号列表浏览（类似 ls）
+- **ghidra_edit**: 统一编辑（重命名、类型设置、注释）
+- **ghidra_basic_info**: 获取程序基本信息
+
+### 3. 配置 AI 客户端
 
 根据你使用的 AI 客户端选择对应的配置方式：
 
@@ -123,88 +111,55 @@ coco mcp add-json ghidra '{"type": "sse", "url": "http://127.0.0.1:8804/sse"}'
 claude mcp add --transport sse ghidra-init1 http://127.0.0.1:8804/sse
 ```
 
-## 可用工具
-
-配置成功后，AI 客户端将自动获得以下 Ghidra 工具：
-
-- **ghidra_search**: 搜索函数、符号、字符串、交叉引用等
-- **ghidra_view**: 反编译/反汇编查看
-- **ghidra_list**: 符号列表浏览（类似 ls）
-- **ghidra_edit**: 统一编辑（重命名、类型设置、注释）
-- **ghidra_basic_info**: 获取程序基本信息
-
-## 环境变量（可选）
-
-可通过环境变量自定义端口：
-
-```bash
-export GHIDRA_MCP_HOST=127.0.0.1      # HTTP API 主机（默认: 127.0.0.1）
-export GHIDRA_MCP_PORT=8803           # HTTP API 端口（默认: 8803）
-export GHIDRA_MCP_SSE_PORT=8804       # MCP SSE 端口（默认: 8804）
-```
-
-**多程序同时分析：**
-
-如需同时分析多个二进制文件，可在不同 Ghidra 实例中使用不同端口：
-
-```bash
-# 第一个 Ghidra 实例（分析 sdk_v1）
-export GHIDRA_MCP_PORT=8803
-export GHIDRA_MCP_SSE_PORT=8804
-
-# 第二个 Ghidra 实例（分析 sdk_v2）
-export GHIDRA_MCP_PORT=8805
-export GHIDRA_MCP_SSE_PORT=8806
-```
-
-然后在 AI 客户端配置文件中添加多个 MCP 服务器（参考上面的 Claude Desktop 多程序配置示例）。
-
-## HTTP API
-
-Bridge 同时提供 HTTP JSON API，可用于测试或集成其他工具：
-
-```bash
-# 获取程序基本信息
-curl http://127.0.0.1:8803/api/basic_info
-
-# 搜索函数
-curl "http://127.0.0.1:8803/api/v1/search?q=main&types=functions"
-
-# 反编译函数
-curl "http://127.0.0.1:8803/api/v1/view?q=main&type=decompile"
-
-# 重命名函数
-curl -X POST http://127.0.0.1:8803/api/v1/edit \
-  -H "Content-Type: application/json" \
-  -d '{"action": "rename.function", "name": "FUN_00401000", "new_name": "main"}'
-
-# 热重载 API 模块
-curl http://127.0.0.1:8803/_reload
-
-# 关闭服务器
-curl http://127.0.0.1:8803/_shutdown
-```
-
-完整 API 文档参见 [CLAUDE.md](CLAUDE.md)。
-
----
-
 ## Docker 部署
 
 Docker 模式运行 Ghidra 无头服务器 + MCP Bridge，基于 Ghidra 12.0+ 的 PyGhidra。
 
-> **Ghidra 11.x 用户**：请使用 [`ghidra-11-ghidrathon`](https://github.com/Hao17/LiteGhidraMCP/tree/ghidra-11-ghidrathon) 分支。
+### 部署选项对比
 
-### 部署模式选择
+| 特性 | 本地 GUI | Docker + 本地项目 | Docker + Ghidra Server |
+|------|---------|------------------|----------------------|
+| **使用场景** | 日常分析 | 仅自动化 | 生产环境/协作 |
+| **部署方式** | Ghidra GUI | Docker 容器 | Docker 容器 |
+| **Ghidra 来源** | 本地安装 | 容器化 | 容器化 |
+| **项目来源** | GUI 打开 | 卷挂载 (.gpr) | Ghidra Server |
+| **AI + GUI 同时使用** | 不适用 | **否 - GUI 被锁定** | **是 - 完全协作** |
+| **持久化** | 会话级 | 卷挂载 | Server 存储 |
+| **并发访问** | 单用户 | 容器锁定 | 多用户安全 |
+| **版本控制** | 否 | 否 | 内置 |
+| **用户隔离** | 否 | 否 | 独立会话 |
+| **容器重启** | 不适用 | 需重新挂载 | 自动恢复 |
 
-- **本地项目模式**（下方）：快速测试和开发，单用户访问
-- **Server 模式**（下一节）：**生产环境推荐**，支持 AI-人工协作
+> **重要限制**：
+> - **本地项目模式**使用非共享项目 - Docker 容器**锁定**项目，**GUI 无法同时打开**
+> - **Server 模式**使用共享项目 - Docker（AI 分析师）和 GUI（人工分析师）可**并行工作**
+
+### 选择部署场景
+
+**当前可用模式**（通过 `PROJECT_MODE` 环境变量配置）：
+
+1. **本地项目** (`PROJECT_MODE=local`)：挂载本地 .gpr 文件
+   - 适用于：纯自动化，无需 GUI 交互
+   - 限制：Docker 锁定项目，GUI 无法同时打开
+
+2. **Ghidra Server** (`PROJECT_MODE=server`)：连接 Ghidra Server（生产环境推荐）
+   - 适用于：AI + 人工协作，团队工作，生产部署
+   - 优势：AI 和 GUI 可协同工作，持久化存储，版本控制
+
+**未来计划模式**（尚未实现）：
+
+3. **本地 Ghidra 实例** (`PROJECT_MODE=host-ghidra`)：使用宿主机的 Ghidra 安装
+   - 将支持：访问现有插件和脚本
+   - 状态：尚未实现
 
 ---
 
-#### 本地项目模式（快速测试）
+### 选项 1：本地项目连接（仅自动化）
 
-仅用于单用户开发测试，生产环境请使用 Server 模式。
+**关键限制**：非共享项目 - **Docker 锁定项目，GUI 无法同时打开！**
+
+- 适用于：纯自动化，无需 GUI 交互
+- 不适用于：AI-人工协作，手动审查
 
 **1. 准备 Ghidra 项目**
 
@@ -294,17 +249,26 @@ curl http://localhost:8804/sse
 
 ---
 
-### Ghidra Server 模式（Ghidra 12+ 推荐架构）
+### 选项 2：Ghidra Server 连接 - 生产环境推荐
 
-**为什么推荐 Server 模式？**
+**唯一能够同时使用 AI（Docker）+ GUI（人工）的方式！**
 
-在 Ghidra 12+ 环境下，推荐使用 Ghidra Server 作为标准协作架构，而不是简单的文件共享：
+**配置：** 在 `.env` 中设置 `PROJECT_MODE=server` + 配置 Server 连接变量
 
-- ✅ **专业协作模型**：MCP Bridge 和人工分析师作为独立用户，各自维护会话状态
-- ✅ **持久化存储**：容器删除后数据完整保留在 Server
-- ✅ **版本控制**：Server 内置完整的版本管理和冲突解决
-- ✅ **权限隔离**：AI 分析和人工分析的修改可独立追踪
-- ✅ **并发安全**：Server 原生支持多用户并发访问
+**为什么连接 Ghidra Server？**
+
+使用 Ghidra Server（共享项目）提供专业的协作架构：
+
+**相比本地项目：**
+- **Docker 和 GUI 可以协同工作**（本地项目会锁定文件）
+- **持久化存储**（数据在容器删除后仍保留）
+- **版本控制**（内置冲突解决）
+- **多用户安全**（AI 分析师 + 人工分析师作为独立用户）
+
+**额外优势：**
+- **权限隔离**：追踪哪些修改来自 AI，哪些来自人工
+- **并发安全**：多个 AI 代理 + 人工分析师可并行工作
+- **容器重启安全**：所有数据在 Server 中，容器只是客户端
 
 #### 标准协作架构
 
@@ -598,120 +562,32 @@ services:
 
 ---
 
-### 部署模式对比
-
-| 特性 | 本地项目模式 | Server 模式 (推荐) |
-|------|-------------|-------------------|
-| **适用场景** | 单用户快速测试 | 生产环境、AI-人工协作 |
-| **持久化** | ⚠️ Volume 挂载 | ✅ Server 持久化存储 |
-| **并发访问** | ❌ 不支持 | ✅ 多用户并发安全 |
-| **版本控制** | ❌ 无 | ✅ 内置版本管理 |
-| **用户隔离** | ❌ 无 | ✅ 独立用户会话 |
-| **容器重启** | ⚠️ 需重新挂载 | ✅ 数据自动恢复 |
-
-**推荐使用场景**：
-- **本地项目模式**：仅用于开发测试、概念验证
-- **Server 模式**：所有生产部署、AI-人工协作场景
-
----
-
-### 故障排查
-
-#### PyGhidra 特定问题
-
-**容器无法启动**
-```bash
-# 查看完整日志
-docker logs ghidra-mcp-bridge-pyghidra
-
-# 常见原因：
-# 1. 项目路径未正确挂载
-# 2. PROJECT_NAME 与 .gpr 文件名不匹配
-# 3. Docker 内存不足（推荐 8GB+）
-```
-
-**项目加载失败**
-```bash
-# 验证挂载路径
-docker inspect ghidra-mcp-bridge-pyghidra | grep Mounts -A 20
-
-# 确认项目文件存在
-ls -la $HOST_PROJECT_PATH/*.gpr
-```
-
-**API 无响应**
-```bash
-# 检查容器状态
-docker ps | grep ghidra
-
-# 检查健康检查状态
-docker inspect ghidra-mcp-bridge-pyghidra | grep Health -A 10
-
-# 测试 API
-curl -v http://localhost:8803/api/status
-```
-
-**内存不足**
-```yaml
-# 在 docker-compose.pyghidra.yml 中增加内存限制
-deploy:
-  resources:
-    limits:
-      memory: 12G  # 根据二进制文件大小调整
-```
-
-#### Ghidra Server 连接问题
-
-**SSH 认证失败**
-```bash
-# 验证私钥已正确挂载
-docker exec ghidra-bridge ls -la /root/.ghidra/ssh_key
-
-# 检查公钥是否已添加到 Server
-docker exec ghidra-server cat /repos/.ssh/authorized_keys
-```
-
-**Server 无法连接**
-```bash
-# 测试网络连接
-docker exec ghidra-bridge ping ghidra-server
-
-# 检查端口
-docker exec ghidra-bridge nc -zv ghidra-server 13100
-```
-
-#### 通用 Docker 问题
-
-**Volume 权限错误**
-```bash
-# 确保宿主机目录可读写
-chmod -R 755 $HOST_PROJECT_PATH
-
-# 检查 SELinux 标签（Linux）
-chcon -Rt svirt_sandbox_file_t $HOST_PROJECT_PATH
-```
-
-**网络问题**
-```bash
-# 检查 Docker 网络
-docker network inspect bridge
-
-# 验证端口映射
-docker port ghidra-mcp-bridge-pyghidra
-```
-
----
-
-### 详细文档
-
-- **PyGhidra 快速开始**: [`docker/QUICKSTART.pyghidra.md`](docker/QUICKSTART.pyghidra.md)
-- **部署指南**: [`docs/setup/docker-deployment.md`](docs/setup/docker-deployment.md)
-- **架构设计**: [`docs/architecture/docker-architecture.md`](docs/architecture/docker-architecture.md)
-- **示例配置**: [`examples/docker/`](examples/docker/)
-
----
-
 ## 高级选项
+
+### HTTP API
+
+Bridge 同时提供 HTTP JSON API，可用于测试或集成其他工具：
+
+```bash
+# 获取程序基本信息
+curl http://127.0.0.1:8803/api/basic_info
+
+# 搜索函数
+curl "http://127.0.0.1:8803/api/v1/search?q=main&types=functions"
+
+# 反编译函数
+curl "http://127.0.0.1:8803/api/v1/view?q=main&type=decompile"
+
+# 重命名函数
+curl -X POST http://127.0.0.1:8803/api/v1/edit \
+  -H "Content-Type: application/json" \
+  -d '{"action": "rename.function", "name": "FUN_00401000", "new_name": "main"}'
+
+# 关闭服务器
+curl http://127.0.0.1:8803/_shutdown
+```
+
+完整 API 文档参见 [CLAUDE.md](CLAUDE.md)。
 
 ### stdio 模式（本地调试）
 
@@ -731,6 +607,32 @@ docker port ghidra-mcp-bridge-pyghidra
 **注意：** `command` 应指向虚拟环境中的 Python 解释器路径。
 
 stdio 模式作为独立进程运行，通过 HTTP API 与 Ghidra 通信，便于断点调试。
+
+### 环境变量
+
+自定义服务器端口（可选）：
+
+```bash
+export GHIDRA_MCP_HOST=127.0.0.1      # HTTP API 主机（默认: 127.0.0.1）
+export GHIDRA_MCP_PORT=8803           # HTTP API 端口（默认: 8803）
+export GHIDRA_MCP_SSE_PORT=8804       # MCP SSE 端口（默认: 8804）
+```
+
+**多程序同时分析：**
+
+如需同时分析多个二进制文件，可在不同 Ghidra 实例中使用不同端口：
+
+```bash
+# 第一个 Ghidra 实例（分析 sdk_v1）
+export GHIDRA_MCP_PORT=8803
+export GHIDRA_MCP_SSE_PORT=8804
+
+# 第二个 Ghidra 实例（分析 sdk_v2）
+export GHIDRA_MCP_PORT=8805
+export GHIDRA_MCP_SSE_PORT=8806
+```
+
+然后在 AI 客户端中配置多个 MCP 服务器（参考上面的 Claude Desktop 多程序配置示例）。
 
 ## 项目结构
 
@@ -762,10 +664,6 @@ Bridge/
 - 确认服务器已启动（检查 Ghidra Console 输出）
 - 确认配置文件中的端口号正确（SSE 默认 8804）
 - 重启客户端（Claude Desktop / Coco / Claude Code）
-
-**API 修改未生效？**
-- 执行热重载：`curl http://127.0.0.1:8803/_reload`
-- 或在 Ghidra 中再次运行 `ghidra_mcp_server.py`
 
 ## 开发
 
