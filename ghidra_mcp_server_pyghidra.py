@@ -138,14 +138,15 @@ def _init_ghidra_project():
             _current_program = None
 
     elif project_mode == "server":
-        # Ghidra Server mode
+        # Ghidra Server mode with SSH key authentication
         server_host = os.environ.get("GHIDRA_SERVER_HOST", "localhost")
         server_port = int(os.environ.get("GHIDRA_SERVER_PORT", "13100"))
         server_user = os.environ.get("GHIDRA_SERVER_USER", "")
-        server_password = os.environ.get("GHIDRA_SERVER_PASSWORD", "")
+        server_keystore = os.environ.get("GHIDRA_SERVER_KEYSTORE", "")  # Path to SSH private key
 
         print(f"[PyGhidra-MCP-Bridge] Connecting to Ghidra Server: {server_host}:{server_port}")
         print(f"[PyGhidra-MCP-Bridge] User: {server_user if server_user else '(anonymous)'}")
+        print(f"[PyGhidra-MCP-Bridge] Authentication: {'SSH key (' + server_keystore + ')' if server_keystore else 'Anonymous'}")
 
         try:
             from ghidra.framework.client import ClientUtil, HeadlessClientAuthenticator
@@ -182,20 +183,49 @@ def _init_ghidra_project():
             sc = SSLContext.getInstance("TLS")
             trust_managers = jpype.JArray(jpype.JClass("javax.net.ssl.TrustManager"))([AllTrustManager()])
             sc.init(None, trust_managers, SecureRandom())
+
+            # Set SSL factory for HTTPS URLs
             HttpsURLConnection.setDefaultSSLSocketFactory(sc.getSocketFactory())
             HttpsURLConnection.setDefaultHostnameVerifier(AllHostnameVerifier())
 
-            print(f"[PyGhidra-MCP-Bridge] SSL hostname verification disabled for Docker compatibility")
+            # CRITICAL: Set default SSLContext globally for all SSL connections (including SSLSocket)
+            # This is needed for Ghidra's ClientUtil.getRepositoryServer() which uses SSLSocket
+            SSLContext.setDefault(sc)
 
-            # Install headless authenticator before connecting
-            # For anonymous access: username=None, keystorePath=None, allowPasswordPrompt=False
-            # For authenticated access: username=<user>, keystorePath=None, allowPasswordPrompt=True
-            if server_user:
-                print(f"[PyGhidra-MCP-Bridge] Installing headless authenticator with user: {server_user}")
+            # Also disable endpoint identification for SSL sockets
+            from javax.net.ssl import SSLParameters
+            System.setProperty("jdk.tls.client.protocols", "TLSv1.2,TLSv1.3")
+            System.setProperty("https.protocols", "TLSv1.2,TLSv1.3")
+
+            print(f"[PyGhidra-MCP-Bridge] ✓ SSL hostname verification disabled globally for Docker compatibility")
+
+            # Install headless authenticator with SSH key authentication
+            # IMPORTANT: No password prompts - only SSH key authentication
+            if server_user and server_keystore:
+                # SSH key authentication mode
+                print(f"[PyGhidra-MCP-Bridge] Installing headless authenticator with SSH key")
+                print(f"[PyGhidra-MCP-Bridge] Keystore: {server_keystore}")
+
+                # Verify keystore file exists
+                if not os.path.exists(server_keystore):
+                    raise FileNotFoundError(f"SSH keystore not found: {server_keystore}")
+
+                # Install authenticator with keystore, NO password prompts
                 HeadlessClientAuthenticator.installHeadlessClientAuthenticator(
-                    server_user, None, True  # Allow password prompt for authenticated mode
+                    server_user,
+                    server_keystore,
+                    False  # CRITICAL: Never prompt for password
+                )
+                print(f"[PyGhidra-MCP-Bridge] ✓ SSH key authenticator installed")
+
+            elif server_user and not server_keystore:
+                # User specified but no keystore - this is an error
+                raise ValueError(
+                    "GHIDRA_SERVER_USER specified but GHIDRA_SERVER_KEYSTORE not set. "
+                    "SSH key authentication required. Password authentication has been removed."
                 )
             else:
+                # Anonymous access mode
                 print(f"[PyGhidra-MCP-Bridge] Installing headless authenticator for anonymous access")
                 HeadlessClientAuthenticator.installHeadlessClientAuthenticator(
                     None, None, False  # No password prompt for anonymous mode
@@ -206,9 +236,6 @@ def _init_ghidra_project():
 
             # Check connection status
             if not server_handle.isConnected():
-                server_msg = server_handle.getServerInfo() if hasattr(server_handle, 'getServerInfo') else "unknown"
-                print(f"[PyGhidra-MCP-Bridge] Server handle created but not connected. Server info: {server_msg}")
-                print(f"[PyGhidra-MCP-Bridge] Anonymous access allowed: {server_handle.anonymousAccessAllowed() if hasattr(server_handle, 'anonymousAccessAllowed') else 'unknown'}")
                 raise Exception(f"Failed to establish server connection - isConnected() returned False")
 
             print(f"[PyGhidra-MCP-Bridge] ✓ Connected to server")
