@@ -1,197 +1,287 @@
-# Ghidra Server Mode - Docker Deployment
+# Ghidra Server Mode (SSH Authentication)
 
-This example demonstrates deploying Ghidra MCP Bridge in Docker using a **Ghidra Server** for project storage.
+This example demonstrates how to connect Ghidra MCP Bridge to a Ghidra Server using SSH key authentication.
 
-## Prerequisites
+## Features
 
-1. **Ghidra Server** running and accessible (local or remote)
-2. Valid user credentials for the Ghidra Server
-3. Existing project on the server (or create one manually)
-4. Docker and Docker Compose installed
+- ✅ **Ghidra 12.0.3** - Latest official release
+- ✅ **SSH Key Authentication** - Secure, non-interactive authentication
+- ✅ **No Password Prompts** - Fully automated Docker deployment
+- ✅ **SSL Compatibility** - Works with Docker host networking
+- ❌ **Password Authentication Removed** - For security
+
+## Quick Start
+
+### 1. Generate SSH Key
+
+Run the automated setup script:
+
+```bash
+cd /Users/syec/Repos/Onmi/OnmiPy/Bridge
+./scripts/setup_ssh_auth.sh bridge
+```
+
+This will:
+- Create `~/.ghidra/bridge_key` (private key)
+- Create `~/.ghidra/bridge_key.pub` (public key)
+- Set correct permissions
+- Display instructions
+
+### 2. Configure Ghidra Server
+
+Add the public key to Ghidra Server:
+
+**Option A: Using svrAdmin (Recommended)**
+```bash
+# On Ghidra Server machine
+cd /path/to/ghidra/server
+./svrAdmin
+
+# In svrAdmin console
+> add user bridge
+> set ssh-key bridge <paste-public-key>
+> exit
+```
+
+**Option B: Manual File Configuration**
+```bash
+# On Ghidra Server machine
+cd /path/to/ghidra/server/users/bridge
+cat >> authorized_keys << 'EOF'
+<paste-public-key-here>
+EOF
+chmod 644 authorized_keys
+```
+
+### 3. Configure Docker
+
+Edit `.env.pyghidra`:
+
+```bash
+# Server Connection
+GHIDRA_SERVER_HOST=host.docker.internal  # Or your server IP
+GHIDRA_SERVER_PORT=13100
+GHIDRA_SERVER_USER=bridge
+
+# SSH Authentication
+GHIDRA_SERVER_KEYSTORE=/root/.ghidra/ssh_key
+
+# Repository
+GHIDRA_SERVER_REPO=/
+PROJECT_NAME=my_project
+```
+
+### 4. Start Container
+
+```bash
+docker-compose -f docker-compose.pyghidra.yml up -d
+```
+
+### 5. Verify Connection
+
+```bash
+# Check logs
+docker logs -f ghidra-mcp-bridge-pyghidra-server
+
+# Expected output:
+# [PyGhidra-MCP-Bridge] Connecting to Ghidra Server: host.docker.internal:13100
+# [PyGhidra-MCP-Bridge] User: bridge
+# [PyGhidra-MCP-Bridge] Authentication: SSH key (/root/.ghidra/ssh_key)
+# [PyGhidra-MCP-Bridge] ✓ SSH key authenticator installed
+# [PyGhidra-MCP-Bridge] ✓ Connected to server
+# [PyGhidra-MCP-Bridge] Server user: bridge
+
+# Test API
+curl http://localhost:8803/api/basic_info
+```
+
+## Configuration
+
+### Environment Variables
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `PROJECT_MODE` | Project mode | `server` |
+| `GHIDRA_SERVER_HOST` | Server hostname | `host.docker.internal` |
+| `GHIDRA_SERVER_PORT` | Server port | `13100` |
+| `GHIDRA_SERVER_USER` | Username | `bridge` |
+| `GHIDRA_SERVER_KEYSTORE` | SSH private key path (container) | `/root/.ghidra/ssh_key` |
+| `GHIDRA_SERVER_REPO` | Repository name | `/` or `/my_repo` |
+| `PROJECT_NAME` | Project name | `my_project` |
+
+### Docker Volumes
+
+| Host Path | Container Path | Mode | Purpose |
+|-----------|---------------|------|---------|
+| `~/.ghidra/bridge_key` | `/root/.ghidra/ssh_key` | `ro` | SSH private key |
+| `./logs` | `/app/logs` | `rw` | Log persistence |
 
 ## Architecture
 
 ```
-┌──────────────────┐
-│  Ghidra GUI      │
-│  (User 1)        │
-└────────┬─────────┘
+┌─────────────────────┐
+│   Docker Container  │
+│                     │
+│  ┌──────────────┐   │      SSH Key Auth      ┌─────────────────┐
+│  │   PyGhidra   │   │ ───────────────────────>│  Ghidra Server  │
+│  │  MCP Bridge  │   │   (host.docker.internal)│   (Port 13100)  │
+│  │              │   │                         │                 │
+│  │  Ghidra 12.0.3  │                         │  Repositories   │
+│  │  HTTP API    │   │                         │  - Projects     │
+│  │  Port 8803   │   │                         │  - Binaries     │
+│  └──────────────┘   │                         └─────────────────┘
+│         ▲           │
+│         │           │
+│    ~/.ghidra/       │
+│    bridge_key (ro)  │
+│                     │
+└─────────────────────┘
          │
-         v
-┌────────────────────────────────────┐
-│     Ghidra Server                  │
-│     ghidra://host:13100/repo       │
-└────────┬───────────────────────────┘
-         │
-         v
-┌────────────────┐
-│  Docker Bridge │
-│  (AI Agent)    │
-└────────────────┘
-```
-
-## Configuration Steps
-
-### 1. Edit `.env` file
-
-Update the following variables:
-
-```bash
-# Ghidra Server connection details
-GHIDRA_SERVER_HOST=ghidra-server.example.com  # or IP address
-GHIDRA_SERVER_PORT=13100
-GHIDRA_SERVER_USER=analyst
-GHIDRA_SERVER_REPO=/shared  # Repository path on server
-
-# Project name on the server
-PROJECT_NAME=my_shared_project
-```
-
-### 2. Set up authentication
-
-**Option A: Environment variable (not recommended for production)**
-```bash
-export GHIDRA_SERVER_PASSWORD="your-password"
-docker-compose up -d
-```
-
-**Option B: Docker secrets (recommended)**
-
-Create a secret file:
-```bash
-echo "your-password" > ghidra_password.txt
-docker secret create ghidra_password ghidra_password.txt
-rm ghidra_password.txt
-```
-
-Update `docker-compose.yml` to use secrets:
-```yaml
-services:
-  ghidra-bridge:
-    secrets:
-      - ghidra_password
-    environment:
-      - GHIDRA_SERVER_PASSWORD_FILE=/run/secrets/ghidra_password
-
-secrets:
-  ghidra_password:
-    external: true
-```
-
-### 3. Verify server connectivity
-
-Test connection before launching:
-```bash
-# From your host machine
-telnet ghidra-server.example.com 13100
-```
-
-### 4. Launch the container
-
-```bash
-docker-compose up -d
-```
-
-### 5. Verify the service
-
-Check logs:
-```bash
-docker-compose logs -f ghidra-bridge
-```
-
-Look for:
-```
-Connecting to Ghidra Server: ghidra-server.example.com:13100
-Repository: /shared
-User: analyst
-Server project loaded: ghidra-server.example.com:13100/my_shared_project
-```
-
-Test API:
-```bash
-curl http://localhost:8803/api/status
-curl http://localhost:8803/api/basic_info
+         │ HTTP API
+         ▼
+  ┌──────────────┐
+  │  Claude Code │
+  │  MCP Client  │
+  └──────────────┘
 ```
 
 ## Troubleshooting
 
-### Cannot connect to Ghidra Server
+### Connection Failed
 
-Check network connectivity:
+**Error:** `Failed to establish server connection`
+
+**Solutions:**
+1. Verify server is running:
+   ```bash
+   nc -zv localhost 13100
+   ```
+
+2. Check Docker networking:
+   ```bash
+   docker exec ghidra-mcp-bridge-pyghidra-server ping host.docker.internal
+   ```
+
+3. Verify SSH key is mounted:
+   ```bash
+   docker exec ghidra-mcp-bridge-pyghidra-server ls -la /root/.ghidra/ssh_key
+   ```
+
+### Authentication Failed
+
+**Error:** `Authentication failed` or `Access denied`
+
+**Solutions:**
+1. Verify public key on server:
+   ```bash
+   # On server
+   cat /path/to/ghidra/server/users/bridge/authorized_keys
+   ```
+
+2. Check key fingerprints match:
+   ```bash
+   ssh-keygen -lf ~/.ghidra/bridge_key
+   ssh-keygen -lf ~/.ghidra/bridge_key.pub
+   ```
+
+3. Restart Ghidra Server after adding keys
+
+### Key Not Found
+
+**Error:** `SSH keystore file not found`
+
+**Solutions:**
+1. Verify key exists on host:
+   ```bash
+   ls -la ~/.ghidra/bridge_key
+   ```
+
+2. Check docker-compose.yml volume mount:
+   ```yaml
+   volumes:
+     - ~/.ghidra/bridge_key:/root/.ghidra/ssh_key:ro
+   ```
+
+3. Rebuild container:
+   ```bash
+   docker-compose -f docker-compose.pyghidra.yml down
+   docker-compose -f docker-compose.pyghidra.yml up -d
+   ```
+
+### Permission Denied
+
+**Error:** `WARNING: SSH keystore permissions are 777`
+
+**Solution:**
 ```bash
-docker exec -it ghidra-mcp-bridge-server ping ghidra-server.example.com
+chmod 600 ~/.ghidra/bridge_key
+docker-compose -f docker-compose.pyghidra.yml restart
 ```
 
-Verify server is running:
-```bash
-# On the Ghidra Server host
-netstat -an | grep 13100
-```
+## Comparison with Standard Version
 
-### Authentication failed
+| Feature | Standard (Ghidra 11.0) | PyGhidra (Ghidra 12.0.3) |
+|---------|----------------------|--------------------------|
+| Ghidra Version | 11.0 (2021) | 12.0.3 (2026-02-10) ✅ |
+| Python Integration | Ghidrathon (3rd party) | PyGhidra (official) ✅ |
+| Server Support | ✅ analyzeHeadless | ✅ Native Python API |
+| Authentication | Password pipe | SSH key only ✅ |
+| SSL Support | Manual | Auto-configured ✅ |
+| Performance | Good | Better (native) ✅ |
 
-Verify credentials:
-- User exists on Ghidra Server
-- Password is correct
-- User has access to the specified repository
-
-Check server logs for authentication errors.
-
-### Project not found
-
-Ensure the project exists on the server:
-```bash
-# Use Ghidra GUI to connect to server and verify project exists
-# Or check server filesystem (if you have access)
-```
-
-## Advanced: Running Ghidra Server in Docker
-
-You can run Ghidra Server alongside the bridge:
-
-Uncomment the `ghidra-server` service in `docker-compose.yml`:
-
-```yaml
-services:
-  ghidra-server:
-    image: blacktop/ghidra:11.0-server
-    container_name: ghidra-server
-    ports:
-      - "13100:13100"
-    volumes:
-      - ghidra-server-data:/repos
-    environment:
-      - GHIDRA_USERS=analyst:password
-
-volumes:
-  ghidra-server-data:
-```
-
-Update `.env`:
-```bash
-GHIDRA_SERVER_HOST=ghidra-server  # Docker service name
-```
-
-Launch both:
-```bash
-docker-compose up -d
-```
-
-## Security Considerations
-
-1. **Never commit `.env` with passwords** to version control
-2. Use **Docker secrets** for production deployments
-3. Use **TLS/SSL** for Ghidra Server connections in production
-4. Restrict network access to Ghidra Server (firewall rules)
-5. Use **strong passwords** and change default credentials
-
-## Stopping the Service
+## API Examples
 
 ```bash
-docker-compose down
+# Basic info
+curl http://localhost:8803/api/basic_info
+
+# Search functions
+curl "http://localhost:8803/api/search/functions?q=main&limit=10"
+
+# Decompile function
+curl "http://localhost:8803/api/view/decompile?name=main"
+
+# List symbols
+curl "http://localhost:8803/api/v1/list?types=functions,classes"
 ```
 
-To remove volumes (logs):
-```bash
-docker-compose down -v
-```
+## Security Notes
+
+1. **Never commit SSH private keys** to version control
+2. **Use 600 permissions** on private key file
+3. **Rotate keys periodically** (e.g., quarterly)
+4. **One key per environment** (dev, staging, prod)
+5. **Backup keys securely** (encrypted)
+
+## Production Deployment
+
+For production use, consider:
+
+1. **Docker Secrets** instead of volume mounts:
+   ```bash
+   docker secret create ghidra_ssh_key ~/.ghidra/bridge_key
+   ```
+
+2. **Key rotation policy**:
+   - Generate new keys every 90 days
+   - Update server authorized_keys
+   - Update Docker secret
+   - Restart containers
+
+3. **Monitoring**:
+   - Log all authentication attempts
+   - Alert on failed authentications
+   - Track key usage
+
+## References
+
+- [SSH Key Authentication Guide](../../../docs/SSH_KEY_AUTHENTICATION.md)
+- [PyGhidra Documentation](https://github.com/NationalSecurityAgency/ghidra/tree/master/Ghidra/Features/PyGhidra)
+- [Project README](../../../README.md)
+
+## Support
+
+For issues or questions:
+- Check [SSH_KEY_AUTHENTICATION.md](../../../docs/SSH_KEY_AUTHENTICATION.md)
+- Review [CLAUDE.md](../../../CLAUDE.md)
+- Open an issue on GitHub

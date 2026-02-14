@@ -1,21 +1,54 @@
-FROM blacktop/ghidra:11.0 AS base
+# Ghidra MCP Bridge
+# Uses Ghidra 12.0+ with native PyGhidra support
 
-# Install Python dependencies (Ghidrathon is already built-in)
+FROM eclipse-temurin:21-jdk AS base
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    wget \
+    unzip \
+    python3 \
+    python3-pip \
+    python3-venv \
+    && rm -rf /var/lib/apt/lists/*
+
+# Download and install Ghidra 12.0.3
+ENV GHIDRA_VERSION=12.0.3
+ENV GHIDRA_BUILD_DATE=20260210
+ENV GHIDRA_SHA=ghidra_${GHIDRA_VERSION}_PUBLIC_${GHIDRA_BUILD_DATE}.zip
+ENV GHIDRA_URL=https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_${GHIDRA_VERSION}_build/${GHIDRA_SHA}
+
+WORKDIR /opt
+
+# Download Ghidra
+RUN wget -q ${GHIDRA_URL} && \
+    unzip -q ${GHIDRA_SHA} && \
+    rm ${GHIDRA_SHA} && \
+    mv ghidra_${GHIDRA_VERSION}_PUBLIC /opt/ghidra && \
+    chmod +x /opt/ghidra/support/analyzeHeadless
+
+# Set Ghidra environment
+ENV GHIDRA_INSTALL_DIR=/opt/ghidra
+ENV PATH="${GHIDRA_INSTALL_DIR}/support:${PATH}"
+
+# Install Python dependencies
 COPY requirements.txt /tmp/
-RUN pip3 install --no-cache-dir -r /tmp/requirements.txt
+RUN pip3 install --no-cache-dir --break-system-packages -r /tmp/requirements.txt && \
+    pip3 install --no-cache-dir --break-system-packages pyghidra
 
 # Set working directory
 WORKDIR /app
 
-# Copy source code (preserving directory structure)
-COPY ghidra_mcp_server.py /app/
+# Copy source code
+COPY ghidra_mcp_server_pyghidra.py /app/
 COPY api/ /app/api/
 COPY api_v1/ /app/api_v1/
 COPY utils/ /app/utils/
 COPY scripts/ /app/scripts/
 
 # Copy startup scripts
-COPY docker/entrypoint.sh /entrypoint.sh
+COPY docker/entrypoint.pyghidra.sh /entrypoint.sh
 COPY docker/healthcheck.sh /healthcheck.sh
 RUN chmod +x /entrypoint.sh /healthcheck.sh
 
@@ -30,7 +63,7 @@ ENV GHIDRA_MCP_HOST=0.0.0.0 \
     LOG_DIR=/app/logs
 
 # Create log directory
-RUN mkdir -p /app/logs
+RUN mkdir -p /app/logs /ghidra-projects
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s \

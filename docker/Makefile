@@ -1,11 +1,11 @@
-# Ghidra MCP Bridge - PyGhidra Edition
+# Ghidra MCP Bridge
 # Makefile for common Docker operations
 
 .PHONY: help build up down logs shell test clean rebuild
 
 # Default target
 help:
-	@echo "Ghidra MCP Bridge - PyGhidra Edition"
+	@echo "Ghidra MCP Bridge (PyGhidra)"
 	@echo ""
 	@echo "Available targets:"
 	@echo "  build      - Build Docker image"
@@ -27,13 +27,13 @@ help:
 
 # Build Docker image
 build:
-	@echo "Building PyGhidra Docker image..."
-	docker-compose -f docker-compose.pyghidra.yml build
+	@echo "Building Docker image..."
+	docker-compose build
 
 # Start services (production)
 up:
 	@echo "Starting Ghidra MCP Bridge..."
-	docker-compose -f docker-compose.pyghidra.yml up -d
+	docker-compose up -d
 	@echo ""
 	@echo "✓ Services started"
 	@echo "  HTTP API: http://localhost:8803"
@@ -45,20 +45,20 @@ up:
 # Start in development mode
 up-dev:
 	@echo "Starting in development mode (hot-reload enabled)..."
-	docker-compose -f docker-compose.pyghidra.dev.yml up
+	docker-compose -f docker-compose.dev.yml up
 
 # Stop services
 down:
 	@echo "Stopping services..."
-	docker-compose -f docker-compose.pyghidra.yml down
+	docker-compose down
 
 # View logs
 logs:
-	docker-compose -f docker-compose.pyghidra.yml logs -f
+	docker-compose logs -f
 
 # Access container shell
 shell:
-	docker exec -it ghidra-mcp-bridge-pyghidra /bin/bash
+	docker exec -it ghidra-mcp-bridge /bin/bash
 
 # Test API endpoints
 test:
@@ -82,13 +82,13 @@ reload:
 # Check health
 health:
 	@echo "Container health status:"
-	@docker inspect ghidra-mcp-bridge-pyghidra | jq -C '.[0].State.Health'
+	@docker inspect ghidra-mcp-bridge | jq -C '.[0].State.Health'
 
 # Clean up
 clean:
 	@echo "Removing containers and images..."
-	docker-compose -f docker-compose.pyghidra.yml down -v
-	docker rmi ghidra-mcp-bridge:pyghidra 2>/dev/null || true
+	docker-compose down -v
+	docker rmi ghidra-mcp-bridge 2>/dev/null || true
 	@echo "✓ Cleaned"
 
 # Rebuild everything

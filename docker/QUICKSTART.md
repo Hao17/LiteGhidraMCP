@@ -1,12 +1,32 @@
-# Quick Start - PyGhidra Edition
+# Quick Start
 
-This guide shows how to quickly deploy Ghidra MCP Bridge using **Ghidra 12.0+ with PyGhidra** (no Ghidrathon required).
+> **📌 Docker Project Connection Modes**:
+>
+> This Docker setup supports two project connection methods (same deployment, different config):
+>
+> - **Local Project** (`PROJECT_MODE=local`, this guide): Mount local .gpr file
+>   - ⚠️ **Limitation**: Docker locks the project - **GUI cannot open it while container is running!**
+>   - Good for: Pure automation, no GUI interaction
+> - **Ghidra Server** ⭐ **Production recommended** (`PROJECT_MODE=server`): Connect to Server
+>   - ✅ **AI (Docker) + GUI (human) can work simultaneously!**
+>   - Good for: AI-human collaboration, persistent storage, version control
+>   - See [README.md - Ghidra Server Connection](../README.md#option-2-ghidra-server-connection--production-recommended)
+>   - Example: [`examples/docker/ghidra-server/docker-compose.yml`](../examples/docker/ghidra-server/docker-compose.yml)
+
+This guide shows how to quickly deploy Ghidra MCP Bridge with **local project connection** for automation testing.
 
 ## Prerequisites
 
 1. **Docker** and **Docker Compose** installed
 2. A **Ghidra project** with at least one binary imported
 3. **8GB RAM** recommended (Ghidra is memory-intensive)
+
+## ⚠️ Important Limitation
+
+**This Local Project mode uses Non-Shared Project:**
+- When Docker container opens the project, **Ghidra GUI cannot open it simultaneously**
+- If you need AI (Docker) + GUI (human) to work together, use **Ghidra Server mode** instead
+- See [README.md - Ghidra Server Connection](../README.md#option-2-ghidra-server-connection--production-recommended)
 
 ## Step 1: Prepare Your Ghidra Project
 
@@ -53,14 +73,14 @@ PROJECT_NAME=my_binary
 **Production mode:**
 
 ```bash
-docker-compose -f docker/docker-compose.pyghidra.yml up -d
+docker-compose -f docker/docker-compose.yml up -d
 ```
 
 **Development mode (with code hot-reload):**
 
 ```bash
 export HOST_PROJECT_PATH=/path/to/your/project
-docker-compose -f docker/docker-compose.pyghidra.dev.yml up
+docker-compose -f docker/docker-compose.dev.yml up
 ```
 
 ## Step 4: Verify It's Running
@@ -68,13 +88,13 @@ docker-compose -f docker/docker-compose.pyghidra.dev.yml up
 **Check logs:**
 
 ```bash
-docker-compose -f docker/docker-compose.pyghidra.yml logs -f
+docker-compose -f docker/docker-compose.yml logs -f
 ```
 
 Look for:
 ```
 ==========================================================
-  Ghidra MCP Bridge - PyGhidra Edition
+  Ghidra MCP Bridge
 ==========================================================
 HTTP API:   http://0.0.0.0:8803
 MCP SSE:    http://0.0.0.0:8804/sse
@@ -143,25 +163,25 @@ curl http://localhost:8803/_reload
 ### Stop the Service
 
 ```bash
-docker-compose -f docker/docker-compose.pyghidra.yml down
+docker-compose -f docker/docker-compose.yml down
 ```
 
 ### View Container Logs
 
 ```bash
-docker logs ghidra-mcp-bridge-pyghidra -f
+docker logs ghidra-mcp-bridge -f
 ```
 
 ### Access Container Shell
 
 ```bash
-docker exec -it ghidra-mcp-bridge-pyghidra /bin/bash
+docker exec -it ghidra-mcp-bridge /bin/bash
 ```
 
 ### Check Health Status
 
 ```bash
-docker inspect ghidra-mcp-bridge-pyghidra | grep Health -A 10
+docker inspect ghidra-mcp-bridge | grep Health -A 10
 ```
 
 ## Troubleshooting
@@ -170,7 +190,7 @@ docker inspect ghidra-mcp-bridge-pyghidra | grep Health -A 10
 
 **Check logs:**
 ```bash
-docker logs ghidra-mcp-bridge-pyghidra
+docker logs ghidra-mcp-bridge
 ```
 
 **Common causes:**
@@ -190,13 +210,13 @@ docker ps | grep ghidra
 curl -v http://localhost:8803/api/status
 ```
 
-### PyGhidra Initialization Failed
+### Initialization Failed
 
 **Error:** `Failed to start JVM` or `Ghidra not found`
 
 **Solution:** The Dockerfile downloads Ghidra automatically. If it fails, check:
 1. Network connectivity
-2. Ghidra download URL is correct (see Dockerfile.pyghidra)
+2. Ghidra download URL is correct (see Dockerfile)
 
 ### Project Not Found
 
@@ -205,7 +225,7 @@ curl -v http://localhost:8803/api/status
 **Solution:**
 1. Check `HOST_PROJECT_PATH` in `.env`
 2. Verify `PROJECT_NAME` matches `.gpr` filename
-3. Ensure volume is mounted: `docker inspect ghidra-mcp-bridge-pyghidra | grep Mounts -A 20`
+3. Ensure volume is mounted: `docker inspect ghidra-mcp-bridge | grep Mounts -A 20`
 
 ### Out of Memory
 
@@ -214,7 +234,7 @@ curl -v http://localhost:8803/api/status
 **Solution:** Increase Docker memory limit:
 
 ```yaml
-# In docker-compose.pyghidra.yml
+# In docker-compose.yml
 deploy:
   resources:
     limits:
@@ -250,7 +270,7 @@ deploy:
 If your project has multiple binaries, specify which one to load via environment variable:
 
 ```bash
-# TODO: Not yet implemented in PyGhidra version
+# TODO: Not yet implemented
 # Will be added in future update
 ```
 
@@ -265,23 +285,10 @@ GHIDRA_SERVER_USER=analyst
 GHIDRA_SERVER_REPO=/shared
 ```
 
-**Note:** Ghidra Server mode is not yet fully implemented in PyGhidra version.
+**Note:** For Ghidra Server mode setup, see [README.md - Ghidra Server Connection](../README.md#option-2-ghidra-server-connection--production-recommended).
 
 ## Next Steps
 
 - Read the [API Reference](../docs/api/api-reference.md)
 - Explore [MCP Tools](../docs/setup/mcp-clients.md)
 - Check [Development Guide](../docs/development/contributing.md)
-
-## Comparison: PyGhidra vs Ghidrathon
-
-| Feature | PyGhidra (this version) | Ghidrathon (old) |
-|---------|-------------------------|------------------|
-| Ghidra Version | 12.0+ | 11.0+ |
-| Official Support | ✅ Yes | ❌ No |
-| Installation | ✅ Built-in | ⚠️ Manual plugin |
-| Multi-threading | ✅ Full support | ⚠️ Limited (Jep) |
-| Performance | Same | Same |
-| Stability | ✅ Better | ⚠️ Plugin dependent |
-
-**Recommendation:** Use PyGhidra version for all new deployments.
