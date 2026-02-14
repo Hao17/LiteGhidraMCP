@@ -1,0 +1,5 @@
+# Environment configuration (user-specific)
+.env
+
+# Backup files
+*.bak

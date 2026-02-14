@@ -169,7 +169,26 @@ This mode runs a **standalone Ghidra Server** that multiple **Bridge clients** c
 
 1. **Docker** and **Docker Compose** installed
 2. **8GB RAM** recommended (4GB for Server + 4GB per client)
-3. **SSH keys** will be auto-generated in `./server-data/ssh/` on first run
+3. **Data directory** configured in `.env` (default: `~/ghidra-data`)
+4. **SSH keys** will be auto-generated on first run
+
+### First-Time Setup
+
+Before starting, configure your data directory:
+
+```bash
+cd docker/
+
+# 1. Create environment configuration
+cp .env.example .env
+
+# 2. Edit .env and set your data directory
+vim .env
+# Set: GHIDRA_DATA_DIR=~/ghidra-data (or your preferred location)
+
+# 3. Verify configuration
+make info
+```
 
 ### Quick Start (One Command)
 
@@ -206,17 +225,35 @@ make client2-up          # Second client (8813/8814)
 
 ### What Gets Created
 
+**Data Structure (Version-Isolated):**
+```
+${GHIDRA_DATA_DIR}/              # e.g., ~/ghidra-data
+├── 12.0.3/                      # Current version directory
+│   ├── repos/                   # Server: Project repositories
+│   ├── config/                  # Server: Configuration and logs
+│   ├── client-config/           # Client: Cache, preferences, state
+│   └── ssh/                     # Shared: SSH keys (bridge_key*)
+└── logs/
+    └── 12.0.3/
+        ├── client-1/            # Client logs
+        └── client-2/
+```
+
+**What each directory stores:**
+- `repos/` - Ghidra Server 项目仓库、用户数据、版本历史
+- `config/` - Server 配置文件和日志
+- `client-config/` - Client 的缓存、偏好设置、工具配置（**新增**）
+- `ssh/` - SSH 密钥对（Server 和 Client 共享）
+
 **Server:**
 - Port: `13100`
-- SSH Keys: `./server-data/ssh/bridge_key*`
+- SSH Keys: `${GHIDRA_DATA_DIR}/${GHIDRA_VERSION}/ssh/bridge_key*`
 - Repository: `/mcp-projects`
 - User: `bridge`
-- Data: Docker volumes (`ghidra-server-repos-standalone`, `ghidra-server-config-standalone`)
 
 **Client:**
 - HTTP API: `http://localhost:8803`
 - MCP SSE: `http://localhost:8804/sse`
-- Logs: `./logs/client-1/`
 
 ### Connect Ghidra GUI
 
@@ -234,7 +271,8 @@ Once the server is running, connect your Ghidra GUI:
    - User ID: `bridge`
    - Password: (leave empty)
    - Use PKI authentication: **✓ Checked**
-   - PKI Keystore: Browse to `./server-data/ssh/bridge_key`
+   - PKI Keystore: Browse to `${GHIDRA_DATA_DIR}/${GHIDRA_VERSION}/ssh/bridge_key`
+     - Example: `~/ghidra-data/12.0.3/ssh/bridge_key`
 
 4. **Repository**:
    - Select repository: `/mcp-projects`
@@ -367,7 +405,10 @@ docker ps | grep ghidra-server
 docker exec ghidra-mcp-bridge-client-1 nc -z ghidra-server 13100
 
 # Verify SSH key exists
-ls -la ./server-data/ssh/bridge_key*
+ls -la ~/ghidra-data/12.0.3/ssh/bridge_key*
+
+# Check configuration
+make info
 
 # Check client logs
 make client-logs
@@ -376,8 +417,9 @@ make client-logs
 **GUI connection fails:**
 
 1. Verify server is accessible: `nc -zv localhost 13100`
-2. Check SSH key path: `./server-data/ssh/bridge_key` (not `.pub`)
-3. Ensure "Use PKI authentication" is checked
+2. Check SSH key exists: `ls -la ~/ghidra-data/12.0.3/ssh/bridge_key*`
+3. Use correct key path in GUI: `~/ghidra-data/12.0.3/ssh/bridge_key` (not `.pub`)
+4. Ensure "Use PKI authentication" is checked
 
 **Re-initialize server:**
 
@@ -390,35 +432,51 @@ make server-clean
 make up-separated
 ```
 
-### Advanced: Custom Configuration
+### Advanced: Version Management
 
-**Server Configuration (`.env.server`):**
+**Switch to different Ghidra version:**
+
 ```bash
-cp .env.server.example .env.server
+cd docker/
 
-# Edit as needed:
+# View current version
+make info
+
+# List all versions
+make list-versions
+
+# Interactive version switch
+make switch-version
+
+# Or manually edit .env
+vim .env  # Change GHIDRA_VERSION=12.0.4
+
+# Start with new version
+make down-separated
+make up-separated
+```
+
+**Backup data:**
+
+```bash
+# Backup current version
+tar czf ghidra-backup-$(date +%Y%m%d).tar.gz ~/ghidra-data/12.0.3
+
+# Backup all versions
+tar czf ghidra-all-backup-$(date +%Y%m%d).tar.gz ~/ghidra-data
+```
+
+**Custom Configuration (`.env`):**
+```bash
+# Data storage
+GHIDRA_DATA_DIR=~/ghidra-data
+GHIDRA_VERSION=12.0.3
+
+# Server settings
 GHIDRA_SERVER_PORT=13100
 GHIDRA_SERVER_MAXMEM=8G
-SERVER_SSH_DIR=./server-data/ssh
 SERVER_REPO_NAME=/my-projects
 SERVER_USER_NAME=myuser
-```
-
-**Client Configuration (`.env.client`):**
-```bash
-cp .env.client.example .env.client
-
-# Edit as needed:
-CLIENT_MCP_PORT=8803
-CLIENT_MCP_SSE_PORT=8804
-GHIDRA_SERVER_HOST=ghidra-server
-PROJECT_NAME=my-binary
-```
-
-**Start with custom config:**
-```bash
-docker-compose -f docker-compose.server.yml --env-file .env.server up -d
-docker-compose -f docker-compose.client.yml --env-file .env.client up -d
 ```
 
 ---

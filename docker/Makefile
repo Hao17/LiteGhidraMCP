@@ -1,42 +1,117 @@
 # Ghidra MCP Bridge
 # Makefile for common Docker operations
 
-.PHONY: help build up down logs shell test clean rebuild server-up server-down server-logs server-restart server-clean client-up client-down client-logs client-restart client2-up up-separated down-separated logs-separated help-separated
+.PHONY: help build up down logs shell test clean rebuild server-up server-down server-logs server-restart server-clean client-up client-down client-logs client-restart client2-up up-separated down-separated logs-separated help-separated check-env init-data info list-versions switch-version
+
+# Load environment variables
+-include .env
+export
 
 # Default target
 help:
-	@echo "Ghidra MCP Bridge (PyGhidra)"
+	@echo "Ghidra MCP Bridge (Version-Isolated Storage)"
 	@echo ""
-	@echo "Available targets:"
+	@echo "Setup (First Time):"
+	@echo "  cp .env.example .env    - Create config file"
+	@echo "  vim .env                - Edit GHIDRA_DATA_DIR and GHIDRA_VERSION"
+	@echo "  make info               - Verify configuration"
+	@echo "  make init-data          - Initialize data directories"
 	@echo ""
-	@echo "Local Project Mode (default):"
-	@echo "  build           - Build Docker image"
-	@echo "  up              - Start services (local project)"
-	@echo "  down            - Stop services"
+	@echo "Version Management:"
+	@echo "  make info               - Show current configuration"
+	@echo "  make list-versions      - List all available versions"
+	@echo "  make switch-version     - Switch to different version"
 	@echo ""
 	@echo "Separated Server-Client Mode (AI + GUI collaboration):"
-	@echo "  up-separated    - Start server + client (one command) ⭐"
-	@echo "  server-up       - Start standalone Ghidra Server"
-	@echo "  client-up       - Start client (connects to server)"
-	@echo "  down-separated  - Stop all services"
-	@echo "  help-separated  - Detailed help for separated mode"
+	@echo "  make up-separated       - Start server + client (one command) ⭐"
+	@echo "  make server-up          - Start standalone Ghidra Server"
+	@echo "  make client-up          - Start client (connects to server)"
+	@echo "  make down-separated     - Stop all services"
+	@echo "  make help-separated     - Detailed help for separated mode"
 	@echo ""
 	@echo "Development & Testing:"
-	@echo "  up-dev          - Start in development mode (with logs)"
-	@echo "  logs            - View Bridge logs (follow)"
-	@echo "  shell           - Access Bridge container shell"
-	@echo "  test            - Test API endpoints"
-	@echo "  reload          - Hot reload API modules"
-	@echo "  health          - Check container health"
+	@echo "  make up-dev             - Start in development mode (with logs)"
+	@echo "  make logs               - View Bridge logs (follow)"
+	@echo "  make shell              - Access Bridge container shell"
+	@echo "  make test               - Test API endpoints"
+	@echo "  make reload             - Hot reload API modules"
+	@echo "  make health             - Check container health"
 	@echo ""
 	@echo "Maintenance:"
-	@echo "  clean           - Remove containers and images"
-	@echo "  rebuild         - Clean + Build + Up"
+	@echo "  make clean              - Remove containers and images"
+	@echo "  make rebuild            - Clean + Build + Up"
 	@echo ""
-	@echo "Configuration:"
-	@echo "  Edit .env file or set environment variables:"
-	@echo "    HOST_PROJECT_PATH=/path/to/project"
-	@echo "    PROJECT_NAME=my_binary"
+
+# ============================================
+# Environment & Version Management
+# ============================================
+
+# Validate required variables
+check-env:
+	@if [ -z "$(GHIDRA_DATA_DIR)" ]; then \
+		echo "ERROR: GHIDRA_DATA_DIR not set"; \
+		echo ""; \
+		echo "Please create .env file:"; \
+		echo "  cp .env.example .env"; \
+		echo "  # Edit .env and set GHIDRA_DATA_DIR"; \
+		exit 1; \
+	fi
+	@if [ ! -d "$(GHIDRA_DATA_DIR)" ]; then \
+		echo "ERROR: GHIDRA_DATA_DIR does not exist: $(GHIDRA_DATA_DIR)"; \
+		echo ""; \
+		echo "Creating directory..."; \
+		mkdir -p "$(GHIDRA_DATA_DIR)"; \
+		echo "✓ Created: $(GHIDRA_DATA_DIR)"; \
+	fi
+
+# Initialize data directory structure
+init-data: check-env
+	@echo "Initializing data directory for Ghidra $(GHIDRA_VERSION)..."
+	@mkdir -p "$(GHIDRA_DATA_DIR)/$(GHIDRA_VERSION)"/{repos,config,ssh,client-config}
+	@mkdir -p "$(GHIDRA_DATA_DIR)/logs/$(GHIDRA_VERSION)"
+	@echo "✓ Data directory initialized"
+	@echo "  Location: $(GHIDRA_DATA_DIR)/$(GHIDRA_VERSION)/"
+
+# Show current configuration
+info: check-env
+	@echo "========================================"
+	@echo "  Ghidra MCP Bridge Configuration"
+	@echo "========================================"
+	@echo "Data Root:    $(GHIDRA_DATA_DIR)"
+	@echo "Version:      $(GHIDRA_VERSION)"
+	@echo "Server Port:  $(GHIDRA_SERVER_PORT)"
+	@echo ""
+	@echo "Data Location:"
+	@echo "  Server Repos:    $(GHIDRA_DATA_DIR)/$(GHIDRA_VERSION)/repos"
+	@echo "  Server Config:   $(GHIDRA_DATA_DIR)/$(GHIDRA_VERSION)/config"
+	@echo "  Client Config:   $(GHIDRA_DATA_DIR)/$(GHIDRA_VERSION)/client-config"
+	@echo "  SSH Keys:        $(GHIDRA_DATA_DIR)/$(GHIDRA_VERSION)/ssh"
+	@echo "  Logs:            $(GHIDRA_DATA_DIR)/logs/$(GHIDRA_VERSION)"
+	@echo ""
+	@echo "Available versions:"
+	@ls -d $(GHIDRA_DATA_DIR)/*/ 2>/dev/null | xargs -n1 basename || echo "  (none)"
+	@echo ""
+
+# List all versions
+list-versions: check-env
+	@echo "Available Ghidra versions in $(GHIDRA_DATA_DIR):"
+	@ls -d $(GHIDRA_DATA_DIR)/*/ 2>/dev/null | xargs -n1 basename || echo "  (none)"
+
+# Switch version
+switch-version: check-env
+	@echo "Current version: $(GHIDRA_VERSION)"
+	@echo "Available versions:"
+	@ls -d $(GHIDRA_DATA_DIR)/*/ 2>/dev/null | xargs -n1 basename || echo "  (none)"
+	@echo ""
+	@read -p "Enter version to switch to: " VERSION && \
+	sed -i.bak "s/^GHIDRA_VERSION=.*/GHIDRA_VERSION=$$VERSION/" .env && \
+	rm .env.bak && \
+	echo "✓ Switched to version $$VERSION" && \
+	echo "  Run 'make info' to verify"
+
+# ============================================
+# Build & Run
+# ============================================
 
 # Build Docker image
 build:
@@ -161,13 +236,15 @@ logs-separated:
 # ============================================
 
 # Start standalone Ghidra Server
-server-up:
+server-up: init-data
 	@echo "Starting Ghidra Server..."
+	@echo "  Version: $(GHIDRA_VERSION)"
+	@echo "  Data:    $(GHIDRA_DATA_DIR)/$(GHIDRA_VERSION)/"
 	@docker-compose -f docker-compose.server.yml up -d
 	@echo ""
 	@echo "✓ Server Started"
-	@echo "  Port: 13100"
-	@echo "  SSH Keys: ./server-data/ssh/"
+	@echo "  Port: $(GHIDRA_SERVER_PORT)"
+	@echo "  SSH Keys: $(GHIDRA_DATA_DIR)/$(GHIDRA_VERSION)/ssh/"
 	@echo ""
 	@echo "Run 'make server-logs' to view logs"
 
@@ -205,8 +282,9 @@ server-clean:
 # ============================================
 
 # Start client (connects to server)
-client-up:
+client-up: check-env
 	@echo "Starting Bridge Client..."
+	@echo "  Version: $(GHIDRA_VERSION)"
 	@docker-compose -f docker-compose.client.yml up -d
 	@echo ""
 	@echo "✓ Client Started"
@@ -281,20 +359,7 @@ help-separated:
 	@echo ""
 	@echo "Connect Ghidra GUI:"
 	@echo "  1. File → New Project → Shared Project"
-	@echo "  2. Server: localhost:13100"
-	@echo "  3. User: bridge"
-	@echo "  4. PKI Authentication → ./server-data/ssh/bridge_key"
+	@echo "  2. Server: localhost:$(GHIDRA_SERVER_PORT)"
+	@echo "  3. User: $(SERVER_USER_NAME)"
+	@echo "  4. PKI Authentication → $(GHIDRA_DATA_DIR)/$(GHIDRA_VERSION)/ssh/bridge_key"
 	@echo ""
-
-# Check configuration
-check-env:
-	@echo "Current configuration:"
-	@echo "  HOST_PROJECT_PATH: $${HOST_PROJECT_PATH:-<not set>}"
-	@echo "  PROJECT_NAME:      $${PROJECT_NAME:-default}"
-	@echo ""
-	@if [ -f .env ]; then \
-		echo "Environment file (.env) found:"; \
-		cat .env | grep -v '^#' | grep -v '^$$'; \
-	else \
-		echo "⚠ No .env file found. Copy .env.example to .env"; \
-	fi

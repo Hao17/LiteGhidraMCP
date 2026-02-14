@@ -9,6 +9,9 @@ REPO_NAME="${AUTO_SERVER_REPO:-/mcp-projects}"
 USER_NAME="${AUTO_SERVER_USER:-bridge}"
 
 echo "=== Ghidra Server Initialization ==="
+echo "Version: ${GHIDRA_VERSION:-unknown}"
+echo "Data Directory: ${GHIDRA_DATA_DIR:-unknown}"
+echo "==="
 
 # 1. Generate SSH keys if not present
 if [ ! -f "${SSH_KEY}" ]; then
