@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y \
     curl \
     wget \
     unzip \
+    netcat-openbsd \
     python3 \
     python3-pip \
     python3-venv \
@@ -48,9 +49,12 @@ COPY utils/ /app/utils/
 COPY scripts/ /app/scripts/
 
 # Copy startup scripts
-COPY docker/entrypoint.pyghidra.sh /entrypoint.sh
+COPY docker/entrypoint.sh /entrypoint.sh
 COPY docker/healthcheck.sh /healthcheck.sh
 RUN chmod +x /entrypoint.sh /healthcheck.sh
+
+# Copy custom server.conf (without strict cipher suite restriction)
+COPY docker/server.conf /opt/ghidra/server/server.conf
 
 # Environment variable defaults
 ENV GHIDRA_MCP_HOST=0.0.0.0 \

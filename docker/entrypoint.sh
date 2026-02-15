@@ -15,31 +15,38 @@ if [ "$RUN_MODE" = "SERVER" ]; then
     echo "Starting Ghidra Server..."
 
     # Server configuration
+    GHIDRA_IP="${GHIDRA_IP:-0.0.0.0}"
     SERVER_PORT="${GHIDRA_SERVER_PORT:-13100}"
-    SERVER_DIR="/repos"
-    MAXMEM="${MAXMEM:-4G}"
-
-    # Create server directory structure
-    mkdir -p "${SERVER_DIR}"
+    REPO_DIR="/opt/ghidra/repositories"
+    GHIDRA_USERS="${GHIDRA_USERS:-admin}"
 
     echo "Server configuration:"
+    echo "  IP: ${GHIDRA_IP}"
     echo "  Port: ${SERVER_PORT}"
-    echo "  Repository: ${SERVER_DIR}"
-    echo "  Max Memory: ${MAXMEM}"
+    echo "  Repository: ${REPO_DIR}"
+    echo "  Users: ${GHIDRA_USERS}"
     echo "  Ghidra: ${GHIDRA_INSTALL_DIR}"
     echo "==================================================="
+
+    # Create repository directory
+    mkdir -p "${REPO_DIR}/~admin"
+
+    # Add users if not already created (check if users file is empty)
+    if [ ! -s "${REPO_DIR}/users" ] && [ ! -z "${GHIDRA_USERS}" ]; then
+        echo "Initializing users..."
+        for user in ${GHIDRA_USERS}; do
+            echo "  - ${user}"
+            echo "-add ${user}" >> "${REPO_DIR}/~admin/adm.cmd"
+        done
+    else
+        echo "Users already configured."
+    fi
 
     # Navigate to Ghidra server directory
     cd "${GHIDRA_INSTALL_DIR}/server"
 
-    # Start Ghidra Server in console mode (foreground)
-    exec ./ghidraSvr console \
-        -ip 0.0.0.0 \
-        -p "${SERVER_PORT}" \
-        -d "${SERVER_DIR}" \
-        -e0 \
-        -a2 \
-        -u
+    # Start Ghidra Server (wrapper will read server.conf for parameters)
+    exec env GHIDRA_IP="${GHIDRA_IP}" ./ghidraSvr console
 fi
 
 # CLIENT mode continues below...

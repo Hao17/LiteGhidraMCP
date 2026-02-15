@@ -23,16 +23,19 @@ services:
     hostname: ghidra-server
     ports:
       - "${GHIDRA_SERVER_PORT:-13100}:13100"
+      - "13101:13101"
+      - "13102:13102"
     networks:
       ghidra-shared-network:
         ipv4_address: 172.28.0.10
     volumes:
-      - ${GHIDRA_DATA_DIR}/${GHIDRA_VERSION}/repos:/repos:rw
+      - ${GHIDRA_DATA_DIR}/${GHIDRA_VERSION}/repos:/opt/ghidra/repositories:rw
       - ${GHIDRA_DATA_DIR}/${GHIDRA_VERSION}/config:/root/.ghidraServer:rw
     environment:
       - RUN_MODE=SERVER
-      - MAXMEM=${GHIDRA_SERVER_MAXMEM:-4G}
+      - GHIDRA_IP=0.0.0.0
       - GHIDRA_SERVER_PORT=${GHIDRA_SERVER_PORT:-13100}
+      - GHIDRA_USERS=admin
       - GHIDRA_VERSION=${GHIDRA_VERSION}
     restart: unless-stopped
     healthcheck:
