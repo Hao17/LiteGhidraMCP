@@ -71,6 +71,7 @@ services:
 # External network for server-client communication
 networks:
   ghidra-shared-network:
+    name: ghidra-shared-network
     driver: bridge
     ipam:
       config:

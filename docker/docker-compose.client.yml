@@ -59,11 +59,8 @@ services:
 
     volumes:
       # Ghidra client configuration directory (cache, preferences, state)
+      # Note: SSH key (bridge_key) must be copied to client-config/ before starting
       - ${GHIDRA_DATA_DIR}/${GHIDRA_VERSION}/client-config:/root/.ghidra:rw
-
-      # SSH key from server's ssh directory (read-only)
-      # Note: Must mount AFTER .ghidra directory to override ssh_key file
-      - ${GHIDRA_DATA_DIR}/${GHIDRA_VERSION}/ssh/bridge_key:/root/.ghidra/ssh_key:ro
 
       # Log persistence
       - ${GHIDRA_DATA_DIR}/logs/${GHIDRA_VERSION}/client-${CLIENT_ID:-1}:/app/logs:rw
