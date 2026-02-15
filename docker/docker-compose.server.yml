@@ -33,7 +33,7 @@ services:
       - ${GHIDRA_DATA_DIR}/${GHIDRA_VERSION}/config:/root/.ghidraServer:rw
     environment:
       - RUN_MODE=SERVER
-      - GHIDRA_IP=0.0.0.0
+      - GHIDRA_IP=ghidra-server
       - GHIDRA_SERVER_PORT=${GHIDRA_SERVER_PORT:-13100}
       - GHIDRA_USERS=admin
       - GHIDRA_VERSION=${GHIDRA_VERSION}
