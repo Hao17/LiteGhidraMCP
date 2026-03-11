@@ -17,35 +17,91 @@ if [ "$RUN_MODE" = "SERVER" ]; then
     # Server configuration
     GHIDRA_IP="${GHIDRA_IP:-0.0.0.0}"
     SERVER_PORT="${GHIDRA_SERVER_PORT:-13100}"
-    REPO_DIR="/opt/ghidra/repositories"
-    GHIDRA_USERS="${GHIDRA_USERS:-admin}"
+    REPO_DIR="/repos"
+    SSH_DIR="/ssh"
+    SSH_KEY="${SSH_DIR}/ssh_key"
+    SERVER_USER="${SERVER_USER_NAME:-bridge}"
+    SERVER_REPO="${SERVER_REPO_NAME:-/mcp-projects}"
+    SVRADMIN="${GHIDRA_INSTALL_DIR}/server/svrAdmin"
 
     echo "Server configuration:"
     echo "  IP: ${GHIDRA_IP}"
     echo "  Port: ${SERVER_PORT}"
     echo "  Repository: ${REPO_DIR}"
-    echo "  Users: ${GHIDRA_USERS}"
+    echo "  User: ${SERVER_USER}"
+    echo "  Repo: ${SERVER_REPO}"
     echo "  Ghidra: ${GHIDRA_INSTALL_DIR}"
     echo "==================================================="
 
     # Create repository directory
     mkdir -p "${REPO_DIR}/~admin"
 
-    # Add users if not already created (check if users file is empty)
-    if [ ! -s "${REPO_DIR}/users" ] && [ ! -z "${GHIDRA_USERS}" ]; then
-        echo "Initializing users..."
-        for user in ${GHIDRA_USERS}; do
-            echo "  - ${user}"
-            echo "-add ${user}" >> "${REPO_DIR}/~admin/adm.cmd"
-        done
+    # 1. Generate SSH key pair if not present
+    if [ ! -f "${SSH_KEY}" ]; then
+        echo "Generating SSH key pair..."
+        mkdir -p "${SSH_DIR}"
+        ssh-keygen -t rsa -b 4096 -f "${SSH_KEY}" -N "" -C "ghidra-bridge-auto"
+        chmod 600 "${SSH_KEY}"
+        chmod 644 "${SSH_KEY}.pub"
+        echo "SSH keys generated: ${SSH_KEY}"
     else
-        echo "Users already configured."
+        echo "SSH keys already exist: ${SSH_KEY}"
     fi
 
-    # Navigate to Ghidra server directory
-    cd "${GHIDRA_INSTALL_DIR}/server"
+    # 2. Install public key for user
+    USER_DIR="${REPO_DIR}/.users/${SERVER_USER}"
+    if [ ! -f "${USER_DIR}/authorized_keys" ]; then
+        echo "Installing SSH public key for user: ${SERVER_USER}"
+        mkdir -p "${USER_DIR}"
+        cp "${SSH_KEY}.pub" "${USER_DIR}/authorized_keys"
+        echo "Public key installed"
+    else
+        echo "SSH public key already installed for: ${SERVER_USER}"
+    fi
 
-    # Start Ghidra Server (wrapper will read server.conf for parameters)
+    # 3. Write adm.cmd to add user (processed on server start)
+    if [ ! -f "${REPO_DIR}/.users/users" ]; then
+        echo "Writing adm.cmd to add user: ${SERVER_USER}"
+        echo "-add ${SERVER_USER}" > "${REPO_DIR}/~admin/adm.cmd"
+    fi
+
+    # 4. Background post-init: wait for server port, then create repo and grant access
+    (
+        echo "[post-init] Waiting for server to listen on port ${SERVER_PORT}..."
+        for i in $(seq 1 60); do
+            if nc -z localhost "${SERVER_PORT}" 2>/dev/null; then
+                echo "[post-init] Server is ready (after ${i}s)"
+                break
+            fi
+            if [ "$i" -eq 60 ]; then
+                echo "[post-init] ERROR: Server did not start within 60s"
+                exit 1
+            fi
+            sleep 1
+        done
+
+        # Small delay to let server fully initialize
+        sleep 2
+
+        # Create repository (ignore "already exists" errors)
+        echo "[post-init] Creating repository: ${SERVER_REPO}"
+        "${SVRADMIN}" -create "${SERVER_REPO}" 2>&1 || true
+
+        # Grant user access to repository
+        echo "[post-init] Granting ${SERVER_USER} access to ${SERVER_REPO}"
+        "${SVRADMIN}" -grant "${SERVER_REPO}" "${SERVER_USER}" 2>&1 || true
+
+        echo "[post-init] Server initialization complete"
+        echo "=================================================="
+        echo "  Server Ready"
+        echo "  User: ${SERVER_USER}"
+        echo "  Repo: ${SERVER_REPO}"
+        echo "  SSH Key: ${SSH_KEY}"
+        echo "=================================================="
+    ) &
+
+    # Navigate to Ghidra server directory and start
+    cd "${GHIDRA_INSTALL_DIR}/server"
     exec env GHIDRA_IP="${GHIDRA_IP}" ./ghidraSvr console
 fi
 

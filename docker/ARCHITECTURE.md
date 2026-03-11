@@ -251,7 +251,7 @@ ${GHIDRA_DATA_DIR}/                # 用户指定的数据根目录（如 ~/ghid
 | Directory | Purpose | Mount Path | Priority |
 |-----------|---------|------------|----------|
 | `/root/.ghidra/` | Client 配置（缓存、偏好设置、状态） | `${GHIDRA_DATA_DIR}/${GHIDRA_VERSION}/client-config` | 🟡 Recommended |
-| `/root/.ghidra/ssh_key` | SSH 私钥（从 Server 共享） | `${GHIDRA_DATA_DIR}/${GHIDRA_VERSION}/ssh/bridge_key` | 🔴 Critical |
+| `/root/.ghidra/ssh_key` | SSH 私钥（从 Server ssh 目录自动注入） | `${GHIDRA_DATA_DIR}/${GHIDRA_VERSION}/ssh/ssh_key` | 🔴 Critical |
 
 ### Key Files in `/repos`
 
@@ -312,11 +312,11 @@ client-config/
 └── .lock                    # 锁文件
 ```
 
-**`ssh/` - SSH 密钥对：**
+**`ssh/` - SSH 密钥对（Server 自动生成）：**
 ```
 ssh/
-├── bridge_key              # 私钥（Client 使用）
-└── bridge_key.pub          # 公钥（Server 使用）
+├── ssh_key              # 私钥（Client 自动挂载使用）
+└── ssh_key.pub          # 公钥（Server 自动安装到 /repos/.users/）
 ```
 
 ### Current Configuration
@@ -327,12 +327,11 @@ ssh/
 # Server container
 volumes:
   - ${GHIDRA_DATA_DIR}/${GHIDRA_VERSION}/repos:/repos:rw
+  - ${GHIDRA_DATA_DIR}/${GHIDRA_VERSION}/ssh:/ssh:rw
   - ${GHIDRA_DATA_DIR}/${GHIDRA_VERSION}/config:/root/.ghidraServer:rw
-
-# Init container
-volumes:
-  - ${GHIDRA_DATA_DIR}/${GHIDRA_VERSION}/ssh:/root/.ghidra:rw
 ```
+
+Server 启动时自动完成初始化（SSH 密钥生成、用户创建、仓库创建），无需 init 容器。
 
 已在 `docker-compose.client.yml` 中正确配置：
 
@@ -342,8 +341,8 @@ volumes:
   # Client 配置目录（完整）
   - ${GHIDRA_DATA_DIR}/${GHIDRA_VERSION}/client-config:/root/.ghidra:rw
 
-  # SSH key（覆盖挂载，从 Server 共享）
-  - ${GHIDRA_DATA_DIR}/${GHIDRA_VERSION}/ssh/bridge_key:/root/.ghidra/ssh_key:ro
+  # SSH key（从 Server ssh 目录自动注入，只读）
+  - ${GHIDRA_DATA_DIR}/${GHIDRA_VERSION}/ssh/ssh_key:/root/.ghidra/ssh_key:ro
 
   # 日志
   - ${GHIDRA_DATA_DIR}/logs/${GHIDRA_VERSION}/client-${CLIENT_ID:-1}:/app/logs:rw

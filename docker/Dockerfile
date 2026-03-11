@@ -67,7 +67,7 @@ ENV GHIDRA_MCP_HOST=0.0.0.0 \
     LOG_DIR=/app/logs
 
 # Create log directory
-RUN mkdir -p /app/logs /ghidra-projects
+RUN mkdir -p /app/logs /ghidra-projects /repos /ssh
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s \

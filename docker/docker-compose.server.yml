@@ -29,13 +29,15 @@ services:
       ghidra-shared-network:
         ipv4_address: 172.28.0.10
     volumes:
-      - ${GHIDRA_DATA_DIR}/${GHIDRA_VERSION}/repos:/opt/ghidra/repositories:rw
+      - ${GHIDRA_DATA_DIR}/${GHIDRA_VERSION}/repos:/repos:rw
+      - ${GHIDRA_DATA_DIR}/${GHIDRA_VERSION}/ssh:/ssh:rw
       - ${GHIDRA_DATA_DIR}/${GHIDRA_VERSION}/config:/root/.ghidraServer:rw
     environment:
       - RUN_MODE=SERVER
       - GHIDRA_IP=ghidra-server
       - GHIDRA_SERVER_PORT=${GHIDRA_SERVER_PORT:-13100}
-      - GHIDRA_USERS=admin
+      - SERVER_USER_NAME=${SERVER_USER_NAME:-bridge}
+      - SERVER_REPO_NAME=${SERVER_REPO_NAME:-/mcp-projects}
       - GHIDRA_VERSION=${GHIDRA_VERSION}
     restart: unless-stopped
     healthcheck:
@@ -44,29 +46,6 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
-
-  # Server initialization service (runs once on first start)
-  ghidra-server-init:
-    image: ghidra-mcp-bridge:latest
-    container_name: ghidra-server-init-standalone
-    depends_on:
-      ghidra-server:
-        condition: service_healthy
-    networks:
-      - ghidra-shared-network
-    volumes:
-      - ${GHIDRA_DATA_DIR}/${GHIDRA_VERSION}/ssh:/root/.ghidra:rw
-      - ./scripts/init-ghidra-server.sh:/init.sh:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro  # Need Docker API access
-    environment:
-      - GHIDRA_SERVER_HOST=ghidra-server
-      - GHIDRA_SERVER_PORT=${GHIDRA_SERVER_PORT:-13100}
-      - AUTO_SERVER_REPO=${SERVER_REPO_NAME:-/mcp-projects}
-      - AUTO_SERVER_USER=${SERVER_USER_NAME:-bridge}
-      - GHIDRA_VERSION=${GHIDRA_VERSION}
-      - GHIDRA_DATA_DIR=${GHIDRA_DATA_DIR}
-    entrypoint: ["/bin/bash", "/init.sh"]
-    restart: "no"
 
 # External network for server-client communication
 networks:

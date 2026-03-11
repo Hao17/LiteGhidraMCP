@@ -269,12 +269,12 @@ server-restart:
 server-clean:
 	@echo "⚠️  WARNING: This will remove all server data!"
 	@echo "  - Docker volumes (repos + config)"
-	@echo "  - SSH keys (./server-data/ssh/)"
+	@echo "  - SSH keys ($(GHIDRA_DATA_DIR)/$(GHIDRA_VERSION)/ssh/)"
 	@echo ""
 	@read -p "Continue? [y/N] " confirm && [ "$$confirm" = "y" ]
 	@echo "Removing server data..."
 	@docker-compose -f docker-compose.server.yml down -v
-	@rm -rf ./server-data/ssh/
+	@rm -rf "$(GHIDRA_DATA_DIR)/$(GHIDRA_VERSION)/ssh/"
 	@echo "✓ Server data removed"
 
 # ============================================
@@ -361,5 +361,5 @@ help-separated:
 	@echo "  1. File → New Project → Shared Project"
 	@echo "  2. Server: localhost:$(GHIDRA_SERVER_PORT)"
 	@echo "  3. User: $(SERVER_USER_NAME)"
-	@echo "  4. PKI Authentication → $(GHIDRA_DATA_DIR)/$(GHIDRA_VERSION)/ssh/bridge_key"
+	@echo "  4. PKI Authentication → $(GHIDRA_DATA_DIR)/$(GHIDRA_VERSION)/ssh/ssh_key"
 	@echo ""
