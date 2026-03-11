@@ -48,24 +48,23 @@ if [ "$RUN_MODE" = "SERVER" ]; then
         echo "SSH keys already exist: ${SSH_KEY}"
     fi
 
-    # 2. Install public key for user
+    # 2. Install/update public key for user (always sync from current ssh_key.pub)
     USER_DIR="${REPO_DIR}/.users/${SERVER_USER}"
-    if [ ! -f "${USER_DIR}/authorized_keys" ]; then
-        echo "Installing SSH public key for user: ${SERVER_USER}"
-        mkdir -p "${USER_DIR}"
-        cp "${SSH_KEY}.pub" "${USER_DIR}/authorized_keys"
-        echo "Public key installed"
-    else
-        echo "SSH public key already installed for: ${SERVER_USER}"
-    fi
+    mkdir -p "${USER_DIR}"
+    cp "${SSH_KEY}.pub" "${USER_DIR}/authorized_keys"
+    echo "SSH public key installed for user: ${SERVER_USER}"
 
-    # 3. Write adm.cmd to add user (processed on server start)
-    if [ ! -f "${REPO_DIR}/.users/users" ]; then
+    # 3. Write adm.cmd to add user (only if user not already registered)
+    if ! grep -q "^${SERVER_USER}$" "${REPO_DIR}/.users/users" 2>/dev/null; then
         echo "Writing adm.cmd to add user: ${SERVER_USER}"
         echo "-add ${SERVER_USER}" > "${REPO_DIR}/~admin/adm.cmd"
+    else
+        echo "User ${SERVER_USER} already registered"
     fi
 
-    # 4. Background post-init: wait for server port, then create repo and grant access
+    # 4. Background post-init: wait for server to be ready, then print status
+    # Note: svrAdmin has no -create command. Repositories are created automatically
+    # when a client creates a new Shared Project. User was already added via adm.cmd.
     (
         echo "[post-init] Waiting for server to listen on port ${SERVER_PORT}..."
         for i in $(seq 1 60); do
@@ -80,23 +79,12 @@ if [ "$RUN_MODE" = "SERVER" ]; then
             sleep 1
         done
 
-        # Small delay to let server fully initialize
-        sleep 2
-
-        # Create repository (ignore "already exists" errors)
-        echo "[post-init] Creating repository: ${SERVER_REPO}"
-        "${SVRADMIN}" -create "${SERVER_REPO}" 2>&1 || true
-
-        # Grant user access to repository
-        echo "[post-init] Granting ${SERVER_USER} access to ${SERVER_REPO}"
-        "${SVRADMIN}" -grant "${SERVER_REPO}" "${SERVER_USER}" 2>&1 || true
-
-        echo "[post-init] Server initialization complete"
         echo "=================================================="
         echo "  Server Ready"
         echo "  User: ${SERVER_USER}"
-        echo "  Repo: ${SERVER_REPO}"
         echo "  SSH Key: ${SSH_KEY}"
+        echo "  Note: Create a Shared Project from Ghidra GUI"
+        echo "        to initialize the repository."
         echo "=================================================="
     ) &
 
