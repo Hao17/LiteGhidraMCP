@@ -1,7 +1,7 @@
 # Ghidra MCP Bridge
 # Uses Ghidra 12.0+ with native PyGhidra support
 
-FROM eclipse-temurin:21-jdk AS base
+FROM eclipse-temurin:23-jdk AS base
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
