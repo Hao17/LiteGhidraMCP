@@ -245,47 +245,75 @@ def _init_ghidra_project():
             repos = server_handle.getRepositoryNames()
             print(f"[PyGhidra-MCP-Bridge] Available repositories: {list(repos) if repos else '(none)'}")
 
-            # Open repository (default to root "/")
+            # Determine repository name
             repo_name = os.environ.get("GHIDRA_SERVER_REPO", "")
             if not repo_name and repos and len(repos) > 0:
                 repo_name = repos[0]
                 print(f"[PyGhidra-MCP-Bridge] Using first repository: {repo_name}")
 
-            if repo_name:
-                repo_handle = server_handle.getRepository(repo_name)
-                print(f"[PyGhidra-MCP-Bridge] ✓ Opened repository: {repo_name}")
+            if not repo_name:
+                repo_name = "/mcp-projects"
 
-                # List projects in repository
-                items = repo_handle.getItemList("/")
-                print(f"[PyGhidra-MCP-Bridge] Repository items: {len(items) if items else 0}")
+            # Create repository if it doesn't exist
+            # Strip leading '/' for API calls (Ghidra uses bare names internally)
+            repo_bare = repo_name.lstrip("/")
+            repo_list = list(repos) if repos else []
+            if repo_bare not in repo_list:
+                print(f"[PyGhidra-MCP-Bridge] Repository '{repo_bare}' not found, creating...")
+                server_handle.createRepository(repo_bare)
+                print(f"[PyGhidra-MCP-Bridge] ✓ Created repository: {repo_bare}")
 
-                # Try to open the specified project
-                if project_name and project_name != "default":
-                    try:
-                        # Open project from server
-                        project_item = repo_handle.getItem("/", project_name)
-                        if project_item:
-                            # TODO: Open program from server project
-                            print(f"[PyGhidra-MCP-Bridge] ✓ Found project: {project_name}")
-                            _current_program = None
-                            print("[PyGhidra-MCP-Bridge] ⚠ Server mode: Program opening not yet fully implemented")
-                        else:
-                            print(f"[PyGhidra-MCP-Bridge] ⚠ Project not found: {project_name}")
-                            _current_program = None
-                    except Exception as e:
-                        print(f"[PyGhidra-MCP-Bridge] ⚠ Error opening project: {e}")
-                        _current_program = None
-                else:
-                    print("[PyGhidra-MCP-Bridge] ⚠ No project specified (PROJECT_NAME)")
-                    _current_program = None
+            # Use a local project for program management
+            local_project_dir = "/tmp/ghidra-checkout"
+            local_project_name = "server-checkout"
+            os.makedirs(local_project_dir, exist_ok=True)
 
-                # Create a minimal project handle for API compatibility
-                # Note: This is a simplified implementation
-                _ghidra_project = None  # Server mode doesn't use local GhidraProject
+            print(f"[PyGhidra-MCP-Bridge] Opening local project for analysis...")
+
+            local_gpr = os.path.join(local_project_dir, f"{local_project_name}.gpr")
+            if os.path.exists(local_gpr):
+                _ghidra_project = GhidraProject.openProject(
+                    local_project_dir, local_project_name, restore=True
+                )
+                print(f"[PyGhidra-MCP-Bridge] ✓ Opened existing local project")
             else:
-                print("[PyGhidra-MCP-Bridge] ⚠ No repositories found on server")
+                _ghidra_project = GhidraProject.createProject(
+                    local_project_dir, local_project_name, False
+                )
+                print(f"[PyGhidra-MCP-Bridge] ✓ Created local project")
+
+            # Import binary if IMPORT_BINARY is set and program doesn't exist
+            import_binary = os.environ.get("IMPORT_BINARY", "")
+            root_folder = _ghidra_project.getProjectData().getRootFolder()
+            program_files = list(root_folder.getFiles())
+
+            if import_binary and os.path.exists(import_binary) and not program_files:
+                print(f"[PyGhidra-MCP-Bridge] Importing binary: {import_binary}")
+                from java.io import File as JavaFile
+                binary_file = JavaFile(import_binary)
+                _current_program = _ghidra_project.importProgram(binary_file)
+                if _current_program:
+                    from ghidra.program.flatapi import FlatProgramAPI
+                    flat_api = FlatProgramAPI(_current_program)
+                    print(f"[PyGhidra-MCP-Bridge] ✓ Binary imported: {_current_program.getName()}")
+
+                    # Auto-analyze
+                    print(f"[PyGhidra-MCP-Bridge] Running auto-analysis...")
+                    from ghidra.app.script import GhidraScriptUtil
+                    from ghidra.program.util import GhidraProgramUtilities
+                    GhidraProgramUtilities.markProgramAnalyzed(_current_program)
+                    _ghidra_project.analyze(_current_program)
+                    print(f"[PyGhidra-MCP-Bridge] ✓ Auto-analysis complete")
+                else:
+                    print(f"[PyGhidra-MCP-Bridge] ⚠ Failed to import binary")
+            elif program_files:
+                # Open first existing program
+                program_file = program_files[0]
+                _current_program = _ghidra_project.openProgram("/", program_file.getName(), False)
+                print(f"[PyGhidra-MCP-Bridge] ✓ Program loaded: {program_file.getName()}")
+            else:
+                print(f"[PyGhidra-MCP-Bridge] ⚠ No programs in project and no IMPORT_BINARY set")
                 _current_program = None
-                _ghidra_project = None
 
         except Exception as e:
             print(f"[PyGhidra-MCP-Bridge] ✗ Failed to connect to server: {e}")

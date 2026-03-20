@@ -231,8 +231,16 @@ ${GHIDRA_DATA_DIR}/              # e.g., ~/ghidra-data
 ├── 12.0.3/                      # Current version directory
 │   ├── repos/                   # Server: Project repositories
 │   ├── config/                  # Server: Configuration and logs
-│   ├── client-config/           # Client: Cache, preferences, state
-│   └── ssh/                     # Shared: SSH keys (bridge_key*)
+│   ├── client-config-1/         # Client 1: Cache, preferences, state
+│   ├── client-config-2/         # Client 2: Cache, preferences, state
+│   └── ssh/
+│       └── clients/
+│           ├── bridge-1/        # Client 1 SSH keys (auto-generated)
+│           │   ├── ssh_key
+│           │   └── ssh_key.pub
+│           └── bridge-2/        # Client 2 SSH keys (auto-generated)
+│               ├── ssh_key
+│               └── ssh_key.pub
 └── logs/
     └── 12.0.3/
         ├── client-1/            # Client logs
@@ -242,14 +250,13 @@ ${GHIDRA_DATA_DIR}/              # e.g., ~/ghidra-data
 **What each directory stores:**
 - `repos/` - Ghidra Server 项目仓库、用户数据、版本历史
 - `config/` - Server 配置文件和日志
-- `client-config/` - Client 的缓存、偏好设置、工具配置（**新增**）
-- `ssh/` - SSH 密钥对（Server 和 Client 共享）
+- `client-config-N/` - 每个 Client 独立的缓存、偏好设置
+- `ssh/clients/` - 每个 Client 的 SSH 密钥对（Client 自动生成，Server 自动注册）
 
 **Server:**
 - Port: `13100`
-- SSH Keys: `${GHIDRA_DATA_DIR}/${GHIDRA_VERSION}/ssh/bridge_key*`
 - Repository: `/mcp-projects`
-- User: `bridge`
+- Users: auto-registered per client (bridge-1, bridge-2, ...)
 
 **Client:**
 - HTTP API: `http://localhost:8803`
@@ -268,11 +275,10 @@ Once the server is running, connect your Ghidra GUI:
    - Port: `13100`
 
 3. **Authentication**:
-   - User ID: `bridge`
-   - Password: (leave empty)
-   - Use PKI authentication: **✓ Checked**
-   - PKI Keystore: Browse to `${GHIDRA_DATA_DIR}/${GHIDRA_VERSION}/ssh/bridge_key`
-     - Example: `~/ghidra-data/12.0.3/ssh/bridge_key`
+
+   - User ID: `root`
+   - Use PKI authentication: **✗ Unchecked**
+   - Password: (from server logs, see `make server-logs`)
 
 4. **Repository**:
    - Select repository: `/mcp-projects`
@@ -293,10 +299,9 @@ make client2-up  # Ports 8813/8814
 **Start custom client:**
 
 ```bash
-CLIENT_CONTAINER_NAME=ghidra-mcp-bridge-client-3 \
+CLIENT_ID=3 \
 CLIENT_MCP_PORT=8823 \
 CLIENT_MCP_SSE_PORT=8824 \
-CLIENT_LOG_DIR=./logs/client-3 \
 docker-compose -f docker-compose.client.yml up -d
 ```
 
@@ -380,6 +385,68 @@ make client-down
 make server-clean  # ⚠️ Destructive - removes all data
 ```
 
+### User Management
+
+**Default Users:**
+
+| User | Auth Method | Purpose |
+|------|-------------|---------|
+| `bridge-1` | SSH key (auto-generated) | Docker client 1 (MCP Bridge) |
+| `bridge-2` | SSH key (auto-generated) | Docker client 2 (MCP Bridge) |
+| `root` | Password (random, shown in logs) | GUI users (Ghidra desktop) |
+
+Each Docker client automatically generates its own SSH key and registers as `bridge-<CLIENT_ID>`.
+The `root` password is generated randomly on each server start. Find it in the server logs:
+
+```bash
+make server-logs
+# Look for:
+#   root (password): <random-password>
+```
+
+**Connect GUI with root user:**
+
+1. File → New Project → Shared Project
+2. Server: `localhost`, Port: `13100`
+3. User ID: `root`
+4. **Uncheck** "Use PKI authentication"
+5. Enter the password from server logs
+
+**Manage Users (via Makefile):**
+
+```bash
+# List all users
+make server-users
+
+# Add a new user (will prompt for password)
+make server-add-user NAME=analyst
+
+# Reset a user's password
+make server-reset-password NAME=root
+
+# List repositories and permissions
+make server-list-repos
+```
+
+**Manage Users (via svrAdmin directly):**
+
+```bash
+# Add user
+docker exec ghidra-server-standalone /opt/ghidra/server/svrAdmin -add <username> --p
+
+# Remove user
+docker exec ghidra-server-standalone /opt/ghidra/server/svrAdmin -remove <username>
+
+# Reset password
+docker exec ghidra-server-standalone /opt/ghidra/server/svrAdmin -reset <username> --p
+
+# List users
+docker exec ghidra-server-standalone /opt/ghidra/server/svrAdmin -users
+
+# List repositories (with user permissions)
+docker exec ghidra-server-standalone /opt/ghidra/server/svrAdmin -list --users
+```
+
 ### Troubleshooting
 
 **Server won't start:**
@@ -404,8 +471,11 @@ docker ps | grep ghidra-server
 # Verify network connectivity
 docker exec ghidra-mcp-bridge-client-1 nc -z ghidra-server 13100
 
-# Verify SSH key exists
-ls -la ~/ghidra-data/12.0.3/ssh/bridge_key*
+# Verify SSH keys were generated
+ls -la ~/ghidra-data/12.0.3/ssh/clients/
+
+# Check server registered the user
+make server-users
 
 # Check configuration
 make info
@@ -417,9 +487,8 @@ make client-logs
 **GUI connection fails:**
 
 1. Verify server is accessible: `nc -zv localhost 13100`
-2. Check SSH key exists: `ls -la ~/ghidra-data/12.0.3/ssh/bridge_key*`
-3. Use correct key path in GUI: `~/ghidra-data/12.0.3/ssh/bridge_key` (not `.pub`)
-4. Ensure "Use PKI authentication" is checked
+2. Use `root` user with password from `make server-logs`
+3. Ensure "Use PKI authentication" is **unchecked**
 
 **Re-initialize server:**
 
@@ -476,7 +545,6 @@ GHIDRA_VERSION=12.0.3
 GHIDRA_SERVER_PORT=13100
 GHIDRA_SERVER_MAXMEM=8G
 SERVER_REPO_NAME=/my-projects
-SERVER_USER_NAME=myuser
 ```
 
 ---

@@ -36,7 +36,6 @@ services:
       - RUN_MODE=SERVER
       - GHIDRA_IP=ghidra-server
       - GHIDRA_SERVER_PORT=${GHIDRA_SERVER_PORT:-13100}
-      - SERVER_USER_NAME=${SERVER_USER_NAME:-bridge}
       - SERVER_REPO_NAME=${SERVER_REPO_NAME:-/mcp-projects}
       - GHIDRA_VERSION=${GHIDRA_VERSION}
     restart: unless-stopped

@@ -15,15 +15,15 @@ version: '3.8'
 #      GHIDRA_SERVER_HOST=host.docker.internal or external IP
 #
 # Multi-Client Support:
-#   Set CLIENT_CONTAINER_NAME, CLIENT_MCP_PORT, CLIENT_MCP_SSE_PORT
-#   to run multiple clients on different ports
+#   Set CLIENT_CONTAINER_NAME, CLIENT_MCP_PORT, CLIENT_MCP_SSE_PORT, CLIENT_ID
+#   to run multiple clients on different ports with independent identities
 
 services:
   ghidra-bridge-client:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    container_name: ${CLIENT_CONTAINER_NAME:-ghidra-mcp-bridge-client-1}
+    container_name: ${CLIENT_CONTAINER_NAME:-ghidra-mcp-bridge-client-${CLIENT_ID:-1}}
     image: ghidra-mcp-bridge
     networks:
       - ghidra-shared-network
@@ -33,18 +33,18 @@ services:
       - GHIDRA_MCP_PORT=${CLIENT_MCP_PORT:-8803}
       - GHIDRA_MCP_SSE_PORT=${CLIENT_MCP_SSE_PORT:-8804}
 
-      # Project configuration - SERVER MODE
-      - PROJECT_MODE=server
+      # Project configuration - AUTO-SERVER MODE
+      # Entrypoint generates per-client SSH key and waits for server registration
+      - PROJECT_MODE=auto-server
       - PROJECT_NAME=${PROJECT_NAME:-default}
 
-      # Ghidra Server connection
+      # Ghidra Server connection (user/keystore set automatically by entrypoint)
       - GHIDRA_SERVER_HOST=${GHIDRA_SERVER_HOST:-ghidra-server}
       - GHIDRA_SERVER_PORT=${GHIDRA_SERVER_PORT:-13100}
-      - GHIDRA_SERVER_USER=${GHIDRA_SERVER_USER:-bridge}
-      - GHIDRA_SERVER_REPO=${GHIDRA_SERVER_REPO:-/mcp-projects}
+      - AUTO_SERVER_REPO=${GHIDRA_SERVER_REPO:-/mcp-projects}
 
-      # SSH key authentication
-      - GHIDRA_SERVER_KEYSTORE=/root/.ghidra/ssh_key
+      # Client identity (determines username: bridge-1, bridge-2, ...)
+      - CLIENT_ID=${CLIENT_ID:-1}
 
       # Logging
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -58,11 +58,11 @@ services:
       - "${CLIENT_MCP_SSE_PORT:-8804}:${CLIENT_MCP_SSE_PORT:-8804}"
 
     volumes:
-      # Ghidra client configuration directory (cache, preferences, state)
-      - ${GHIDRA_DATA_DIR}/${GHIDRA_VERSION}/client-config:/root/.ghidra:rw
+      # Per-client Ghidra configuration directory (cache, preferences, state)
+      - ${GHIDRA_DATA_DIR}/${GHIDRA_VERSION}/client-config-${CLIENT_ID:-1}:/root/.ghidra:rw
 
-      # SSH key (auto-injected from server's ssh directory)
-      - ${GHIDRA_DATA_DIR}/${GHIDRA_VERSION}/ssh/ssh_key:/root/.ghidra/ssh_key:ro
+      # Shared SSH directory (client writes its key, server reads it)
+      - ${GHIDRA_DATA_DIR}/${GHIDRA_VERSION}/ssh:/ssh:rw
 
       # Log persistence
       - ${GHIDRA_DATA_DIR}/logs/${GHIDRA_VERSION}/client-${CLIENT_ID:-1}:/app/logs:rw

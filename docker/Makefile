@@ -1,7 +1,7 @@
 # Ghidra MCP Bridge
 # Makefile for common Docker operations
 
-.PHONY: help build up down logs shell test clean rebuild server-up server-down server-logs server-restart server-clean client-up client-down client-logs client-restart client2-up up-separated down-separated logs-separated help-separated check-env init-data info list-versions switch-version
+.PHONY: help build up down logs shell test clean rebuild server-up server-down server-logs server-restart server-clean server-users server-add-user server-reset-password server-list-repos client-up client-down client-logs client-restart client2-up up-separated down-separated logs-separated help-separated check-env init-data info list-versions switch-version
 
 # Load environment variables
 -include .env
@@ -28,6 +28,12 @@ help:
 	@echo "  make client-up          - Start client (connects to server)"
 	@echo "  make down-separated     - Stop all services"
 	@echo "  make help-separated     - Detailed help for separated mode"
+	@echo ""
+	@echo "User Management:"
+	@echo "  make server-users           - List all server users"
+	@echo "  make server-add-user NAME=x - Add new user (password auth)"
+	@echo "  make server-reset-password NAME=x - Reset user password"
+	@echo "  make server-list-repos      - List repositories"
 	@echo ""
 	@echo "Development & Testing:"
 	@echo "  make up-dev             - Start in development mode (with logs)"
@@ -67,7 +73,7 @@ check-env:
 # Initialize data directory structure
 init-data: check-env
 	@echo "Initializing data directory for Ghidra $(GHIDRA_VERSION)..."
-	@mkdir -p "$(GHIDRA_DATA_DIR)/$(GHIDRA_VERSION)"/{repos,config,ssh,client-config}
+	@mkdir -p "$(GHIDRA_DATA_DIR)/$(GHIDRA_VERSION)"/{repos,config,ssh/clients}
 	@mkdir -p "$(GHIDRA_DATA_DIR)/logs/$(GHIDRA_VERSION)"
 	@echo "✓ Data directory initialized"
 	@echo "  Location: $(GHIDRA_DATA_DIR)/$(GHIDRA_VERSION)/"
@@ -84,8 +90,8 @@ info: check-env
 	@echo "Data Location:"
 	@echo "  Server Repos:    $(GHIDRA_DATA_DIR)/$(GHIDRA_VERSION)/repos"
 	@echo "  Server Config:   $(GHIDRA_DATA_DIR)/$(GHIDRA_VERSION)/config"
-	@echo "  Client Config:   $(GHIDRA_DATA_DIR)/$(GHIDRA_VERSION)/client-config"
-	@echo "  SSH Keys:        $(GHIDRA_DATA_DIR)/$(GHIDRA_VERSION)/ssh"
+	@echo "  SSH Keys:        $(GHIDRA_DATA_DIR)/$(GHIDRA_VERSION)/ssh/clients/"
+	@echo "  Client Configs:  $(GHIDRA_DATA_DIR)/$(GHIDRA_VERSION)/client-config-<N>/"
 	@echo "  Logs:            $(GHIDRA_DATA_DIR)/logs/$(GHIDRA_VERSION)"
 	@echo ""
 	@echo "Available versions:"
@@ -195,9 +201,6 @@ up-separated:
 	@echo ""
 	@$(MAKE) server-up
 	@echo ""
-	@echo "Waiting for server initialization..."
-	@sleep 8
-	@echo ""
 	@$(MAKE) client-up
 	@echo ""
 	@echo "=================================================="
@@ -269,13 +272,44 @@ server-restart:
 server-clean:
 	@echo "⚠️  WARNING: This will remove all server data!"
 	@echo "  - Docker volumes (repos + config)"
-	@echo "  - SSH keys ($(GHIDRA_DATA_DIR)/$(GHIDRA_VERSION)/ssh/)"
+	@echo "  - SSH keys ($(GHIDRA_DATA_DIR)/$(GHIDRA_VERSION)/ssh/clients/)"
+	@echo "  - Client configs ($(GHIDRA_DATA_DIR)/$(GHIDRA_VERSION)/client-config-*/)"
 	@echo ""
 	@read -p "Continue? [y/N] " confirm && [ "$$confirm" = "y" ]
 	@echo "Removing server data..."
 	@docker-compose -f docker-compose.server.yml down -v
 	@rm -rf "$(GHIDRA_DATA_DIR)/$(GHIDRA_VERSION)/ssh/"
+	@rm -rf "$(GHIDRA_DATA_DIR)/$(GHIDRA_VERSION)"/client-config-*/
 	@echo "✓ Server data removed"
+
+# Server user management
+SVRADMIN_CMD = /opt/ghidra/server/svrAdmin
+
+server-users:
+	@echo "Ghidra Server users:"
+	@docker exec ghidra-server-standalone $(SVRADMIN_CMD) -users 2>/dev/null || \
+		echo "ERROR: Server container not running. Start with: make server-up"
+
+server-add-user:
+	@if [ -z "$(NAME)" ]; then \
+		echo "Usage: make server-add-user NAME=<username>"; \
+		exit 1; \
+	fi
+	@echo "Adding user: $(NAME) (will prompt for password)"
+	@docker exec -it ghidra-server-standalone $(SVRADMIN_CMD) -add $(NAME) --p
+
+server-reset-password:
+	@if [ -z "$(NAME)" ]; then \
+		echo "Usage: make server-reset-password NAME=<username>"; \
+		exit 1; \
+	fi
+	@echo "Resetting password for: $(NAME)"
+	@docker exec -it ghidra-server-standalone $(SVRADMIN_CMD) -reset $(NAME) --p
+
+server-list-repos:
+	@echo "Ghidra Server repositories:"
+	@docker exec ghidra-server-standalone $(SVRADMIN_CMD) -list --users 2>/dev/null || \
+		echo "ERROR: Server container not running. Start with: make server-up"
 
 # ============================================
 # Client Management
@@ -311,15 +345,14 @@ client-restart:
 	@$(MAKE) client-up
 
 # Start second client on different ports (for testing multi-client)
-client2-up:
+client2-up: check-env
 	@echo "Starting second Bridge Client..."
-	@CLIENT_CONTAINER_NAME=ghidra-mcp-bridge-client-2 \
+	@CLIENT_ID=2 \
 	 CLIENT_MCP_PORT=8813 \
 	 CLIENT_MCP_SSE_PORT=8814 \
-	 CLIENT_LOG_DIR=./logs/client-2 \
 	 docker-compose -f docker-compose.client.yml up -d
 	@echo ""
-	@echo "✓ Second Client Started"
+	@echo "✓ Second Client Started (bridge-2)"
 	@echo "  HTTP API: http://localhost:8813"
 	@echo "  MCP SSE:  http://localhost:8814/sse"
 
@@ -343,6 +376,12 @@ help-separated:
 	@echo "  make server-restart - Restart server"
 	@echo "  make server-clean   - Remove all server data (⚠️ destructive)"
 	@echo ""
+	@echo "User Management:"
+	@echo "  make server-users           - List all users"
+	@echo "  make server-add-user NAME=x - Add user (password auth)"
+	@echo "  make server-reset-password NAME=x - Reset password"
+	@echo "  make server-list-repos      - List repositories"
+	@echo ""
 	@echo "Client Management:"
 	@echo "  make client-up      - Start client (ports 8803/8804)"
 	@echo "  make client-down    - Stop client"
@@ -351,15 +390,14 @@ help-separated:
 	@echo "  make client2-up     - Start second client (ports 8813/8814)"
 	@echo ""
 	@echo "Multiple Clients:"
-	@echo "  CLIENT_CONTAINER_NAME=ghidra-mcp-bridge-client-3 \\"
+	@echo "  CLIENT_ID=3 \\"
 	@echo "  CLIENT_MCP_PORT=8823 \\"
 	@echo "  CLIENT_MCP_SSE_PORT=8824 \\"
-	@echo "  CLIENT_LOG_DIR=./logs/client-3 \\"
 	@echo "  docker-compose -f docker-compose.client.yml up -d"
 	@echo ""
 	@echo "Connect Ghidra GUI:"
 	@echo "  1. File → New Project → Shared Project"
 	@echo "  2. Server: localhost:$(GHIDRA_SERVER_PORT)"
-	@echo "  3. User: $(SERVER_USER_NAME)"
-	@echo "  4. PKI Authentication → $(GHIDRA_DATA_DIR)/$(GHIDRA_VERSION)/ssh/ssh_key"
+	@echo "  3. User: root (password from server logs)"
+	@echo "  4. Each client auto-registers as bridge-1, bridge-2, ..."
 	@echo ""

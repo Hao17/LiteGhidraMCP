@@ -19,8 +19,6 @@ if [ "$RUN_MODE" = "SERVER" ]; then
     SERVER_PORT="${GHIDRA_SERVER_PORT:-13100}"
     REPO_DIR="/repos"
     SSH_DIR="/ssh"
-    SSH_KEY="${SSH_DIR}/ssh_key"
-    SERVER_USER="${SERVER_USER_NAME:-bridge}"
     SERVER_REPO="${SERVER_REPO_NAME:-/mcp-projects}"
     SVRADMIN="${GHIDRA_INSTALL_DIR}/server/svrAdmin"
 
@@ -28,7 +26,6 @@ if [ "$RUN_MODE" = "SERVER" ]; then
     echo "  IP: ${GHIDRA_IP}"
     echo "  Port: ${SERVER_PORT}"
     echo "  Repository: ${REPO_DIR}"
-    echo "  User: ${SERVER_USER}"
     echo "  Repo: ${SERVER_REPO}"
     echo "  Ghidra: ${GHIDRA_INSTALL_DIR}"
     echo "==================================================="
@@ -36,35 +33,25 @@ if [ "$RUN_MODE" = "SERVER" ]; then
     # Create repository directory
     mkdir -p "${REPO_DIR}/~admin"
 
-    # 1. Generate SSH key pair if not present
-    if [ ! -f "${SSH_KEY}" ]; then
-        echo "Generating SSH key pair..."
-        mkdir -p "${SSH_DIR}"
-        ssh-keygen -t rsa -b 4096 -f "${SSH_KEY}" -N "" -C "ghidra-bridge-auto"
-        chmod 600 "${SSH_KEY}"
-        chmod 644 "${SSH_KEY}.pub"
-        echo "SSH keys generated: ${SSH_KEY}"
+    # 1. Ensure clients directory exists for per-client SSH keys
+    mkdir -p "${SSH_DIR}/clients"
+
+    # 2. Write adm.cmd to add root user (only if not already registered)
+    ADM_CMD=""
+    if ! grep -q "^root$" "${REPO_DIR}/.users/users" 2>/dev/null; then
+        echo "Will add user: root"
+        ADM_CMD="-add root"
     else
-        echo "SSH keys already exist: ${SSH_KEY}"
+        echo "User root already registered"
+    fi
+    if [ -n "${ADM_CMD}" ]; then
+        echo "${ADM_CMD}" > "${REPO_DIR}/~admin/adm.cmd"
     fi
 
-    # 2. Install/update public key for user (always sync from current ssh_key.pub)
-    USER_DIR="${REPO_DIR}/.users/${SERVER_USER}"
-    mkdir -p "${USER_DIR}"
-    cp "${SSH_KEY}.pub" "${USER_DIR}/authorized_keys"
-    echo "SSH public key installed for user: ${SERVER_USER}"
+    # Generate random password for root user
+    ROOT_PASS=$(head -c 12 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 16)
 
-    # 3. Write adm.cmd to add user (only if user not already registered)
-    if ! grep -q "^${SERVER_USER}$" "${REPO_DIR}/.users/users" 2>/dev/null; then
-        echo "Writing adm.cmd to add user: ${SERVER_USER}"
-        echo "-add ${SERVER_USER}" > "${REPO_DIR}/~admin/adm.cmd"
-    else
-        echo "User ${SERVER_USER} already registered"
-    fi
-
-    # 4. Background post-init: wait for server to be ready, then print status
-    # Note: svrAdmin has no -create command. Repositories are created automatically
-    # when a client creates a new Shared Project. User was already added via adm.cmd.
+    # 3. Background post-init: wait for server to be ready, set root password, scan for client keys
     (
         echo "[post-init] Waiting for server to listen on port ${SERVER_PORT}..."
         for i in $(seq 1 60); do
@@ -79,13 +66,53 @@ if [ "$RUN_MODE" = "SERVER" ]; then
             sleep 1
         done
 
+        # Set root user password via svrAdmin
+        echo "[post-init] Setting root user password..."
+        if printf '%s\n%s\n' "${ROOT_PASS}" "${ROOT_PASS}" | "${SVRADMIN}" -reset root --p 2>/dev/null; then
+            echo "[post-init] Root password set successfully"
+        else
+            echo "[post-init] WARNING: Failed to set root password (user may not exist yet)"
+        fi
+
         echo "=================================================="
         echo "  Server Ready"
-        echo "  User: ${SERVER_USER}"
-        echo "  SSH Key: ${SSH_KEY}"
-        echo "  Note: Create a Shared Project from Ghidra GUI"
-        echo "        to initialize the repository."
+        echo ""
+        echo "  Users:"
+        echo "    root (password): ${ROOT_PASS}"
+        echo ""
+        echo "  Client users auto-registered from:"
+        echo "    /ssh/clients/<name>/ssh_key.pub"
         echo "=================================================="
+
+        # Continuously scan for client public keys (runs as long as server is alive)
+        # Ghidra Server stores SSH public keys in /repos/~ssh/<username>.pub
+        SSH_PUBKEY_DIR="${REPO_DIR}/~ssh"
+        mkdir -p "${SSH_PUBKEY_DIR}"
+
+        echo "[post-init] Starting client key scanner..."
+        while true; do
+            for pubkey in "${SSH_DIR}"/clients/*/ssh_key.pub; do
+                [ -f "$pubkey" ] || continue
+                username=$(basename "$(dirname "$pubkey")")
+                dest="${SSH_PUBKEY_DIR}/${username}.pub"
+
+                # Skip if already installed with current key
+                if [ -f "$dest" ] && cmp -s "$pubkey" "$dest"; then
+                    continue
+                fi
+
+                # Install public key to ~ssh directory
+                cp "$pubkey" "$dest"
+                echo "[post-init] Installed SSH key for: ${username}"
+
+                # Add user if not already registered
+                if ! grep -q "^${username}$" "${REPO_DIR}/.users/users" 2>/dev/null; then
+                    "${SVRADMIN}" -add "${username}" 2>/dev/null
+                    echo "[post-init] Registered user: ${username}"
+                fi
+            done
+            sleep 5
+        done
     ) &
 
     # Navigate to Ghidra server directory and start
@@ -117,30 +144,51 @@ echo "==================================================="
 # 2. Handle auto-server mode (before validation)
 if [ "$PROJECT_MODE" = "auto-server" ]; then
     echo "Auto-Server mode detected"
+
+    # Determine client identity
+    CLIENT_USER="${AUTO_SERVER_USER:-bridge-${CLIENT_ID:-1}}"
+    SSH_CLIENT_DIR="/ssh/clients/${CLIENT_USER}"
+
+    # Generate SSH key pair if not present
+    if [ ! -f "${SSH_CLIENT_DIR}/ssh_key" ]; then
+        echo "Generating SSH key pair for ${CLIENT_USER}..."
+        mkdir -p "${SSH_CLIENT_DIR}"
+        ssh-keygen -t rsa -b 4096 -m PEM -f "${SSH_CLIENT_DIR}/ssh_key" -N "" -C "${CLIENT_USER}"
+        chmod 600 "${SSH_CLIENT_DIR}/ssh_key"
+        chmod 644 "${SSH_CLIENT_DIR}/ssh_key.pub"
+        echo "SSH keys generated: ${SSH_CLIENT_DIR}/ssh_key"
+    else
+        echo "SSH keys exist: ${SSH_CLIENT_DIR}/ssh_key"
+    fi
+
     echo "Waiting for Ghidra Server to initialize..."
 
     # Wait for server to be ready (max 120s for initialization)
-    for i in {1..120}; do
-        if nc -z ${GHIDRA_SERVER_HOST:-ghidra-server} ${GHIDRA_SERVER_PORT:-13100}; then
-            echo "✓ Ghidra Server is ready"
+    for i in $(seq 1 120); do
+        if nc -z ${GHIDRA_SERVER_HOST:-ghidra-server} ${GHIDRA_SERVER_PORT:-13100} 2>/dev/null; then
+            echo "Ghidra Server is ready (after ${i}s)"
             break
         fi
-        if [ $i -eq 120 ]; then
-            echo "✗ Ghidra Server timeout - initialization took too long"
+        if [ "$i" -eq 120 ]; then
+            echo "Ghidra Server timeout - initialization took too long"
             echo "Check server logs: docker logs ghidra-server"
             exit 1
         fi
         sleep 1
     done
 
+    # Wait for server to register our user (server scans every 1s)
+    echo "Waiting for server to register user ${CLIENT_USER}..."
+    sleep 5
+
     # Set server connection variables
     export GHIDRA_SERVER_HOST="${GHIDRA_SERVER_HOST:-ghidra-server}"
     export GHIDRA_SERVER_PORT="${GHIDRA_SERVER_PORT:-13100}"
-    export GHIDRA_SERVER_USER="${AUTO_SERVER_USER:-bridge}"
+    export GHIDRA_SERVER_USER="${CLIENT_USER}"
     export GHIDRA_SERVER_REPO="${AUTO_SERVER_REPO:-/mcp-projects}"
-    export GHIDRA_SERVER_KEYSTORE="/root/.ghidra/ssh_key"
+    export GHIDRA_SERVER_KEYSTORE="${SSH_CLIENT_DIR}/ssh_key"
 
-    echo "✓ Auto-server configuration:"
+    echo "Auto-server configuration:"
     echo "  Server: ${GHIDRA_SERVER_HOST}:${GHIDRA_SERVER_PORT}"
     echo "  User: ${GHIDRA_SERVER_USER}"
     echo "  Repository: ${GHIDRA_SERVER_REPO}"
@@ -165,7 +213,7 @@ if [ "$PROJECT_MODE" = "local" ]; then
         echo "WARNING: Project file not found: $PROJECT_PATH/$PROJECT_NAME.gpr"
         echo "PyGhidra will attempt to create/import the project automatically."
     else
-        echo "✓ Found project file: $PROJECT_NAME.gpr"
+        echo "Found project file: $PROJECT_NAME.gpr"
     fi
 
     # Check for .rep directory
@@ -173,7 +221,7 @@ if [ "$PROJECT_MODE" = "local" ]; then
         echo "WARNING: Project repository not found: $PROJECT_PATH/$PROJECT_NAME.rep"
         echo "PyGhidra will attempt to create the project automatically."
     else
-        echo "✓ Found project repository: $PROJECT_NAME.rep/"
+        echo "Found project repository: $PROJECT_NAME.rep/"
     fi
 
 elif [ "$PROJECT_MODE" = "server" ]; then
@@ -203,17 +251,17 @@ elif [ "$PROJECT_MODE" = "server" ]; then
             exit 1
         fi
 
-        echo "✓ SSH keystore found: $GHIDRA_SERVER_KEYSTORE"
+        echo "SSH keystore found: $GHIDRA_SERVER_KEYSTORE"
 
         # Check keystore permissions (should be 600 or 400)
-        KEYSTORE_PERMS=$(stat -f %A "$GHIDRA_SERVER_KEYSTORE" 2>/dev/null || stat -c %a "$GHIDRA_SERVER_KEYSTORE" 2>/dev/null)
+        KEYSTORE_PERMS=$(stat -c %a "$GHIDRA_SERVER_KEYSTORE" 2>/dev/null || stat -f %A "$GHIDRA_SERVER_KEYSTORE" 2>/dev/null)
         if [ "$KEYSTORE_PERMS" != "600" ] && [ "$KEYSTORE_PERMS" != "400" ]; then
             echo "WARNING: SSH keystore permissions are $KEYSTORE_PERMS (should be 600 or 400)"
             echo "Attempting to fix permissions..."
             chmod 600 "$GHIDRA_SERVER_KEYSTORE" || echo "WARNING: Failed to change permissions"
         fi
     else
-        echo "⚠ No user specified, using anonymous access"
+        echo "No user specified, using anonymous access"
     fi
 
     # Export server configuration for Python script
