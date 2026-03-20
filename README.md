@@ -10,21 +10,18 @@ A PyGhidra-based MCP (Model Context Protocol) Bridge that runs inside Ghidra 12.
 
 ## Quick Start Guide
 
-**For most users: Start with GUI Mode**
-- → [Run MCP in Ghidra GUI](#quick-start): Simplest setup, run script directly in Ghidra
-- No Docker, no complex configuration needed
-- Best for learning and daily analysis work
+**Recommended: Docker Deployment (One Command)** ⭐
+- → [Docker Server-Client Mode](#option-2-separated-server-client-mode--recommended-for-aigui-collaboration): AI + GUI collaboration, one command setup
+- Per-client user isolation (bridge-1, bridge-2, ...), auto SSH key generation
+- Best for production, team collaboration, multiple AI agents
 
-**For professional reverse engineers:**
-
-If you need production-grade deployment or team collaboration, see [Docker Deployment](#docker-deployment) section for:
-- Containerized deployment options
-- Local Project mode (automation only)
-- Ghidra Server mode (AI + GUI collaboration)
+**Alternative: GUI Mode**
+- → [Run MCP in Ghidra GUI](#quick-start-gui-mode): Run script directly in Ghidra
+- No Docker needed, simplest for learning and single-user analysis
 
 ---
 
-## Quick Start
+## Quick Start (GUI Mode)
 
 **Requirements:**
 - Ghidra 12.0+ (download: https://ghidra-sre.org/)
@@ -129,7 +126,7 @@ Docker mode runs Ghidra headless + MCP Bridge in a container, based on Ghidra 12
 | **Persistence** | Session-based | Volume mount | Docker volumes | Server storage |
 | **Concurrent Access** | Single user | Locked by container | Multi-user safe | Multi-user safe |
 | **Version Control** | No | No | Built-in | Built-in |
-| **User Isolation** | No | No | Separate sessions | Separate sessions |
+| **User Isolation** | No | No | **Auto (bridge-1, bridge-2, ...)** | Separate sessions |
 | **Container Restart** | N/A | Remount needed | Auto recovery | Auto recovery |
 
 > **Deployment Mode Summary**:
@@ -146,9 +143,9 @@ Docker mode runs Ghidra headless + MCP Bridge in a container, based on Ghidra 12
    - Limitation: Docker locks the project, GUI cannot open it simultaneously
    - Setup: Edit `.env`, run `make up`
 
-2. **Separated Server-Client** ⭐ **Recommended for AI+GUI** (`PROJECT_MODE=server`): Standalone server + scalable clients
+2. **Separated Server-Client** ⭐ **Recommended** (`PROJECT_MODE=auto-server`): Standalone server + scalable clients
    - Good for: AI + human collaboration, multiple AI agents, production deployments
-   - Advantage: **Independent server management**, multiple clients can connect, AI and GUI can work together
+   - Advantage: **One-command deployment**, per-client user isolation, AI and GUI can work together
    - Setup: Run `make up-separated` (one command) or `make server-up && make client-up` (granular control)
 
 3. **External Ghidra Server** (`PROJECT_MODE=server`): Connect to existing Ghidra Server
@@ -250,10 +247,10 @@ Same as local mode, connect to `http://localhost:8804/sse`.
 
 This mode runs a **standalone Ghidra Server** with **independent Bridge clients**, providing:
 
-- ✅ **Independent server management** - Server and clients are separate containers
-- ✅ **AI + GUI collaboration** - Both can work on the same project simultaneously
+- ✅ **Per-client user isolation** - Each client auto-registers as `bridge-1`, `bridge-2`, ...
+- ✅ **Auto SSH key generation** - Each client generates its own SSH key pair (PEM format)
+- ✅ **AI + GUI collaboration** - AI clients + Ghidra GUI can work on the same project simultaneously
 - ✅ **Multiple clients support** - Scale to multiple AI agents on different ports
-- ✅ **Auto-generated SSH keys** - Stored in `./server-data/ssh/bridge_key`
 - ✅ **Persistent storage** - Data survives container restarts
 - ✅ **One-command deployment** - Start everything with `make up-separated`
 
@@ -262,13 +259,17 @@ This mode runs a **standalone Ghidra Server** with **independent Bridge clients*
 ```bash
 cd docker/
 
+# First time setup
+cp .env.example .env
+vim .env  # Set GHIDRA_DATA_DIR (e.g., ~/ghidra-data)
+
 # Start server + client with one command
 make up-separated
 
 # Or start separately for granular control
 make server-up   # Start server
-make client-up   # Start first client (8803/8804)
-make client2-up  # Start second client (8813/8814)
+make client-up   # Start first client (8803/8804) → auto-registers as bridge-1
+make client2-up  # Start second client (8813/8814) → auto-registers as bridge-2
 
 # View logs
 make logs-separated
@@ -283,17 +284,18 @@ After starting the services:
 
 1. File → New Project → **Shared Project**
 2. Server: `localhost:13100`
-3. User: `bridge`
-4. SSH Key: `./server-data/ssh/bridge_key` (auto-generated)
-5. Repository: `/mcp-projects`
+3. User: `root`
+4. **Uncheck** "Use PKI authentication"
+5. Password: (from `make server-logs`, look for `root (password): ...`)
+6. Repository: `mcp-projects`
 
 **What Gets Created:**
 
 - **Server**: Ghidra Server on port `13100`
 - **Client**: HTTP API on `http://localhost:8803`, MCP SSE on `http://localhost:8804/sse`
-- **SSH keys**: `./server-data/ssh/bridge_key` (auto-generated if not exists)
-- **Repository**: `/mcp-projects` (default)
-- **User**: `bridge` (default)
+- **Users**: `root` (password, for GUI), `bridge-1`, `bridge-2`, ... (SSH key, auto-registered per client)
+- **SSH keys**: `~/ghidra-data/<version>/ssh/clients/bridge-<N>/ssh_key` (auto-generated per client)
+- **Repository**: `mcp-projects` (auto-created)
 
 **Detailed Guide**: See [docker/QUICKSTART.md - Separated Server-Client Mode](docker/QUICKSTART.md#separated-server-client-mode-recommended-for-aigu-collaboration)
 
@@ -393,34 +395,19 @@ make client-up   # Start Bridge client
 ```
 
 This will:
-- ✅ Deploy Ghidra Server independently (blacktop/ghidra:12.0-server)
-- ✅ Create default repository `/mcp-projects`
-- ✅ Configure Bridge client to connect to server
-- ✅ Generate SSH keys for authentication (`./server-data/ssh/bridge_key`)
-- ✅ Persist data in Docker volumes
+- ✅ Deploy Ghidra Server with `root` user (random password in logs)
+- ✅ Auto-create repository `mcp-projects`
+- ✅ Each client auto-generates SSH key and registers as `bridge-<N>`
+- ✅ Server continuously scans for new client keys
+- ✅ Persist data in host directories (version-isolated)
 - ✅ Enable multiple clients to connect simultaneously
 
 **Connect Ghidra GUI:**
 - File → New Project → Shared Project
 - Server: `localhost`, Port: `13100`
-- User: *(leave empty for anonymous)*
-- Repository: `/default`
+- User: `root`, Password: (from server logs)
 
-**Optional SSH Authentication:**
-
-For authenticated access, edit `.env` before starting:
-
-```bash
-GHIDRA_SERVER_USERS=ai_analyst,human_analyst
-GHIDRA_SERVER_USER=ai_analyst
-HOST_SSH_KEYSTORE=./ssh-keys
-
-# Generate keys
-mkdir -p docker/ssh-keys
-ssh-keygen -t rsa -b 2048 -f docker/ssh-keys/ssh_key -N ""
-```
-
-See [docker/QUICKSTART.md - Auto-Deploy Section](docker/QUICKSTART.md#alternative-auto-deploy-ghidra-server-recommended-) for detailed guide.
+See [docker/QUICKSTART.md](docker/QUICKSTART.md#separated-server-client-mode-recommended-for-aigui-collaboration) for detailed guide.
 
 ---
 
