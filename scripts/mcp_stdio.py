@@ -199,9 +199,27 @@ def ghidra_edit(
 
 
 @mcp.tool()
-def ghidra_basic_info() -> dict:
-    """Get basic information about the loaded program."""
-    return _call_api("/api/basic_info")
+def ghidra_overview(
+    verbose: bool = False,
+    top_funcs: int = 20,
+    top_strings: int = 30
+) -> dict:
+    """
+    Get a comprehensive overview of the currently loaded binary.
+
+    Recommended first call when starting analysis. Returns program metadata,
+    memory layout, statistics, top functions, imports by library, exports,
+    notable strings, and entry points.
+
+    Args:
+        verbose: If True, return full dict format; if False, compact arrays
+        top_funcs: Number of top functions to include (default: 20)
+        top_strings: Number of notable strings to include (default: 30)
+    """
+    params = f"top_funcs={top_funcs}&top_strings={top_strings}"
+    if verbose:
+        params += "&verbose=true"
+    return _call_api(f"/api/v1/overview?{params}")
 
 
 # ============================================================

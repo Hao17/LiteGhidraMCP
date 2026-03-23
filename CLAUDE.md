@@ -28,6 +28,7 @@ This is a PyGhidra-based MCP (Model Context Protocol) Bridge that runs inside Gh
   - **`version.py`**: Version API，版本管理 commit/log/rollback（仅 Ghidra Server 模式）
 
 - **`api_v1/`**: v1 版本 API 模块目录（面向 AI 的聚合接口）：
+  - **`overview.py`**: 二进制全景概览 API，一次调用返回元数据、内存布局、统计、关键函数、导入导出、字符串
   - **`search.py`**: 统一搜索 API，支持智能类型推断
   - **`view.py`**: 统一查看 API，支持批量查询和同时返回反编译/汇编
   - **`list.py`**: 统一列表 API，提供类似 ls 的符号浏览功能
@@ -114,11 +115,11 @@ pip install mcp uvicorn httpx
 ```
 
 **Available MCP Tools:**
+- `ghidra_overview`: 二进制全景概览（推荐首次调用），返回元数据、内存布局、统计、关键函数、导入导出、字符串
 - `ghidra_search`: 统一搜索 (functions, symbols, strings, xrefs, etc.)
 - `ghidra_view`: 反编译/反汇编查看
 - `ghidra_list`: 符号列表浏览
 - `ghidra_edit`: 统一编辑 (rename, datatype, comment)
-- `ghidra_basic_info`: 获取程序基本信息
 - `ghidra_version`: 版本管理（commit/log/rollback）— 仅 Server 模式下条件注册
 
 **MCP stdio Mode (for local debugging):**
@@ -188,6 +189,8 @@ curl "http://127.0.0.1:8803/api/datatype/set/return?function=main&type=int"
 curl "http://127.0.0.1:8803/api/datatype/parse/c?code=typedef%20struct%20{%20int%20x;%20int%20y;%20}%20Point;"
 
 # V1 API（面向 AI 聚合接口）
+curl http://127.0.0.1:8803/api/v1/overview
+curl "http://127.0.0.1:8803/api/v1/overview?verbose=true"
 curl "http://127.0.0.1:8803/api/v1/search?q=main&types=functions"
 curl "http://127.0.0.1:8803/api/v1/view?q=main"
 curl "http://127.0.0.1:8803/api/v1/list?types=functions,classes"
@@ -355,6 +358,10 @@ curl -X POST http://127.0.0.1:8803/api/v1/edit -H "Content-Type: application/jso
 
 所有 V1 API 默认返回 compact 格式（数组 + `_schema`），可通过 `verbose=true` 获取完整 dict 格式。
 
+- `GET /api/v1/overview?top_funcs=20&top_strings=30&verbose=false` - 二进制全景概览（推荐首次调用）
+  - `top_funcs`: 返回的关键函数数量（默认 20，按 xref 数 + 用户命名加分排序）
+  - `top_strings`: 返回的关键字符串数量（默认 30，按信息量评分排序）
+  - 返回: metadata, segments, statistics, entry_points, top_functions, imports_by_library, exports, notable_strings
 - `GET /api/v1/search?q=<query>&types=auto&limit=20&verbose=false` - 统一搜索（支持智能类型推断）
   - `types`: `auto`(智能推断) / `all` / 逗号分隔（如 `functions,symbols,strings`）
   - `verbose`: `true` 返回完整 dict，默认 compact 数组格式

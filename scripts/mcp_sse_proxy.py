@@ -97,7 +97,7 @@ def _check_ghidra_connection() -> bool:
 mcp = FastMCP(name="Ghidra-MCP-Bridge")
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": False})
 def ghidra_search(
     query: str,
     types: str = "auto",
@@ -138,7 +138,7 @@ def ghidra_search(
     return _http_get(f"/api/v1/search?{params}")
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": False})
 def ghidra_view(
     query: str = "",
     view_type: str = "both",
@@ -178,7 +178,7 @@ def ghidra_view(
     return _http_get(f"/api/v1/view?{params}")
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": False})
 def ghidra_list(
     query: str = "",
     types: str = "auto",
@@ -235,7 +235,7 @@ def ghidra_list(
     return _http_get(f"/api/v1/list?{params}")
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False})
 def ghidra_edit(
     action: str,
     # Common parameters
@@ -348,27 +348,40 @@ def ghidra_edit(
     return _http_post("/api/v1/edit", body)
 
 
-@mcp.tool()
-def ghidra_basic_info() -> dict:
+@mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": False})
+def ghidra_overview(
+    verbose: bool = False,
+    top_funcs: int = 20,
+    top_strings: int = 30
+) -> dict:
     """
-    Get basic information about the currently loaded program.
+    Get a comprehensive overview of the currently loaded binary.
 
-    Returns program name, architecture, language, entry points,
-    memory layout, and analysis statistics.
+    Recommended first call when starting analysis. Returns program metadata,
+    memory layout, statistics, top functions by importance, imports grouped
+    by library, exports, notable strings, and entry points — all in one call.
+
+    Args:
+        verbose: If True, return full dict format; if False, compact arrays
+        top_funcs: Number of top functions to include (default: 20)
+        top_strings: Number of notable strings to include (default: 30)
 
     Returns:
         dict with:
             - success: bool
-            - name: Program name
-            - path: File path
-            - language: Architecture info (processor, size, endian)
-            - compiler: Compiler specification
-            - entry_points: List of entry point addresses
-            - memory: Memory block summary
-            - function_count: Number of functions
-            - symbol_count: Number of symbols
+            - data.metadata: name, format, processor, bits, endian, compiler, image_base
+            - data.segments: memory segments [name, start, end, size, perms]
+            - data.statistics: counts of functions, symbols, imports, exports, strings, classes
+            - data.entry_points: [address, name] pairs
+            - data.top_functions: [name, address, size, xref_count] sorted by importance
+            - data.imports_by_library: [library, count, top_symbols] grouped by library
+            - data.exports: [name, address, is_function]
+            - data.notable_strings: [address, value, length] scored by information value
     """
-    return _http_get("/api/basic_info")
+    params = f"top_funcs={top_funcs}&top_strings={top_strings}"
+    if verbose:
+        params += "&verbose=true"
+    return _http_get(f"/api/v1/overview?{params}")
 
 
 # ============================================================
