@@ -283,13 +283,20 @@ def view(state, q="", type="both", timeout=30, limit=500, verbose=""):
 
     # Validate view type
     view_type = type.lower()
-    if view_type not in ("both", "decompile", "disassemble", "header"):
-        return _err(f"Invalid type: {type}. Valid: both, decompile, disassemble, header")
+    if view_type not in ("both", "decompile", "disassemble", "header", "memory"):
+        return _err(f"Invalid type: {type}. Valid: both, decompile, disassemble, header, memory")
 
     # Handle header type specially - export C header (q is optional, defaults to "/")
     if view_type == "header":
         from api import datatype as datatype_api
         return datatype_api.export_c_header(state, category=q if q else "/")
+
+    # Handle memory type - read raw bytes (q=address, limit=length)
+    if view_type == "memory":
+        from api import memory as memory_api
+        if not q or not q.strip():
+            return _err("Query parameter 'q' (address) is required for memory view")
+        return memory_api.read_memory(state, address=q.strip(), length=limit, format="hex")
 
     # For function views, q is required
     if not q or not q.strip():

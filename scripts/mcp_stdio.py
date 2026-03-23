@@ -81,14 +81,15 @@ def ghidra_view(
     verbose: bool = False
 ) -> dict:
     """
-    View decompiled code, disassembly, or export data types as C header.
+    View decompiled code, disassembly, raw memory, or export data types as C header.
 
     Args:
         query: Function name or address (e.g., "main", "0x401000")
                For type=header: category path filter (default "/" for all)
-        view_type: "both", "decompile", "disassemble", or "header"
+               For type=memory: start address (e.g., "0x611")
+        view_type: "both", "decompile", "disassemble", "header", or "memory"
         timeout: Decompilation timeout in seconds
-        limit: Maximum instructions for disassembly
+        limit: Max instructions for disassembly; for memory: byte count to read
         verbose: Return full dict format if True
     """
     params = f"q={urllib.parse.quote(query)}&type={view_type}&timeout={timeout}&limit={limit}"
@@ -241,17 +242,19 @@ def _register_version_tool():
     def ghidra_version(
         action: str,
         comment: str = "",
+        version: int = 0,
         diff: int = 0,
         limit: int = 50,
     ) -> dict:
         """
-        Version control operations (commit, log, rollback).
+        Version control operations (commit, log, rollback, revert).
 
         Only available when the program is in a shared Ghidra Server project.
 
         Args:
-            action: "log", "commit", or "rollback"
+            action: "log", "commit", "rollback", or "revert"
             comment: Commit message (for "commit" action)
+            version: Target version number (for "revert" action, DESTRUCTIVE)
             diff: Compare with version N (for "log" action, 0=no diff)
             limit: Max log entries or diff items
         """
@@ -264,8 +267,10 @@ def _register_version_tool():
             return _call_api(f"/api/version/commit?comment={urllib.parse.quote(comment)}")
         elif action == "rollback":
             return _call_api("/api/version/rollback")
+        elif action == "revert":
+            return _call_api(f"/api/version/revert?version={version}")
         else:
-            return {"success": False, "error": f"Unknown action: {action}. Use: log, commit, rollback"}
+            return {"success": False, "error": f"Unknown action: {action}. Use: log, commit, rollback, revert"}
 
     return True
 

@@ -26,6 +26,7 @@ This is a PyGhidra-based MCP (Model Context Protocol) Bridge that runs inside Gh
   - **`datatype.py`**: DataType API，数据类型设置、创建、管理和 C 头文件解析
   - **`program.py`**: Program API，程序列表和切换（Docker Server 模式）
   - **`version.py`**: Version API，版本管理 commit/log/rollback（仅 Ghidra Server 模式）
+  - **`memory.py`**: Memory API，读取任意地址的原始字节数据
 
 - **`api_v1/`**: v1 版本 API 模块目录（面向 AI 的聚合接口）：
   - **`overview.py`**: 二进制全景概览 API，一次调用返回元数据、内存布局、统计、关键函数、导入导出、字符串
@@ -117,7 +118,7 @@ pip install mcp uvicorn httpx
 **Available MCP Tools:**
 - `ghidra_overview`: 二进制全景概览（推荐首次调用），返回元数据、内存布局、统计、关键函数、导入导出、字符串
 - `ghidra_search`: 统一搜索 (functions, symbols, strings, xrefs, etc.)
-- `ghidra_view`: 反编译/反汇编查看
+- `ghidra_view`: 反编译/反汇编/内存查看
 - `ghidra_list`: 符号列表浏览
 - `ghidra_edit`: 统一编辑 (rename, datatype, comment)
 - `ghidra_version`: 版本管理（commit/log/rollback）— 仅 Server 模式下条件注册
@@ -173,6 +174,10 @@ curl "http://127.0.0.1:8803/api/search/xrefs/to?address=0x401000"
 curl "http://127.0.0.1:8803/api/view/decompile?name=main"
 curl "http://127.0.0.1:8803/api/view/disassemble?name=main&limit=50"
 
+# Memory
+curl "http://127.0.0.1:8803/api/memory/read?address=0x611&length=256"
+curl "http://127.0.0.1:8803/api/memory/read?address=0x611&length=256&format=u8"
+
 # Symbol Tree
 curl "http://127.0.0.1:8803/api/symbol_tree/function?name=main"
 curl "http://127.0.0.1:8803/api/symbol_tree/classes"
@@ -193,6 +198,7 @@ curl http://127.0.0.1:8803/api/v1/overview
 curl "http://127.0.0.1:8803/api/v1/overview?verbose=true"
 curl "http://127.0.0.1:8803/api/v1/search?q=main&types=functions"
 curl "http://127.0.0.1:8803/api/v1/view?q=main"
+curl "http://127.0.0.1:8803/api/v1/view?q=0x611&type=memory&limit=256"
 curl "http://127.0.0.1:8803/api/v1/list?types=functions,classes"
 curl -X POST http://127.0.0.1:8803/api/v1/edit -H "Content-Type: application/json" \
   -d '{"action": "rename.function", "name": "FUN_00401000", "new_name": "main"}'
@@ -337,6 +343,11 @@ curl -X POST http://127.0.0.1:8803/api/v1/edit -H "Content-Type: application/jso
 
 > **类型字符串格式**: 支持内置类型（`int`, `char`, `void`, `float`, `double` 等）、指针（`int *`, `char **`）、数组（`int[10]`, `char[256]`）、路径（`/MyCategory/MyStruct`）
 
+**Memory API** (`/api/memory/*`) - 内存读取:
+- `GET /api/memory/read?address=<addr>&length=256&format=hex` - 读取原始字节
+  - `format`: `hex`(默认) / `base64` / `ascii` / `u8` / `u16le` / `u16be` / `u32le` / `u32be` / `u64le` / `u64be`
+  - `length`: 最大 16384 (16KB)
+
 **Program API** (`/api/program/*`) - 程序管理（列表/切换/导入）:
 - `GET /api/program/list` - 列出当前项目/仓库中的所有程序（包含 `active` 标记）
 - `GET /api/program/open?name=<name>` - 切换活动程序（返回程序基本信息）
@@ -348,11 +359,15 @@ curl -X POST http://127.0.0.1:8803/api/v1/edit -H "Content-Type: application/jso
 
 **Version API** (`/api/version/*`) - 版本管理（仅 Ghidra Server 共享项目模式）:
 - `GET /api/version/log?limit=50&diff=<n>` - 版本历史；`diff=N` 时附带与版本 N 的差异
-- `GET /api/version/commit?comment=<msg>` - 保存并提交版本（自动处理 checkout）
+- `GET /api/version/commit?comment=<msg>` - 保存并提交版本（自动独占 checkout）
+  - 错误码 `merge_required`: 服务器有更新版本，需先 rollback 再重新修改提交
+  - 错误码 `checkout_conflict`: 其他用户持有独占 checkout
 - `GET /api/version/rollback` - 丢弃未提交修改，回退到最近一次 commit
+- `GET /api/version/revert?version=<n>` - 回退到指定版本，永久删除之后的所有版本（**破坏性**）
 
 > **注意**: 非 Server 模式（GUI 本地项目）调用会返回错误。
 > MCP proxy 启动时自动检测，不支持时不注册 `ghidra_version` tool。
+> Commit 使用独占 checkout，同一 binary 同时只有一个写入者。
 
 **V1 API** (`/api/v1/*`) - 面向 AI 的聚合接口:
 
@@ -367,8 +382,9 @@ curl -X POST http://127.0.0.1:8803/api/v1/edit -H "Content-Type: application/jso
   - `verbose`: `true` 返回完整 dict，默认 compact 数组格式
 - `GET /api/v1/view?q=<query>&type=both&timeout=30&limit=500&verbose=false` - 统一查看（支持批量查询）
   - `q`: 函数名或地址，逗号分隔支持批量（如 `main,init,0x401000`）；当 `type=header` 时作为 category 过滤
-  - `type`: `both`(默认) / `decompile` / `disassemble` / `header`
+  - `type`: `both`(默认) / `decompile` / `disassemble` / `header` / `memory`
     - `header`: 导出程序数据类型为 C header 格式，`q` 参数作为 category 路径（默认 "/" 导出全部）
+    - `memory`: 读取起始地址处的原始字节，`q` 为地址，`limit` 为长度
   - `verbose`: `true` 返回完整 dict，默认 compact info 数组格式
 - `GET /api/v1/list?q=<query>&types=auto&limit=100&verbose=false` - 统一列表（类似 ls 的符号浏览）
   - `q`: 名称过滤（支持通配符 `*` `?`）

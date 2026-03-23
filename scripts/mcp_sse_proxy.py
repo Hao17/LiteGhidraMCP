@@ -147,7 +147,7 @@ def ghidra_view(
     verbose: bool = False
 ) -> dict:
     """
-    View decompiled code, disassembly, or export data types as C header.
+    View decompiled code, disassembly, raw memory, or export data types as C header.
 
     Supports batch queries for multiple functions at once.
 
@@ -157,13 +157,16 @@ def ghidra_view(
                - By address: "0x401000"
                - Batch: "main,init,0x401000"
                - For type=header: category path filter (default "/" for all)
+               - For type=memory: start address (e.g., "0x611")
         view_type: What to return:
                - "both": Decompiled C code + assembly (default)
                - "decompile": Only decompiled C code
                - "disassemble": Only assembly instructions
                - "header": Export data types as C header format
+               - "memory": Read raw bytes from address (query=address, limit=byte count)
         timeout: Decompilation timeout in seconds (default: 30)
-        limit: Max assembly instructions per function (default: 500)
+        limit: Max assembly instructions per function (default: 500);
+               for memory: number of bytes to read
         verbose: If True, return full dict format; if False, compact
 
     Returns:
@@ -403,11 +406,12 @@ def _register_version_tool():
     def ghidra_version(
         action: str,
         comment: str = "",
+        version: int = 0,
         diff: int = 0,
         limit: int = 50,
     ) -> dict:
         """
-        Version control operations (commit, log, rollback).
+        Version control operations (commit, log, rollback, revert).
 
         Only available when the program is in a shared Ghidra Server project.
         Provides git-like version management for collaborative reverse engineering.
@@ -416,8 +420,10 @@ def _register_version_tool():
             action: Operation to perform:
                 - "log": Show version history (optionally with diff)
                 - "commit": Save and checkin changes to server
-                - "rollback": Discard uncommitted changes, revert to last commit
+                - "rollback": Discard uncommitted local changes, revert to last commit
+                - "revert": Permanently delete versions after N, go back to version N (DESTRUCTIVE)
             comment: Commit message (for "commit" action)
+            version: Target version number (for "revert" action, required)
             diff: Compare with version N (for "log" action, 0=no diff)
             limit: Max log entries or diff items (default: 50)
 
@@ -427,7 +433,10 @@ def _register_version_tool():
                 - For log: versions list, current_version, is_checked_out
                 - For log+diff: additional diff.changes list
                 - For commit: action, comment, version
+                  - error_code "merge_required": server has newer version, rollback and re-apply needed
+                  - error_code "checkout_conflict": another user holds exclusive checkout
                 - For rollback: action, program name
+                - For revert: target_version, deleted_versions list
         """
         from urllib.parse import quote
         if action == "log":
@@ -439,8 +448,10 @@ def _register_version_tool():
             return _http_get(f"/api/version/commit?comment={quote(comment)}")
         elif action == "rollback":
             return _http_get("/api/version/rollback")
+        elif action == "revert":
+            return _http_get(f"/api/version/revert?version={version}")
         else:
-            return {"success": False, "error": f"Unknown action: {action}. Use: log, commit, rollback"}
+            return {"success": False, "error": f"Unknown action: {action}. Use: log, commit, rollback, revert"}
 
     return True
 
