@@ -828,7 +828,7 @@ def _start_mcp_server(host: str, port: int, http_port: int):
                 mcp_script,
                 "--host", host,
                 "--port", str(port),
-                "--http-port", str(http_port)
+                "--ghidra-port", str(http_port)
             ]
 
             subprocess.Popen(
