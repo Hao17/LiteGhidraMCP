@@ -8,6 +8,20 @@
 
 基于 PyGhidra 的 MCP (Model Context Protocol) Bridge，在 Ghidra 12.0+ 内部运行，为 AI 系统提供对 Ghidra 逆向工程能力的编程访问。
 
+## 为什么选择这个 Bridge？
+
+与其他 Ghidra MCP 实现相比，本项目具有以下优势：
+
+1. **零编译、热重载开发** — 无需编译 Java 插件。直接在 Ghidra Script Manager 中运行 Python 脚本，通过 `@route` 装饰器添加新 API，调用 `/_reload` 即时生效，无需重启。其他项目需要用 Maven/Gradle 构建 Java 插件，每次修改都要重启 Ghidra。
+
+2. **面向 AI 优化的工具精简** — 仅 6 个 MCP 工具（`overview`、`search`、`view`、`list`、`edit`、`version`），内置智能类型推断和批量操作，而竞品普遍暴露 30–200+ 个独立工具。更少的工具意味着更少的 LLM 上下文消耗和更精准的 AI 决策。V1 API 默认返回紧凑数组格式，进一步节省 token。
+
+3. **GUI + 无头 + Docker 统一代码** — 同一套 API 模块同时支持 Ghidra GUI 模式（Script Manager）、无头分析（PyGhidra CLI）和 Docker Server-Client 部署（每客户端独立用户隔离）。大多数替代方案仅支持单一模式。
+
+4. **反编译器级别操作** — 直接操作反编译视图，而非仅底层符号表。可重命名反编译代码中显示的变量/参数，一次调用修改完整函数签名（`int main(int argc, char **argv)`），还能将编译器复用的寄存器变量拆分为独立逻辑变量 — 这是本项目独有的能力。
+
+5. **Git 风格版本管理** — 针对 Ghidra Server 共享项目提供 `commit` / `log` / `rollback` / `revert`，带独占 checkout 语义，支持 AI 与人工分析师在同一 binary 上协作逆向，完整保留版本历史。
+
 ## 快速开始指引
 
 **推荐：Docker 部署（一条命令）** ⭐
