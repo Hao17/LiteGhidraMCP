@@ -8,6 +8,13 @@
 
 基于 PyGhidra 的 MCP (Model Context Protocol) Bridge，在 Ghidra 12.0+ 内部运行，为 AI 系统提供对 Ghidra 逆向工程能力的编程访问。
 
+### 亮点
+
+- **6 个聚合 MCP 工具** — 统一入口，模式分发到 50+ API，无工具膨胀。
+- **版本控制 + AI/人类协作** — 多个 AI Agent 与人类分析师通过 Ghidra Server 协同分析同一 binary，完整版本历史。
+- **多 binary 跨文件分析** — 同一项目下启动多个 Client 分析不同 binary。适用于 VMP 脱壳、DLL-EXE 交互追踪、多模块固件等场景。
+- **GUI、Headless、Docker** — 同一套 API 代码支持所有模式。Docker Server-Client 支持 AI 全自主分析。
+
 ## 快速开始指引
 
 **推荐：Docker 部署（一条命令）** ⭐
