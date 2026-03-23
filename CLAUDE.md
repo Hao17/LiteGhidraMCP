@@ -10,7 +10,9 @@ This is a PyGhidra-based MCP (Model Context Protocol) Bridge that runs inside Gh
 
 ### Core Components
 
-- **`ghidra_mcp_server.py`**: Main HTTP server that runs inside Ghidra via PyGhidra. Caches `state` object at startup and imports API modules directly.
+- **`ghidra_mcp_server.py`**: GUI mode HTTP server, runs inside Ghidra via Script Manager. Caches `state` object at startup and imports API modules directly.
+
+- **`ghidra_mcp_server_pyghidra.py`**: Docker/Headless mode server, runs via PyGhidra CLI. Handles server connection, SSH key auth, and headless analysis.
 
 - **`api/`**: API 模块目录，包含所有可调用的 API 实现：
   - **`demo.py`**: API 开发参考样例（使用 runScript 模式）
@@ -155,117 +157,41 @@ Claude Desktop 配置 (stdio 模式):
 
 ### API Testing
 ```bash
-# 运行演示脚本
-curl http://127.0.0.1:8803/api/demo
-
-# 获取程序基础信息
+# 基础
 curl http://127.0.0.1:8803/api/basic_info
 
-# Search API 测试
+# Search
 curl "http://127.0.0.1:8803/api/search/functions?q=main&limit=10"
-curl "http://127.0.0.1:8803/api/search/symbols?q=*printf*"
-curl "http://127.0.0.1:8803/api/search/strings?q=error"
-curl "http://127.0.0.1:8803/api/search/bytes?pattern=48 8b ?? 90&limit=20"
-curl "http://127.0.0.1:8803/api/search/instructions?q=call"
 curl "http://127.0.0.1:8803/api/search/xrefs/to?address=0x401000"
-curl "http://127.0.0.1:8803/api/search/datatypes?q=*struct*"
-curl "http://127.0.0.1:8803/api/search/all?q=init"
 
-# View API 测试
+# View
 curl "http://127.0.0.1:8803/api/view/decompile?name=main"
-curl "http://127.0.0.1:8803/api/view/decompile?address=0x401000"
 curl "http://127.0.0.1:8803/api/view/disassemble?name=main&limit=50"
-curl "http://127.0.0.1:8803/api/view/disassemble?address=0x401000"
 
-# Symbol Tree API 测试
-curl "http://127.0.0.1:8803/api/symbol_tree/namespaces"
-curl "http://127.0.0.1:8803/api/symbol_tree/namespace?name=std"
-curl "http://127.0.0.1:8803/api/symbol_tree/namespace/tree?depth=2"
-curl "http://127.0.0.1:8803/api/symbol_tree/classes"
-curl "http://127.0.0.1:8803/api/symbol_tree/class?name=MyClass"
-curl "http://127.0.0.1:8803/api/symbol_tree/functions?namespace=std"
+# Symbol Tree
 curl "http://127.0.0.1:8803/api/symbol_tree/function?name=main"
-curl "http://127.0.0.1:8803/api/symbol_tree/labels"
-curl "http://127.0.0.1:8803/api/symbol_tree/globals"
-curl "http://127.0.0.1:8803/api/symbol_tree/imports?library=kernel32"
-curl "http://127.0.0.1:8803/api/symbol_tree/exports"
+curl "http://127.0.0.1:8803/api/symbol_tree/classes"
 
-# Comment API 测试
-curl "http://127.0.0.1:8803/api/comment/set?address=0x401000&type=EOL&text=测试注释"
-curl "http://127.0.0.1:8803/api/comment/set?name=main&type=PLATE&text=主函数说明"
-curl "http://127.0.0.1:8803/api/comment/set?address=0x401000&type=EOL&text="  # 删除注释
+# Comment
+curl "http://127.0.0.1:8803/api/comment/set?address=0x401000&type=EOL&text=test"
 
-# Rename API 测试 (Listing 级别)
-curl "http://127.0.0.1:8803/api/rename/function?address=0x401000&new_name=my_main"
-curl "http://127.0.0.1:8803/api/rename/function?name=FUN_00401000&new_name=main"
-curl "http://127.0.0.1:8803/api/rename/variable?function=main&var_name=local_8&new_name=counter"
-curl "http://127.0.0.1:8803/api/rename/parameter?function=main&param=0&new_name=argc"
-curl "http://127.0.0.1:8803/api/rename/global?address=0x404000&new_name=g_config"
-curl "http://127.0.0.1:8803/api/rename/label?address=0x401050&new_name=loop_start"
-curl "http://127.0.0.1:8803/api/rename/datatype?name=struct_1&new_name=ConfigStruct"
-curl "http://127.0.0.1:8803/api/rename/namespace?name=Class1&new_name=MyClass"
-
-# Rename API 测试 (Decompiler 级别 - 推荐)
+# Rename (Decompiler 级别 - 推荐)
 curl "http://127.0.0.1:8803/api/rename/decompiler/variable?function=main&var_name=local_8&new_name=counter"
-curl "http://127.0.0.1:8803/api/rename/decompiler/variable?function_address=0x401000&var_name=uVar1&new_name=result"
-curl "http://127.0.0.1:8803/api/rename/decompiler/parameter?function=main&param=0&new_name=argc"
-curl "http://127.0.0.1:8803/api/rename/decompiler/parameter?function=main&param=param_1&new_name=argv"
-
-# Split Variable API 测试 (拆分变量)
-curl "http://127.0.0.1:8803/api/rename/decompiler/variable/instances?function=main&var_name=uVar1"  # 先查看使用点
-curl "http://127.0.0.1:8803/api/rename/decompiler/split?function=main&var_name=uVar1&use_address=0x401050&new_name=result"
-
-# Function Signature API 测试 (完整签名修改)
 curl "http://127.0.0.1:8803/api/rename/function_signature?function=FUN_00401000&signature=int%20main(int%20argc,%20char%20**argv)"
-curl "http://127.0.0.1:8803/api/rename/function_signature?function=sub_401000&signature=int%20__stdcall%20MessageBoxA(HWND%20hWnd,%20LPCSTR%20lpText)"
 
-# V1 View API 测试
-curl "http://127.0.0.1:8803/api/v1/view?q=main"
-curl "http://127.0.0.1:8803/api/v1/view?q=main,init&type=decompile"
-curl "http://127.0.0.1:8803/api/v1/view?type=header"                         # 导出全部数据类型为 C header
-curl "http://127.0.0.1:8803/api/v1/view?type=header&q=/MyCategory"           # 导出指定类别
-
-# V1 List API 测试
-curl "http://127.0.0.1:8803/api/v1/list"
-curl "http://127.0.0.1:8803/api/v1/list?q=init*"
-curl "http://127.0.0.1:8803/api/v1/list?types=all&limit=20"
-curl "http://127.0.0.1:8803/api/v1/list?types=functions,classes"
-curl "http://127.0.0.1:8803/api/v1/list?start=0x401000&end=0x402000"
-curl "http://127.0.0.1:8803/api/v1/list?types=imports&library=kernel32"
-
-# V1 Edit API 测试 (POST)
-curl -X POST http://127.0.0.1:8803/api/v1/edit -H "Content-Type: application/json" -d '{"action": "rename.function", "name": "FUN_00401000", "new_name": "main"}'
-curl -X POST http://127.0.0.1:8803/api/v1/edit -H "Content-Type: application/json" -d '{"action": "datatype.set.return", "function": "main", "type": "int"}'
-curl -X POST http://127.0.0.1:8803/api/v1/edit -H "Content-Type: application/json" -d '{"action": "rename.decompiler.variable", "function": "main", "var_name": "local_8", "new_name": "counter"}'
-curl -X POST http://127.0.0.1:8803/api/v1/edit -H "Content-Type: application/json" -d '{"action": "comment.set", "address": "0x401000", "type": "EOL", "text": "Entry point"}'
-curl -X POST http://127.0.0.1:8803/api/v1/edit -H "Content-Type: application/json" -d '{"action": "datatype.parse.c", "code": "typedef struct { int x; int y; } Point;"}'
-curl -X POST http://127.0.0.1:8803/api/v1/edit -H "Content-Type: application/json" -d '{"action": "rename.function_signature", "function": "FUN_00401000", "signature": "int main(int argc, char **argv)"}'
-# V1 Edit API 批量操作
-curl -X POST http://127.0.0.1:8803/api/v1/edit -H "Content-Type: application/json" -d '{"actions": [{"action": "rename.function", "name": "FUN_00401000", "new_name": "main"}, {"action": "datatype.set.return", "function": "main", "type": "int"}, {"action": "comment.set", "name": "main", "type": "PLATE", "text": "Main entry"}]}'
-
-# DataType API 测试 - 类型设置
+# DataType
 curl "http://127.0.0.1:8803/api/datatype/set/return?function=main&type=int"
-curl "http://127.0.0.1:8803/api/datatype/set/parameter?function=main&param=0&type=int"
-curl "http://127.0.0.1:8803/api/datatype/set/decompiler/variable?function=main&var_name=local_8&type=int"
-curl "http://127.0.0.1:8803/api/datatype/set/decompiler/parameter?function=main&param=0&type=char **"
-curl "http://127.0.0.1:8803/api/datatype/set/global?address=0x404000&type=int"
-curl "http://127.0.0.1:8803/api/datatype/set/field?struct=MyStruct&field=0&type=int"
-
-# DataType API 测试 - C 代码解析（创建类型的推荐方式）
 curl "http://127.0.0.1:8803/api/datatype/parse/c?code=typedef%20struct%20{%20int%20x;%20int%20y;%20}%20Point;"
-curl "http://127.0.0.1:8803/api/datatype/parse/c?code=enum%20Status%20{%20OK%20=%200,%20ERROR%20=%201%20};"
-curl "http://127.0.0.1:8803/api/datatype/parse/c?code=typedef%20unsigned%20int%20DWORD;"
-curl "http://127.0.0.1:8803/api/datatype/parse/c?code=typedef%20void%20(*CallbackFn)(void%20*ctx);"
 
-# DataType API 测试 - 查询
-curl "http://127.0.0.1:8803/api/datatype/info?name=Point"
-curl "http://127.0.0.1:8803/api/datatype/list?category=/&limit=50"
-curl "http://127.0.0.1:8803/api/datatype/list?q=*Struct*"
-
-# DataType API 测试 - 导出为 C header
-curl "http://127.0.0.1:8803/api/datatype/export/c"                           # 导出全部
-curl "http://127.0.0.1:8803/api/datatype/export/c?category=/MyTypes"         # 导出指定类别
-
+# V1 API（面向 AI 聚合接口）
+curl "http://127.0.0.1:8803/api/v1/search?q=main&types=functions"
+curl "http://127.0.0.1:8803/api/v1/view?q=main"
+curl "http://127.0.0.1:8803/api/v1/list?types=functions,classes"
+curl -X POST http://127.0.0.1:8803/api/v1/edit -H "Content-Type: application/json" \
+  -d '{"action": "rename.function", "name": "FUN_00401000", "new_name": "main"}'
+# V1 Edit 批量操作
+curl -X POST http://127.0.0.1:8803/api/v1/edit -H "Content-Type: application/json" \
+  -d '{"actions": [{"action": "rename.function", "name": "FUN_00401000", "new_name": "main"}, {"action": "comment.set", "name": "main", "type": "PLATE", "text": "Main entry"}]}'
 ```
 
 ## Code Conventions
@@ -357,10 +283,6 @@ curl "http://127.0.0.1:8803/api/datatype/export/c?category=/MyTypes"         # �
 >
 > **Split 功能**: 当编译器复用同一寄存器存储不同逻辑变量时（如循环计数器后被复用为返回值），
 > 可使用 `split` API 将特定使用点拆分为独立变量。注意：仅支持寄存器变量，栈变量暂不支持。
-
-**Bookmark API**: 不提供支持。原因：
-1. Comment 和 Label 已覆盖标记需求（EOL/PRE/POST/PLATE 注释 + 自定义标签）
-2. AI 工作流通过地址/符号名直接定位，不依赖用户态的书签导航机制
 
 **DataType API** (`/api/datatype/*`) - 数据类型操作:
 
@@ -529,37 +451,6 @@ The bridge handles both GUI and headless modes with appropriate threading models
 
 ## Docker Deployment
 
-### Unified Image Architecture
+单一镜像通过 `RUN_MODE` 环境变量控制运行模式（`SERVER` / `CLIENT`）。
 
-本项目使用**单一镜像**通过 `RUN_MODE` 环境变量控制运行模式：
-- `RUN_MODE=SERVER` - 作为 Ghidra Server 运行
-- `RUN_MODE=CLIENT` (默认) - 作为 MCP Bridge Client 运行
-
-详细架构说明见 `docker/ARCHITECTURE.md`。
-
-### Data Persistence (Important)
-
-Ghidra Server 需要持久化以下关键目录：
-
-1. **`/repos`** (🔴 Critical) - 项目仓库、用户数据、版本历史
-   - Docker Volume: `ghidra-server-repos-standalone`
-   - 包含: `.users/` (用户认证), `changesets/` (版本历史), `~admin/` (仓库元数据)
-
-2. **`/root/.ghidraServer`** (🟡 Recommended) - Server 配置和日志
-   - Docker Volume: `ghidra-server-config-standalone`
-
-3. **`./server-data/ssh/`** (🔴 Critical) - SSH 私钥（Client 认证）
-   - Host directory mount
-
-**当前配置**: 已在 `docker-compose.server.yml` 中正确配置所有持久化 volumes。
-
-**注意事项**:
-- 删除 `/repos/` 会丢失所有分析数据和版本历史
-- 删除 `/repos/.users/` 会导致用户无法登录
-- SSH 私钥权限必须是 600
-- 容器删除不会影响数据（使用 Named Volumes）
-
-**TODO (Future Iterations)**:
-- [ ] 实现自动备份机制
-- [ ] Volume 监控和容量告警
-- [ ] 跨主机迁移流程
+详细架构、数据持久化和部署说明见 `docker/ARCHITECTURE.md` 和 `docker/QUICKSTART.md`。

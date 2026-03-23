@@ -2,8 +2,8 @@
 #
 # Install: pip install -r requirements.txt
 #
-# Note: Ghidra and Ghidrathon are required but installed separately.
-# See: https://github.com/mandiant/Ghidrathon
+# Note: Ghidra 12.0+ with built-in PyGhidra is required but installed separately.
+# See: https://ghidra-sre.org/
 
 # MCP (Model Context Protocol) support
 mcp>=1.0.0

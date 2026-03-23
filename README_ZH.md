@@ -184,12 +184,13 @@ export GHIDRA_MCP_SSE_PORT=8804       # MCP SSE 端口（默认: 8804）
 
 ```
 Bridge/
-├── ghidra_mcp_server.py    # 主服务器（在 Ghidra 中运行）
-├── api/                    # API 模块
-├── api_v1/                 # AI 友好聚合 API
+├── ghidra_mcp_server.py           # GUI 模式服务器（Ghidra Script Manager）
+├── ghidra_mcp_server_pyghidra.py  # Docker/Headless 模式服务器（PyGhidra）
+├── api/                           # API 模块
+├── api_v1/                        # AI 友好聚合 API
 └── scripts/
-    ├── mcp_sse_proxy.py    # MCP SSE 代理（子进程）
-    └── mcp_stdio.py        # MCP stdio 模式（独立进程）
+    ├── mcp_sse_proxy.py           # MCP SSE 代理（子进程）
+    └── mcp_stdio.py               # MCP stdio 模式（独立进程）
 ```
 
 ## 故障排查

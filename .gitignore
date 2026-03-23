@@ -29,14 +29,13 @@ build/
 
 # Logs
 *.log
-logs/
-
-# Configuration
-config/.env
 
 # Temporary files
 tmp/
 temp/
+
+# Personal scripts
+test_ssh_connection.sh
 
 # OS
 .DS_Store

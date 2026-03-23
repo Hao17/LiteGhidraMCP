@@ -184,12 +184,13 @@ Use different ports in different Ghidra instances, then configure multiple MCP s
 
 ```
 Bridge/
-├── ghidra_mcp_server.py    # Main server (runs in Ghidra)
-├── api/                    # API modules
-├── api_v1/                 # AI-friendly aggregated API
+├── ghidra_mcp_server.py           # GUI mode server (Ghidra Script Manager)
+├── ghidra_mcp_server_pyghidra.py  # Docker/Headless mode server (PyGhidra)
+├── api/                           # API modules
+├── api_v1/                        # AI-friendly aggregated API
 └── scripts/
-    ├── mcp_sse_proxy.py    # MCP SSE proxy (subprocess)
-    └── mcp_stdio.py        # MCP stdio mode (standalone)
+    ├── mcp_sse_proxy.py           # MCP SSE proxy (subprocess)
+    └── mcp_stdio.py               # MCP stdio mode (standalone)
 ```
 
 ## Troubleshooting

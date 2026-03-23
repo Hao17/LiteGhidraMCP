@@ -1,5 +1,13 @@
 # Quick Start
 
+## Choosing Your Deployment Mode
+
+| Mode | Best For | AI + GUI | Multi-User |
+|------|----------|----------|-----------|
+| **Local GUI** | Daily RE work, single user | N/A | No |
+| **Docker + Local Project** (`PROJECT_MODE=local`) | Automation only | No (locks project) | No |
+| **Docker + Server-Client** ⭐ (`PROJECT_MODE=server`) | Production, collaboration | Yes | Yes |
+
 > **📌 Docker Project Connection Modes**:
 >
 > This Docker setup supports three project connection methods:
@@ -16,7 +24,7 @@
 > - **External Ghidra Server** (`PROJECT_MODE=server`): Connect to existing external Server
 >   - ✅ **AI (Docker) + GUI (human) can work simultaneously!**
 >   - Good for: Production deployments with existing infrastructure
->   - See [README.md - Ghidra Server Connection](../README.md#option-2-ghidra-server-connection--production-recommended)
+>   - See [README.md - Docker Deployment](../README.md#docker-deployment)
 
 This guide covers all three deployment modes.
 
@@ -690,10 +698,9 @@ GHIDRA_SERVER_USER=analyst
 GHIDRA_SERVER_REPO=/shared
 ```
 
-**Note:** For Ghidra Server mode setup, see [README.md - Ghidra Server Connection](../README.md#option-2-ghidra-server-connection--production-recommended).
+**Note:** For Ghidra Server mode setup, see [README.md - Docker Deployment](../README.md#docker-deployment).
 
 ## Next Steps
 
-- Read the [API Reference](../docs/api/api-reference.md)
-- Explore [MCP Tools](../docs/setup/mcp-clients.md)
-- Check [Development Guide](../docs/development/contributing.md)
+- Read the [API Reference](../CLAUDE.md) for complete API documentation
+- Check [Development Guide](../docs/DEVELOPMENT.md) for local development setup

@@ -400,9 +400,39 @@ cat ~/.ghidra/bridge_key.pub
 analyzeHeadless ghidra://localhost:13100/ test -connect bridge -keystore ~/.ghidra/bridge_key
 
 # Start Docker
-cd examples/docker/ghidra-server
-docker-compose -f docker-compose.pyghidra.yml up -d
+cd docker/
+make up-separated
 
 # Check logs
-docker logs -f ghidra-mcp-bridge-pyghidra-server
+make client-logs
 ```
+
+---
+
+## Migration from Password Auth
+
+Password authentication was removed in favor of SSH keys (Feb 2026).
+
+### Breaking Changes
+
+1. **`GHIDRA_SERVER_PASSWORD` env var removed** — old configs using it will fail
+2. **`GHIDRA_SERVER_KEYSTORE` required** for authenticated access (+ Docker volume mount)
+3. **Must use `Dockerfile.pyghidra`** (Ghidra 12.0+)
+
+### Still Compatible
+
+- Anonymous access (no config changes needed)
+- Local project mode (unaffected)
+- All HTTP API endpoints (no changes)
+
+### Migration Steps
+
+1. Generate SSH key: `ssh-keygen -t rsa -b 4096 -f ~/.ghidra/bridge_key -N ""`
+2. Register public key on Ghidra Server (`svrAdmin` → `add user` / `set ssh-key`)
+3. Replace `GHIDRA_SERVER_PASSWORD=xxx` with `GHIDRA_SERVER_KEYSTORE=/root/.ghidra/ssh_key` in `.env`
+4. Add volume mount in compose: `~/.ghidra/bridge_key:/root/.ghidra/ssh_key:ro`
+5. Restart container
+
+### Rollback
+
+Checkout previous git version (`git checkout HEAD~1`) and use standard Dockerfile (Ghidra 11.0).
