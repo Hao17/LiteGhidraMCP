@@ -43,6 +43,9 @@ services:
       - GHIDRA_SERVER_PORT=${GHIDRA_SERVER_PORT:-13100}
       - AUTO_SERVER_REPO=${GHIDRA_SERVER_REPO:-/mcp-projects}
 
+      # Program selection (open specific program from repository)
+      - PROGRAM_NAME=${PROGRAM_NAME:-}
+
       # Client identity (determines username: bridge-1, bridge-2, ...)
       - CLIENT_ID=${CLIENT_ID:-1}
 

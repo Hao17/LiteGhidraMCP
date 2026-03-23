@@ -65,7 +65,8 @@ ENV GHIDRA_MCP_HOST=0.0.0.0 \
     PROJECT_PATH=/ghidra-projects \
     PROJECT_NAME=default \
     LOG_LEVEL=INFO \
-    LOG_DIR=/app/logs
+    LOG_DIR=/app/logs \
+    PYTHONUNBUFFERED=1
 
 # Create log directory
 RUN mkdir -p /app/logs /ghidra-projects /repos /ssh

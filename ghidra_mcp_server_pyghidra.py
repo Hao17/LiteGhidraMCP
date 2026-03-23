@@ -49,6 +49,11 @@ _ghidra_project = None
 _current_program = None
 _mock_state = None
 
+# Server mode shared project state
+_server_handle = None     # RepositoryServerAdapter (for runtime program switching)
+_project = None           # Underlying Project object (server mode shared project)
+_program_lock = threading.Lock()
+
 
 class MockGhidraState:
     """
@@ -66,8 +71,8 @@ class MockGhidraState:
         return self._program
 
     def getProject(self):
-        """Get Ghidra project."""
-        return self._project
+        """Get Ghidra project (shared project in server mode, GhidraProject in local mode)."""
+        return _project or self._project
 
     def getCurrentAddress(self):
         """Get current address (returns None in headless mode)."""
@@ -92,7 +97,7 @@ def _init_ghidra_project():
 
     This replaces the analyzeHeadless approach.
     """
-    global _ghidra_project, _current_program, _mock_state
+    global _ghidra_project, _current_program, _mock_state, _server_handle, _project
 
     print("[PyGhidra-MCP-Bridge] Initializing PyGhidra...")
 
@@ -121,12 +126,20 @@ def _init_ghidra_project():
         )
         print(f"[PyGhidra-MCP-Bridge] ✓ Project opened: {project_name}")
 
-        # Try to open the first program in the project
-        # In headless mode, we need to specify which binary to analyze
+        # Open program: prefer PROGRAM_NAME env var, fallback to first available
         root_folder = _ghidra_project.getProjectData().getRootFolder()
         program_files = list(root_folder.getFiles())
+        target_name = os.environ.get("PROGRAM_NAME", "")
 
-        if program_files:
+        if target_name:
+            # Try to open the specified program
+            domain_file = root_folder.getFile(target_name)
+            if domain_file is None:
+                names = [f.getName() for f in program_files]
+                raise FileNotFoundError(f"Program '{target_name}' not found. Available: {names}")
+            _current_program = _ghidra_project.openProgram("/", target_name, False)
+            print(f"[PyGhidra-MCP-Bridge] ✓ Program loaded (PROGRAM_NAME): {target_name}")
+        elif program_files:
             # Open first program
             program_file = program_files[0]
             program_name = program_file.getName()
@@ -263,56 +276,56 @@ def _init_ghidra_project():
                 server_handle.createRepository(repo_bare)
                 print(f"[PyGhidra-MCP-Bridge] ✓ Created repository: {repo_bare}")
 
-            # Use a local project for program management
+            # Create shared project connected to server repository
+            _server_handle = server_handle
+
             local_project_dir = "/tmp/ghidra-checkout"
             local_project_name = "server-checkout"
             os.makedirs(local_project_dir, exist_ok=True)
 
-            print(f"[PyGhidra-MCP-Bridge] Opening local project for analysis...")
+            print(f"[PyGhidra-MCP-Bridge] Creating shared project for repository '{repo_bare}'...")
+
+            from ghidra.pyghidra import PyGhidraProjectManager
+            from ghidra.framework.model import ProjectLocator
+
+            locator = ProjectLocator(local_project_dir, local_project_name)
+            repo_adapter = server_handle.getRepository(repo_bare)
+            if repo_adapter is None:
+                raise RuntimeError(f"Failed to get repository adapter for '{repo_bare}'")
+
+            pm = PyGhidraProjectManager()
 
             local_gpr = os.path.join(local_project_dir, f"{local_project_name}.gpr")
             if os.path.exists(local_gpr):
-                _ghidra_project = GhidraProject.openProject(
-                    local_project_dir, local_project_name, restore=True
-                )
-                print(f"[PyGhidra-MCP-Bridge] ✓ Opened existing local project")
+                _project = pm.openProject(locator, True, True)
+                print(f"[PyGhidra-MCP-Bridge] ✓ Opened existing shared project")
             else:
-                _ghidra_project = GhidraProject.createProject(
-                    local_project_dir, local_project_name, False
-                )
-                print(f"[PyGhidra-MCP-Bridge] ✓ Created local project")
+                _project = pm.createProject(locator, repo_adapter, False)
+                print(f"[PyGhidra-MCP-Bridge] ✓ Created shared project")
 
-            # Import binary if IMPORT_BINARY is set and program doesn't exist
-            import_binary = os.environ.get("IMPORT_BINARY", "")
-            root_folder = _ghidra_project.getProjectData().getRootFolder()
+            # List programs in server repository
+            root_folder = _project.getProjectData().getRootFolder()
             program_files = list(root_folder.getFiles())
+            print(f"[PyGhidra-MCP-Bridge] Programs in repo: {[f.getName() for f in program_files]}")
 
-            if import_binary and os.path.exists(import_binary) and not program_files:
-                print(f"[PyGhidra-MCP-Bridge] Importing binary: {import_binary}")
-                from java.io import File as JavaFile
-                binary_file = JavaFile(import_binary)
-                _current_program = _ghidra_project.importProgram(binary_file)
-                if _current_program:
-                    from ghidra.program.flatapi import FlatProgramAPI
-                    flat_api = FlatProgramAPI(_current_program)
-                    print(f"[PyGhidra-MCP-Bridge] ✓ Binary imported: {_current_program.getName()}")
-
-                    # Auto-analyze
-                    print(f"[PyGhidra-MCP-Bridge] Running auto-analysis...")
-                    from ghidra.app.script import GhidraScriptUtil
-                    from ghidra.program.util import GhidraProgramUtilities
-                    GhidraProgramUtilities.markProgramAnalyzed(_current_program)
-                    _ghidra_project.analyze(_current_program)
-                    print(f"[PyGhidra-MCP-Bridge] ✓ Auto-analysis complete")
-                else:
-                    print(f"[PyGhidra-MCP-Bridge] ⚠ Failed to import binary")
+            # Open program: prefer PROGRAM_NAME env var, fallback to first available
+            target_name = os.environ.get("PROGRAM_NAME", "")
+            if target_name:
+                domain_file = root_folder.getFile(target_name)
+                if domain_file is None:
+                    names = [f.getName() for f in program_files]
+                    raise FileNotFoundError(f"Program '{target_name}' not found. Available: {names}")
             elif program_files:
-                # Open first existing program
-                program_file = program_files[0]
-                _current_program = _ghidra_project.openProgram("/", program_file.getName(), False)
-                print(f"[PyGhidra-MCP-Bridge] ✓ Program loaded: {program_file.getName()}")
+                domain_file = program_files[0]
             else:
-                print(f"[PyGhidra-MCP-Bridge] ⚠ No programs in project and no IMPORT_BINARY set")
+                domain_file = None
+
+            if domain_file:
+                from ghidra.util.task import TaskMonitor
+                _current_program = domain_file.getDomainObject(_project, False, False, TaskMonitor.DUMMY)
+                print(f"[PyGhidra-MCP-Bridge] ✓ Program loaded: {domain_file.getName()}")
+            else:
+                print(f"[PyGhidra-MCP-Bridge] ⚠ No programs in repository")
                 _current_program = None
 
         except Exception as e:
@@ -328,6 +341,64 @@ def _init_ghidra_project():
     _mock_state = MockGhidraState(_ghidra_project, _current_program)
 
     return _mock_state
+
+
+def _list_programs():
+    """List all programs in the current project/repository."""
+    proj_data = None
+    if _project is not None:
+        proj_data = _project.getProjectData()
+    elif _ghidra_project is not None:
+        proj_data = _ghidra_project.getProjectData()
+    if proj_data is None:
+        return []
+
+    root = proj_data.getRootFolder()
+    results = []
+    for f in root.getFiles():
+        info = {"name": f.getName(), "path": f.getPathname()}
+        if _current_program:
+            info["active"] = (f.getName() == _current_program.getName())
+        else:
+            info["active"] = False
+        results.append(info)
+    return results
+
+
+def _switch_program(name):
+    """Switch the active program. Returns the new Program object."""
+    global _current_program
+
+    # Determine the underlying project object for domain file operations
+    proj = _project
+    if proj is None and _ghidra_project:
+        # GhidraProject wraps a Project internally
+        proj = _ghidra_project._project
+
+    if proj is None:
+        raise RuntimeError("No project loaded")
+
+    root = proj.getProjectData().getRootFolder()
+    domain_file = root.getFile(name)
+    if domain_file is None:
+        names = [f.getName() for f in root.getFiles()]
+        raise FileNotFoundError(f"Program '{name}' not found. Available: {names}")
+
+    with _program_lock:
+        # Close old program
+        if _current_program:
+            try:
+                _current_program.release(proj)
+            except Exception:
+                pass
+
+        # Open new program
+        from ghidra.util.task import TaskMonitor
+        new_program = domain_file.getDomainObject(proj, False, False, TaskMonitor.DUMMY)
+        _current_program = new_program
+        _mock_state._program = new_program
+
+    return new_program
 
 
 def _discover_and_load_api_modules():
@@ -624,4 +695,7 @@ def main():
 
 
 if __name__ == "__main__":
+    # Ensure this module is accessible by name (not just as __main__)
+    # so that API modules importing "ghidra_mcp_server_pyghidra" see the same globals.
+    sys.modules["ghidra_mcp_server_pyghidra"] = sys.modules[__name__]
     main()

@@ -24,6 +24,7 @@ This is a PyGhidra-based MCP (Model Context Protocol) Bridge that runs inside Gh
   - **`comment.py`**: Comment API，设置/删除注释
   - **`rename.py`**: Rename API，重命名函数、变量、参数、标签、数据类型、命名空间等
   - **`datatype.py`**: DataType API，数据类型设置、创建、管理和 C 头文件解析
+  - **`program.py`**: Program API，程序列表和切换（Docker Server 模式）
 
 - **`api_v1/`**: v1 版本 API 模块目录（面向 AI 的聚合接口）：
   - **`search.py`**: 统一搜索 API，支持智能类型推断
@@ -71,6 +72,7 @@ analyzeHeadless <projDir> <projName> -import <binary> -scriptPath . -postScript 
 # GHIDRA_MCP_HOST (default: 127.0.0.1)
 # GHIDRA_MCP_PORT (default: 8803)
 # GHIDRA_MCP_SSE_PORT (default: 8804) - MCP SSE server port
+# PROGRAM_NAME (default: "") - specify program to open at startup (empty = first available)
 
 # 手动热重载 API 模块（无需在 Ghidra 中重新执行脚本）
 curl http://127.0.0.1:8803/_reload
@@ -329,6 +331,12 @@ curl -X POST http://127.0.0.1:8803/api/v1/edit -H "Content-Type: application/jso
   - 注意：函数声明不会导出（Ghidra 限制），除非是 function pointer typedef
 
 > **类型字符串格式**: 支持内置类型（`int`, `char`, `void`, `float`, `double` 等）、指针（`int *`, `char **`）、数组（`int[10]`, `char[256]`）、路径（`/MyCategory/MyStruct`）
+
+**Program API** (`/api/program/*`) - 程序管理（列表/切换）:
+- `GET /api/program/list` - 列出当前项目/仓库中的所有程序（包含 `active` 标记）
+- `GET /api/program/open?name=<name>` - 切换活动程序（返回程序基本信息）
+
+> **环境变量**: `PROGRAM_NAME` - 启动时指定要打开的程序名称，未设置则默认打开第一个程序
 
 **V1 API** (`/api/v1/*`) - 面向 AI 的聚合接口:
 
