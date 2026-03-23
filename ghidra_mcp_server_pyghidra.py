@@ -212,6 +212,53 @@ def _import_program(path, name="", analyze=True):
     return result
 
 
+def _collect_all_files(folder):
+    """Recursively collect all DomainFiles from a folder tree."""
+    files = list(folder.getFiles())
+    for sub in folder.getFolders():
+        files.extend(_collect_all_files(sub))
+    return files
+
+
+def _find_domain_file(root_folder, target_name):
+    """
+    Find a DomainFile by name or path.
+    Supports: "libmetasec_ml.so", "38.1.0/libmetasec_ml.so", "/38.1.0/libmetasec_ml.so"
+
+    For Ghidra Server shared projects, DomainFolder.getFolder() navigates
+    server subdirectories on demand (lazy loading).
+    """
+    # Try direct lookup in root first
+    domain_file = root_folder.getFile(target_name)
+    if domain_file is not None:
+        return domain_file
+
+    # Try as path: navigate folder hierarchy
+    path = target_name.lstrip("/")
+    if "/" in path:
+        parts = path.rsplit("/", 1)
+        folder = root_folder
+        for part in parts[0].split("/"):
+            if part:
+                sub = folder.getFolder(part)
+                if sub is None:
+                    folder = None
+                    break
+                folder = sub
+        if folder is not None:
+            domain_file = folder.getFile(parts[1])
+            if domain_file is not None:
+                return domain_file
+
+    # Fallback: recursive search by filename
+    file_name = target_name.rsplit("/", 1)[-1] if "/" in target_name else target_name
+    for f in _collect_all_files(root_folder):
+        if f.getName() == file_name:
+            return f
+
+    return None
+
+
 def _init_ghidra_project():
     """
     Initialize Ghidra using PyGhidra and load the project.
@@ -415,14 +462,15 @@ def _init_ghidra_project():
             # Create shared project connected to server repository
             _server_handle = server_handle
 
-            local_project_dir = "/tmp/ghidra-checkout"
-            local_project_name = "server-checkout"
+            local_project_dir = "/ghidra-projects"
+            local_project_name = f"checkout-{repo_bare}"
             os.makedirs(local_project_dir, exist_ok=True)
 
-            print(f"[PyGhidra-MCP-Bridge] Creating shared project for repository '{repo_bare}'...")
+            print(f"[PyGhidra-MCP-Bridge] Opening shared project for repository '{repo_bare}'...")
 
             from ghidra.pyghidra import PyGhidraProjectManager
             from ghidra.framework.model import ProjectLocator
+            import shutil
 
             locator = ProjectLocator(local_project_dir, local_project_name)
             repo_adapter = server_handle.getRepository(repo_bare)
@@ -431,10 +479,9 @@ def _init_ghidra_project():
 
             pm = PyGhidraProjectManager()
 
-            # Always clean stale local checkout to ensure fresh connection
+            # Clean stale local checkout to ensure fresh connection
             local_gpr = os.path.join(local_project_dir, f"{local_project_name}.gpr")
             local_rep = os.path.join(local_project_dir, f"{local_project_name}.rep")
-            import shutil
             if os.path.exists(local_gpr):
                 os.remove(local_gpr)
             if os.path.exists(local_rep):
@@ -466,18 +513,40 @@ def _init_ghidra_project():
                     print(f"[PyGhidra-MCP-Bridge] ⚠ Import file not found: {import_path}")
 
             # Open program: prefer PROGRAM_NAME env var, fallback to first available
+            # Supports paths like "38.1.0/libmetasec_ml.so" or just "libmetasec_ml.so"
             target_name = os.environ.get("PROGRAM_NAME", "")
             if target_name:
-                domain_file = root_folder.getFile(target_name)
+                domain_file = _find_domain_file(root_folder, target_name)
                 if domain_file is None:
-                    names = [f.getName() for f in program_files]
-                    raise FileNotFoundError(f"Program '{target_name}' not found. Available: {names}")
+                    # DomainFolder can't see server subdirectories after createProject.
+                    # Close project, reopen via GhidraProject which can openProgram by path.
+                    path = "/" + target_name.lstrip("/")
+                    try:
+                        _project.close()
+                        _project = None
+                        _ghidra_project = GhidraProject.openProject(
+                            local_project_dir, local_project_name
+                        )
+                        folder_path = path.rsplit("/", 1)[0] or "/"
+                        prog_name = path.rsplit("/", 1)[1]
+                        _current_program = _ghidra_project.openProgram(folder_path, prog_name, False)
+                        _project = _ghidra_project.getProject()
+                        if _current_program is not None:
+                            print(f"[PyGhidra-MCP-Bridge] ✓ Program loaded via path: {_current_program.getName()}")
+                            domain_file = True  # skip normal DomainFile open
+                    except Exception as e:
+                        print(f"[PyGhidra-MCP-Bridge] openProgram('{path}') error: {type(e).__name__}: {e}")
+                        import traceback; traceback.print_exc()
+                if domain_file is None:
+                    raise FileNotFoundError(f"Program '{target_name}' not found")
             elif program_files:
                 domain_file = program_files[0]
             else:
                 domain_file = None
 
-            if domain_file:
+            if domain_file is True:
+                pass  # Already loaded via GhidraProject.openProgram above
+            elif domain_file:
                 from ghidra.util.task import TaskMonitor
                 _current_program = domain_file.getDomainObject(_project, False, False, TaskMonitor.DUMMY)
                 print(f"[PyGhidra-MCP-Bridge] ✓ Program loaded: {domain_file.getName()}")
@@ -512,7 +581,7 @@ def _list_programs():
 
     root = proj_data.getRootFolder()
     results = []
-    for f in root.getFiles():
+    for f in _collect_all_files(root):
         info = {"name": f.getName(), "path": f.getPathname()}
         if _current_program:
             info["active"] = (f.getName() == _current_program.getName())
@@ -536,10 +605,11 @@ def _switch_program(name):
         raise RuntimeError("No project loaded")
 
     root = proj.getProjectData().getRootFolder()
-    domain_file = root.getFile(name)
+    domain_file = _find_domain_file(root, name)
     if domain_file is None:
-        names = [f.getName() for f in root.getFiles()]
-        raise FileNotFoundError(f"Program '{name}' not found. Available: {names}")
+        all_files = _collect_all_files(root)
+        paths = [f.getPathname() for f in all_files]
+        raise FileNotFoundError(f"Program '{name}' not found. Available: {paths}")
 
     with _program_lock:
         # Close old program
