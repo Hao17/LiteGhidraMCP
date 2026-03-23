@@ -8,20 +8,6 @@ English | [简体中文](README_ZH.md)
 
 A PyGhidra-based MCP (Model Context Protocol) Bridge that runs inside Ghidra 12.0+, providing AI systems with programmatic access to Ghidra's reverse engineering capabilities.
 
-## Why This Bridge?
-
-Compared to other Ghidra MCP implementations, this project offers:
-
-1. **Zero-Build, Hot-Reload Development** — No Java plugin compilation required. Run a Python script directly in Ghidra's Script Manager, add new APIs with a `@route` decorator, and call `/_reload` to apply changes instantly — no restart needed. Other projects require building Java plugins with Maven/Gradle and restarting Ghidra for every change.
-
-2. **AI-Optimized Tool Consolidation** — Only 6 MCP tools (`overview`, `search`, `view`, `list`, `edit`, `version`) with smart type inference and batch operations, while competitors expose 30–200+ individual tools. Fewer tools means less LLM context consumption and faster, more accurate AI decision-making. The V1 API returns compact arrays by default to further save tokens.
-
-3. **GUI + Headless + Docker from One Codebase** — The same API modules power Ghidra GUI mode (Script Manager), headless analysis (PyGhidra CLI), and Docker Server-Client deployment with per-client user isolation. Most alternatives support only one mode.
-
-4. **Decompiler-Level Operations** — Operates directly on the decompiler view, not just listing-level symbols. Rename variables/parameters as they appear in decompiled code, modify full function signatures in one call (`int main(int argc, char **argv)`), and split compiler-reused register variables into separate logical names — a capability exclusive to this project.
-
-5. **Git-Like Version Management** — `commit` / `log` / `rollback` / `revert` for Ghidra Server shared projects with exclusive checkout semantics, enabling collaborative reverse engineering where AI and human analysts work on the same binary with full version history.
-
 ## Quick Start Guide
 
 **Recommended: Docker Deployment (One Command)** ⭐
