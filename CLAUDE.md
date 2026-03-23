@@ -25,7 +25,7 @@ This is a PyGhidra-based MCP (Model Context Protocol) Bridge that runs inside Gh
   - **`rename.py`**: Rename API，重命名函数、变量、参数、标签、数据类型、命名空间等
   - **`datatype.py`**: DataType API，数据类型设置、创建、管理和 C 头文件解析
   - **`program.py`**: Program API，程序列表和切换（Docker Server 模式）
-  - **`version.py`**: Version API，版本管理 commit/log/rollback（仅 Ghidra Server 模式）
+  - **`version.py`**: Version API，版本管理 commit/log/rollback/revert（仅 Ghidra Server 模式）
   - **`memory.py`**: Memory API，读取任意地址的原始字节数据
 
 - **`api_v1/`**: v1 版本 API 模块目录（面向 AI 的聚合接口）：

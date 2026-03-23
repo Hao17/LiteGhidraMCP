@@ -1,8 +1,8 @@
-# api/version.py - Version management API (log, commit, rollback)
+# api/version.py - Version management API (log, commit, rollback, revert)
 """
 Version API - 版本管理操作（仅在 Ghidra Server 共享项目模式下可用）
 
-提供类似 git 的精简版本管理：commit、log+diff、rollback。
+提供类似 git 的精简版本管理：commit、log+diff、rollback、revert。
 """
 
 from api import route
@@ -44,8 +44,6 @@ def _get_program(state):
 
 def _get_domain_file(prog):
     """获取真正的 DomainFile（通过 project root folder，避免 DomainFileProxy）"""
-    # DomainFileProxy from prog.getDomainFile() doesn't support version operations.
-    # We need the real DomainFile from the project's root folder.
     from ghidra_mcp_server_pyghidra import _project, _ghidra_project
     proj = _project
     if proj is None and _ghidra_project:
@@ -57,6 +55,22 @@ def _get_domain_file(prog):
         return root.getFile(prog.getName())
     except Exception:
         return None
+
+
+def _release_program():
+    """释放当前程序（undoCheckout/revert 前必须调用）"""
+    import ghidra_mcp_server_pyghidra as _server_mod
+    proj = _server_mod._project
+    if proj is None and _server_mod._ghidra_project:
+        proj = _server_mod._ghidra_project._project
+    with _server_mod._program_lock:
+        if _server_mod._current_program:
+            try:
+                _server_mod._current_program.release(proj)
+            except Exception:
+                pass
+            _server_mod._current_program = None
+            _server_mod._mock_state._program = None
 
 
 def _format_version(v):
@@ -89,7 +103,6 @@ def version_log(state, limit=50, diff=0, types="all"):
     if df is None or not df.isVersioned():
         return {"success": False, "error": "Program is not under version control (requires Ghidra Server mode)"}
 
-    # Get version history
     try:
         history = df.getVersionHistory()
     except Exception as e:
@@ -125,7 +138,7 @@ def _compute_diff(prog, df, target_version, limit):
     """计算当前程序与指定版本之间的差异"""
     old_prog = None
     from java.lang import Object as JavaObject
-    consumer = JavaObject()  # Java consumer for getImmutableDomainObject
+    consumer = JavaObject()
     try:
         old_prog = df.getImmutableDomainObject(
             consumer, target_version, TaskMonitor.DUMMY
@@ -168,6 +181,11 @@ def version_commit(state, comment=""):
 
     参数:
         comment: 提交说明 (默认空)
+
+    错误码:
+        - "merge_required": 服务器有更新版本，需要先 rollback 再重新修改提交
+        - "checkout_exclusive": 其他用户持有独占 checkout
+        - "checkout_conflict": checkout 失败（其他用户锁定）
     """
     prog, err = _get_program(state)
     if err:
@@ -175,7 +193,6 @@ def version_commit(state, comment=""):
 
     df = _get_domain_file(prog)
     if df is None:
-        # Fallback: try proxy (local mode)
         df = prog.getDomainFile()
     if df is None:
         return {"success": False, "error": "No domain file associated with program"}
@@ -185,7 +202,6 @@ def version_commit(state, comment=""):
     try:
         # Case 1: Not yet under version control - add to VC
         if not df.isVersioned():
-            # Try to add to version control (only works in server mode)
             try:
                 df.addToVersionControl(commit_comment, True, TaskMonitor.DUMMY)
                 return {
@@ -197,13 +213,22 @@ def version_commit(state, comment=""):
             except Exception as e:
                 return {"success": False, "error": f"Cannot add to version control (requires Ghidra Server mode): {e}"}
 
-        # Case 2: Versioned but not checked out - checkout and reopen writable
+        # Case 2: Versioned but not checked out - checkout (exclusive) and reopen writable
         if not df.isCheckedOut():
             try:
-                if not df.checkout(False, TaskMonitor.DUMMY):
-                    return {"success": False, "error": "Failed to checkout file"}
+                result = df.checkout(True, TaskMonitor.DUMMY)
+                if not result:
+                    return {
+                        "success": False,
+                        "error": "Exclusive checkout failed: another user has the file checked out",
+                        "error_code": "checkout_conflict",
+                    }
             except Exception as e:
-                return {"success": False, "error": f"Checkout failed: {e}"}
+                return {
+                    "success": False,
+                    "error": f"Checkout failed: {e}",
+                    "error_code": "checkout_conflict",
+                }
             # Must reopen to get writable handle
             from ghidra_mcp_server_pyghidra import _switch_program
             prog = _switch_program(prog.getName())
@@ -216,7 +241,8 @@ def version_commit(state, comment=""):
             handler = DefaultCheckinHandler(commit_comment, True, False)
             df.checkin(handler, TaskMonitor.DUMMY)
         except Exception as e:
-            if "has not been modified since checkout" in str(e):
+            err_str = str(e)
+            if "has not been modified since checkout" in err_str:
                 return {
                     "success": True,
                     "action": "no_changes",
@@ -224,6 +250,14 @@ def version_commit(state, comment=""):
                     "message": "No changes since last commit",
                     "version": df.getVersion(),
                     "is_checked_out": df.isCheckedOut(),
+                }
+            if "merge" in err_str.lower() or "newer version" in err_str.lower():
+                return {
+                    "success": False,
+                    "error": f"Server has a newer version. Use rollback to discard local changes, then re-apply and commit. Detail: {e}",
+                    "error_code": "merge_required",
+                    "current_version": df.getVersion(),
+                    "hint": "Call rollback first, then re-apply your changes on the latest version and commit again.",
                 }
             raise
 
@@ -263,27 +297,13 @@ def version_rollback(state):
     try:
         prog_name = prog.getName()
 
-        # Must release/close program before undoCheckout
-        from ghidra_mcp_server_pyghidra import _project, _ghidra_project, _switch_program
-        import ghidra_mcp_server_pyghidra as _server_mod
-        proj = _project
-        if proj is None and _ghidra_project:
-            proj = _ghidra_project._project
-
-        # Release the current program
-        with _server_mod._program_lock:
-            if _server_mod._current_program:
-                try:
-                    _server_mod._current_program.release(proj)
-                except Exception:
-                    pass
-                _server_mod._current_program = None
-                _server_mod._mock_state._program = None
+        _release_program()
 
         # Undo checkout - discards all local changes
         df.undoCheckout(False)
 
-        # Reopen the program (now read-only, at last committed version)
+        # Reopen the program (now at last committed version)
+        from ghidra_mcp_server_pyghidra import _switch_program
         _switch_program(prog_name)
 
         return {
@@ -295,3 +315,78 @@ def version_rollback(state):
 
     except Exception as e:
         return {"success": False, "error": f"Rollback failed: {e}"}
+
+
+@route("/api/version/revert")
+def version_revert(state, version=0):
+    """
+    回退到指定版本，永久删除该版本之后的所有版本。
+
+    路由: GET /api/version/revert?version=<n>
+
+    参数:
+        version: 目标版本号（必须 >= 1 且 < 当前最新版本）
+
+    注意: 这是破坏性操作！被删除的版本无法恢复。
+    文件不能被任何人 checkout（包括自己），操作前会自动 undo checkout。
+    """
+    target = int(version)
+    if target < 1:
+        return {"success": False, "error": "version parameter is required and must be >= 1"}
+
+    prog, err = _get_program(state)
+    if err:
+        return err
+
+    df = _get_domain_file(prog)
+    if df is None:
+        return {"success": False, "error": "No domain file associated with program"}
+
+    if not df.isVersioned():
+        return {"success": False, "error": "Program is not under version control"}
+
+    current = df.getVersion()
+    if target >= current:
+        return {
+            "success": False,
+            "error": f"Target version {target} must be less than current version {current}",
+        }
+
+    # Must release program and undo checkout before deleting versions
+    prog_name = prog.getName()
+
+    try:
+        if df.isCheckedOut():
+            _release_program()
+            df.undoCheckout(False)
+
+        # Delete versions from newest down to target+1
+        deleted = []
+        while True:
+            history = df.getVersionHistory()
+            latest = max(v.getVersion() for v in history)
+            if latest <= target:
+                break
+            df.delete(latest)
+            deleted.append(latest)
+
+        # Reopen program at the target version
+        from ghidra_mcp_server_pyghidra import _switch_program
+        _switch_program(prog_name)
+
+        return {
+            "success": True,
+            "action": "reverted",
+            "target_version": target,
+            "deleted_versions": deleted,
+            "current_version": df.getVersion(),
+        }
+
+    except Exception as e:
+        # Try to reopen program even if revert partially failed
+        try:
+            from ghidra_mcp_server_pyghidra import _switch_program
+            _switch_program(prog_name)
+        except Exception:
+            pass
+        return {"success": False, "error": f"Revert failed: {e}"}
