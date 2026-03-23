@@ -27,7 +27,7 @@
 
 ### Separated Server-Client 模式 ⭐ 推荐
 
-AI（Docker）+ GUI（人工）协作，一条命令部署。
+AI（Docker）+ GUI（人工）协作，一条命令部署。每个 Client 启动时绑定一个 REPO/BINARY。
 
 ```bash
 cd docker/
@@ -36,13 +36,15 @@ cd docker/
 cp .env.example .env
 vim .env  # 设置 GHIDRA_DATA_DIR（如 ~/ghidra-data）
 
-# 启动 Server + Client
-make up-separated
+# 启动 Server
+make server-up
 
-# 或分步启动
-make server-up   # 启动 Server
-make client-up   # 第一个客户端 (8803/8804) → 注册为 bridge-1
-make client2-up  # 第二个客户端 (8813/8814) → 注册为 bridge-2
+# 启动 Client（REPO 必选，BINARY 推荐）
+make client-up REPO=test BINARY=my_binary                    # 打开已有 binary
+make client-up REPO=test BINARY=my_binary BINARY_FILE=~/a.bin  # 导入并打开
+
+# 第二个客户端，使用不同端口 (8813/8814)
+make client2-up REPO=test BINARY=other_binary
 ```
 
 **启动后：**
@@ -111,11 +113,12 @@ docker-compose up -d
 
 ### 可用 MCP 工具
 
+- **ghidra_overview**: 二进制全景概览 — 元数据、内存布局、统计、关键函数、导入导出、字符串（推荐首次调用）
 - **ghidra_search**: 搜索函数、符号、字符串、交叉引用等
-- **ghidra_view**: 反编译/反汇编查看
+- **ghidra_view**: 反编译/反汇编/内存查看
 - **ghidra_list**: 符号列表浏览
 - **ghidra_edit**: 统一编辑（重命名、类型设置、注释）
-- **ghidra_basic_info**: 获取程序基本信息
+- **ghidra_version**: 版本管理 — commit/log/rollback/revert（仅 Server 模式，条件注册）
 
 ### Coco
 
@@ -152,9 +155,10 @@ claude mcp add --transport sse ghidra http://127.0.0.1:8804/sse
 ### HTTP API
 
 ```bash
-curl http://127.0.0.1:8803/api/basic_info
+curl http://127.0.0.1:8803/api/v1/overview
 curl "http://127.0.0.1:8803/api/v1/search?q=main&types=functions"
 curl "http://127.0.0.1:8803/api/v1/view?q=main&type=decompile"
+curl "http://127.0.0.1:8803/api/memory/read?address=0x401000&length=256"
 ```
 
 完整 API 文档参见 [CLAUDE.md](CLAUDE.md)。
@@ -165,6 +169,7 @@ curl "http://127.0.0.1:8803/api/v1/view?q=main&type=decompile"
 export GHIDRA_MCP_HOST=127.0.0.1      # HTTP API 主机（默认: 127.0.0.1）
 export GHIDRA_MCP_PORT=8803           # HTTP API 端口（默认: 8803）
 export GHIDRA_MCP_SSE_PORT=8804       # MCP SSE 端口（默认: 8804）
+export PROGRAM_NAME=""                # 启动时打开的程序名（默认: 第一个可用程序）
 ```
 
 ### 多程序同时分析
@@ -186,11 +191,12 @@ export GHIDRA_MCP_SSE_PORT=8804       # MCP SSE 端口（默认: 8804）
 Bridge/
 ├── ghidra_mcp_server.py           # GUI 模式服务器（Ghidra Script Manager）
 ├── ghidra_mcp_server_pyghidra.py  # Docker/Headless 模式服务器（PyGhidra）
-├── api/                           # API 模块
-├── api_v1/                        # AI 友好聚合 API
-└── scripts/
-    ├── mcp_sse_proxy.py           # MCP SSE 代理（子进程）
-    └── mcp_stdio.py               # MCP stdio 模式（独立进程）
+├── api/                           # API 模块（basic_info, search, view, memory, comment, rename, datatype, version, ...）
+├── api_v1/                        # AI 友好聚合 API（overview, search, view, list, edit）
+├── scripts/
+│   ├── mcp_sse_proxy.py           # MCP SSE 代理（子进程）
+│   └── mcp_stdio.py               # MCP stdio 模式（独立进程）
+└── docker/                        # Docker 部署（Server-Client 模式）
 ```
 
 ## 故障排查

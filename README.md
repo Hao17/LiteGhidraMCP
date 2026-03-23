@@ -27,7 +27,7 @@ After setup, → [Configure AI Client](#configure-ai-client) to connect your AI 
 
 ### Separated Server-Client Mode ⭐ Recommended
 
-AI (Docker) + GUI (Human) collaboration with one command.
+AI (Docker) + GUI (Human) collaboration with one command. Each client binds to one REPO/BINARY at startup.
 
 ```bash
 cd docker/
@@ -36,13 +36,15 @@ cd docker/
 cp .env.example .env
 vim .env  # Set GHIDRA_DATA_DIR (e.g., ~/ghidra-data)
 
-# Start server + client
-make up-separated
+# Start server
+make server-up
 
-# Or start separately
-make server-up   # Start server
-make client-up   # First client (8803/8804) → registers as bridge-1
-make client2-up  # Second client (8813/8814) → registers as bridge-2
+# Start client (REPO required, BINARY recommended)
+make client-up REPO=test BINARY=my_binary                    # Open existing binary
+make client-up REPO=test BINARY=my_binary BINARY_FILE=~/a.bin  # Import + open
+
+# Second client on different ports (8813/8814)
+make client2-up REPO=test BINARY=other_binary
 ```
 
 **What happens:**
@@ -111,11 +113,12 @@ Default endpoint: `http://localhost:8804/sse` (Docker) or `http://127.0.0.1:8804
 
 ### Available MCP Tools
 
+- **ghidra_overview**: Comprehensive binary survey — metadata, memory layout, statistics, key functions, imports/exports, strings (recommended first call)
 - **ghidra_search**: Search functions, symbols, strings, cross-references, etc.
-- **ghidra_view**: Decompilation/disassembly viewing
+- **ghidra_view**: Decompilation/disassembly/memory viewing
 - **ghidra_list**: Symbol list browsing
 - **ghidra_edit**: Unified editing (rename, datatype, comments)
-- **ghidra_basic_info**: Get basic program information
+- **ghidra_version**: Version management — commit/log/rollback/revert (Server mode only, conditionally registered)
 
 ### Coco
 
@@ -152,9 +155,10 @@ claude mcp add --transport sse ghidra http://127.0.0.1:8804/sse
 ### HTTP API
 
 ```bash
-curl http://127.0.0.1:8803/api/basic_info
+curl http://127.0.0.1:8803/api/v1/overview
 curl "http://127.0.0.1:8803/api/v1/search?q=main&types=functions"
 curl "http://127.0.0.1:8803/api/v1/view?q=main&type=decompile"
+curl "http://127.0.0.1:8803/api/memory/read?address=0x401000&length=256"
 ```
 
 For complete API documentation, see [CLAUDE.md](CLAUDE.md).
@@ -165,6 +169,7 @@ For complete API documentation, see [CLAUDE.md](CLAUDE.md).
 export GHIDRA_MCP_HOST=127.0.0.1      # HTTP API host (default: 127.0.0.1)
 export GHIDRA_MCP_PORT=8803           # HTTP API port (default: 8803)
 export GHIDRA_MCP_SSE_PORT=8804       # MCP SSE port (default: 8804)
+export PROGRAM_NAME=""                # Program to open at startup (default: first available)
 ```
 
 ### Multi-Program Analysis
@@ -186,11 +191,12 @@ Use different ports in different Ghidra instances, then configure multiple MCP s
 Bridge/
 ├── ghidra_mcp_server.py           # GUI mode server (Ghidra Script Manager)
 ├── ghidra_mcp_server_pyghidra.py  # Docker/Headless mode server (PyGhidra)
-├── api/                           # API modules
-├── api_v1/                        # AI-friendly aggregated API
-└── scripts/
-    ├── mcp_sse_proxy.py           # MCP SSE proxy (subprocess)
-    └── mcp_stdio.py               # MCP stdio mode (standalone)
+├── api/                           # API modules (basic_info, search, view, memory, comment, rename, datatype, version, ...)
+├── api_v1/                        # AI-friendly aggregated API (overview, search, view, list, edit)
+├── scripts/
+│   ├── mcp_sse_proxy.py           # MCP SSE proxy (subprocess)
+│   └── mcp_stdio.py               # MCP stdio mode (standalone)
+└── docker/                        # Docker deployment (Server-Client mode)
 ```
 
 ## Troubleshooting
