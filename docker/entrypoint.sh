@@ -109,8 +109,31 @@ if [ "$RUN_MODE" = "SERVER" ]; then
                 if ! grep -q "^${username}$" "${REPO_DIR}/.users/users" 2>/dev/null; then
                     "${SVRADMIN}" -add "${username}" 2>/dev/null
                     echo "[post-init] Registered user: ${username}"
+
+                    # Grant access to all existing repos
+                    for repo_dir in "${REPO_DIR}"/*/; do
+                        [ -d "$repo_dir" ] || continue
+                        repo_name=$(basename "$repo_dir")
+                        # Skip admin/system directories
+                        [[ "$repo_name" == ~* || "$repo_name" == .* ]] && continue
+                        "${SVRADMIN}" -grant "${username}" +a "${repo_name}" 2>/dev/null || true
+                    done
                 fi
             done
+
+            # Full ACL sync: ensure all users have access to all repos
+            # (handles repos created after user registration)
+            for repo_dir in "${REPO_DIR}"/*/; do
+                [ -d "$repo_dir" ] || continue
+                repo_name=$(basename "$repo_dir")
+                [[ "$repo_name" == ~* || "$repo_name" == .* ]] && continue
+                for pubkey in "${SSH_DIR}"/clients/*/ssh_key.pub; do
+                    [ -f "$pubkey" ] || continue
+                    username=$(basename "$(dirname "$pubkey")")
+                    "${SVRADMIN}" -grant "${username}" +a "${repo_name}" 2>/dev/null || true
+                done
+            done
+
             sleep 5
         done
     ) &

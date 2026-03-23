@@ -332,11 +332,14 @@ curl -X POST http://127.0.0.1:8803/api/v1/edit -H "Content-Type: application/jso
 
 > **类型字符串格式**: 支持内置类型（`int`, `char`, `void`, `float`, `double` 等）、指针（`int *`, `char **`）、数组（`int[10]`, `char[256]`）、路径（`/MyCategory/MyStruct`）
 
-**Program API** (`/api/program/*`) - 程序管理（列表/切换）:
+**Program API** (`/api/program/*`) - 程序管理（列表/切换/导入）:
 - `GET /api/program/list` - 列出当前项目/仓库中的所有程序（包含 `active` 标记）
 - `GET /api/program/open?name=<name>` - 切换活动程序（返回程序基本信息）
+- `GET /api/program/import?path=<path>&name=<name>&analyze=true` - 导入 binary 到项目
 
-> **环境变量**: `PROGRAM_NAME` - 启动时指定要打开的程序名称，未设置则默认打开第一个程序
+> **环境变量**:
+> - `PROGRAM_NAME` - 启动时指定要打开的程序名称，未设置则默认打开第一个程序
+> - `IMPORT_BINARY_NAME` - 启动时自动从 `/import/` 目录导入的 binary 名称（Docker Client 模式）
 
 **V1 API** (`/api/v1/*`) - 面向 AI 的聚合接口:
 
@@ -460,5 +463,38 @@ The bridge handles both GUI and headless modes with appropriate threading models
 ## Docker Deployment
 
 单一镜像通过 `RUN_MODE` 环境变量控制运行模式（`SERVER` / `CLIENT`）。
+
+### Client 生命周期
+
+每个 Client 专属一个 binary，启动时确定 repo + binary，运行时不切换：
+
+```bash
+# 启动 Server
+make server-up
+
+# Client 1：连接已有 repo 中的 binary
+make client-up REPO=test BINARY=test_alpha
+
+# Client 1：导入新 binary 并启动
+make client-up REPO=test BINARY=test_alpha BINARY_FILE=~/binaries/alpha.bin
+
+# Client 2：另一个 binary（不同端口 8813/8814）
+make client2-up REPO=test BINARY=test_beta BINARY_FILE=~/binaries/beta.bin
+
+# 停止
+make client-down      # Client 1
+make client2-down     # Client 2
+make down-separated   # 全部停止
+```
+
+**参数说明**:
+- `REPO`（必选）：Ghidra Server 仓库名
+- `BINARY`（推荐）：要打开的程序名
+- `BINARY_FILE`（可选）：主机上的 binary 文件路径，自动导入到 repo
+
+**设计原则**:
+- MCP Tools（5 个）保持不变，纯分析工具，不包含 program 管理
+- Client 生命周期完全由 Makefile 管理
+- Program 管理通过 HTTP API（`/api/program/*`）提供，但不暴露为 MCP tool
 
 详细架构、数据持久化和部署说明见 `docker/ARCHITECTURE.md` 和 `docker/QUICKSTART.md`。

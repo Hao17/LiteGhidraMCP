@@ -46,6 +46,9 @@ services:
       # Program selection (open specific program from repository)
       - PROGRAM_NAME=${PROGRAM_NAME:-}
 
+      # Auto-import: binary name to import from /import on startup
+      - IMPORT_BINARY_NAME=${IMPORT_BINARY_NAME:-}
+
       # Client identity (determines username: bridge-1, bridge-2, ...)
       - CLIENT_ID=${CLIENT_ID:-1}
 
@@ -66,6 +69,9 @@ services:
 
       # Shared SSH directory (client writes its key, server reads it)
       - ${GHIDRA_DATA_DIR}/${GHIDRA_VERSION}/ssh:/ssh:rw
+
+      # Binary import directory (Makefile stages BINARY_FILE here)
+      - ${GHIDRA_DATA_DIR}/${GHIDRA_VERSION}/imports:/import:ro
 
       # Log persistence
       - ${GHIDRA_DATA_DIR}/logs/${GHIDRA_VERSION}/client-${CLIENT_ID:-1}:/app/logs:rw

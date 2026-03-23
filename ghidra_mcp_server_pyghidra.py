@@ -91,6 +91,127 @@ class MockGhidraState:
         return None
 
 
+def _import_program(path, name="", analyze=True):
+    """Import a binary file into the current project/repository.
+
+    Returns dict with program info on success.
+    """
+    global _current_program
+
+    proj = _project
+    if proj is None and _ghidra_project:
+        proj = _ghidra_project._project
+
+    if proj is None:
+        raise RuntimeError("No project loaded")
+
+    from java.io import File as JavaFile
+    from ghidra.app.util.importer import AutoImporter, MessageLog
+    from ghidra.util.task import TaskMonitor
+
+    binary_file = JavaFile(path)
+    if not binary_file.exists():
+        raise FileNotFoundError(f"File not found: {path}")
+
+    # Determine program name
+    prog_name = name if name else binary_file.getName()
+
+    # Check if program already exists
+    root = proj.getProjectData().getRootFolder()
+    if root.getFile(prog_name) is not None:
+        raise RuntimeError(f"Program '{prog_name}' already exists in project")
+
+    # Import using AutoImporter (returns LoadResults in Ghidra 12.0+)
+    msg = MessageLog()
+    load_results = AutoImporter.importByUsingBestGuess(
+        binary_file, proj, "/", proj, msg, TaskMonitor.DUMMY
+    )
+
+    if load_results is None:
+        raise RuntimeError(f"Import failed: {msg}")
+
+    # Extract the primary loaded domain object (Program) from LoadResults
+    program = None
+    try:
+        # LoadResults is iterable, each item is a Loaded<DomainObject>
+        for loaded in load_results:
+            dom_obj = loaded.getDomainObject()
+            program = dom_obj
+            break  # Take the first (primary) result
+    except Exception:
+        # Fallback: LoadResults might have getPrimaryDomainObject
+        try:
+            program = load_results.getPrimaryDomainObject()
+        except Exception:
+            pass
+
+    if program is None:
+        raise RuntimeError(f"Import returned no program. Log: {msg}")
+
+    original_name = program.getName()
+
+    # Run auto-analysis if requested
+    if analyze:
+        try:
+            from ghidra.app.util.importer import AutoAnalysisManager
+            mgr = AutoAnalysisManager.getAnalysisManager(program)
+            txid = program.startTransaction("Auto-analysis")
+            try:
+                mgr.initializeOptions()
+                mgr.reAnalyzeAll(None)
+                mgr.startAnalysis(TaskMonitor.DUMMY)
+            finally:
+                program.endTransaction(txid, True)
+        except Exception:
+            pass  # Analysis is best-effort
+
+    # CRITICAL: Call load_results.save() to create DomainFile in project folder
+    # program.save() only saves internal state; load_results.save() creates the file
+    load_results.save(TaskMonitor.DUMMY)
+
+    # Release after save (DomainFile persists in project)
+    load_results.release(proj)
+
+    # Rename domain file if custom name specified (after save + release)
+    if name and original_name != name:
+        df = root.getFile(original_name)
+        if df is not None:
+            try:
+                df.setName(name)
+            except Exception:
+                prog_name = original_name  # Keep original name on rename failure
+
+    # For shared projects (server mode), check in the file to the server
+    versioned = False
+    df = root.getFile(prog_name)
+    if df is None:
+        df = root.getFile(original_name)  # Try original name
+    if df is not None and _project is not None:
+        try:
+            # Ensure repository connection is alive
+            repo = proj.getProjectData().getRepository()
+            if repo is not None:
+                try:
+                    repo.connect()
+                except Exception:
+                    pass  # May already be connected
+
+            if not df.isVersioned():
+                df.addToVersionControl("Imported via API", False, TaskMonitor.DUMMY)
+                versioned = True
+            else:
+                versioned = True
+        except Exception:
+            pass  # Version control is best-effort
+
+    result = {
+        "name": prog_name,
+        "message": f"Successfully imported '{prog_name}'",
+        "versioned": versioned
+    }
+    return result
+
+
 def _init_ghidra_project():
     """
     Initialize Ghidra using PyGhidra and load the project.
@@ -272,9 +393,24 @@ def _init_ghidra_project():
             repo_bare = repo_name.lstrip("/")
             repo_list = list(repos) if repos else []
             if repo_bare not in repo_list:
-                print(f"[PyGhidra-MCP-Bridge] Repository '{repo_bare}' not found, creating...")
-                server_handle.createRepository(repo_bare)
-                print(f"[PyGhidra-MCP-Bridge] ✓ Created repository: {repo_bare}")
+                print(f"[PyGhidra-MCP-Bridge] Repository '{repo_bare}' not found in user's list, creating...")
+                try:
+                    server_handle.createRepository(repo_bare)
+                    print(f"[PyGhidra-MCP-Bridge] ✓ Created repository: {repo_bare}")
+                except Exception as e:
+                    if "DuplicateFile" in str(type(e).__name__) or "already exists" in str(e):
+                        print(f"[PyGhidra-MCP-Bridge] Repository '{repo_bare}' exists but not in user's list, waiting for ACL sync...")
+                        # Repo exists but user doesn't have access yet — wait for server ACL sync
+                        for _retry in range(6):
+                            time.sleep(5)
+                            repos = server_handle.getRepositoryNames()
+                            if repo_bare in list(repos or []):
+                                print(f"[PyGhidra-MCP-Bridge] ✓ Repository '{repo_bare}' now accessible")
+                                break
+                        else:
+                            raise RuntimeError(f"Repository '{repo_bare}' exists but not accessible after 30s. Check server ACL.")
+                    else:
+                        raise
 
             # Create shared project connected to server repository
             _server_handle = server_handle
@@ -295,18 +431,39 @@ def _init_ghidra_project():
 
             pm = PyGhidraProjectManager()
 
+            # Always clean stale local checkout to ensure fresh connection
             local_gpr = os.path.join(local_project_dir, f"{local_project_name}.gpr")
+            local_rep = os.path.join(local_project_dir, f"{local_project_name}.rep")
+            import shutil
             if os.path.exists(local_gpr):
-                _project = pm.openProject(locator, True, True)
-                print(f"[PyGhidra-MCP-Bridge] ✓ Opened existing shared project")
-            else:
-                _project = pm.createProject(locator, repo_adapter, False)
-                print(f"[PyGhidra-MCP-Bridge] ✓ Created shared project")
+                os.remove(local_gpr)
+            if os.path.exists(local_rep):
+                shutil.rmtree(local_rep, ignore_errors=True)
+
+            _project = pm.createProject(locator, repo_adapter, False)
+            print(f"[PyGhidra-MCP-Bridge] ✓ Created shared project")
 
             # List programs in server repository
             root_folder = _project.getProjectData().getRootFolder()
             program_files = list(root_folder.getFiles())
             print(f"[PyGhidra-MCP-Bridge] Programs in repo: {[f.getName() for f in program_files]}")
+
+            # Auto-import binary if IMPORT_BINARY_NAME is set
+            import_name = os.environ.get("IMPORT_BINARY_NAME", "")
+            if import_name:
+                import_path = f"/import/{import_name}"
+                if os.path.exists(import_path):
+                    existing = root_folder.getFile(import_name)
+                    if existing is None:
+                        print(f"[PyGhidra-MCP-Bridge] Importing binary: {import_name}")
+                        _import_program(import_path, name=import_name, analyze=True)
+                        print(f"[PyGhidra-MCP-Bridge] ✓ Binary imported: {import_name}")
+                        # Refresh file list after import
+                        program_files = list(root_folder.getFiles())
+                    else:
+                        print(f"[PyGhidra-MCP-Bridge] Binary already exists: {import_name}")
+                else:
+                    print(f"[PyGhidra-MCP-Bridge] ⚠ Import file not found: {import_path}")
 
             # Open program: prefer PROGRAM_NAME env var, fallback to first available
             target_name = os.environ.get("PROGRAM_NAME", "")
