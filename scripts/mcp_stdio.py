@@ -204,6 +204,54 @@ def ghidra_basic_info() -> dict:
     return _call_api("/api/basic_info")
 
 
+# ============================================================
+# Conditional Tools
+# ============================================================
+
+def _check_version_support() -> bool:
+    """Check if Ghidra server supports version control."""
+    result = _call_api("/api/version/log")
+    return result.get("success", False)
+
+
+def _register_version_tool():
+    """Conditionally register ghidra_version tool if server supports it."""
+    if not _check_version_support():
+        return False
+
+    @mcp.tool()
+    def ghidra_version(
+        action: str,
+        comment: str = "",
+        diff: int = 0,
+        limit: int = 50,
+    ) -> dict:
+        """
+        Version control operations (commit, log, rollback).
+
+        Only available when the program is in a shared Ghidra Server project.
+
+        Args:
+            action: "log", "commit", or "rollback"
+            comment: Commit message (for "commit" action)
+            diff: Compare with version N (for "log" action, 0=no diff)
+            limit: Max log entries or diff items
+        """
+        if action == "log":
+            params = f"limit={limit}"
+            if diff > 0:
+                params += f"&diff={diff}"
+            return _call_api(f"/api/version/log?{params}")
+        elif action == "commit":
+            return _call_api(f"/api/version/commit?comment={urllib.parse.quote(comment)}")
+        elif action == "rollback":
+            return _call_api("/api/version/rollback")
+        else:
+            return {"success": False, "error": f"Unknown action: {action}. Use: log, commit, rollback"}
+
+    return True
+
+
 if __name__ == "__main__":
     import urllib.parse
 
@@ -214,5 +262,8 @@ if __name__ == "__main__":
 
     GHIDRA_HOST = args.host
     GHIDRA_PORT = args.port
+
+    # Register conditional tools
+    _register_version_tool()
 
     mcp.run(transport="stdio")

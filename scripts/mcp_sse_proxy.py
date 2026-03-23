@@ -372,6 +372,67 @@ def ghidra_basic_info() -> dict:
 
 
 # ============================================================
+# Conditional Tools (registered at startup based on capabilities)
+# ============================================================
+
+def _check_version_support() -> bool:
+    """Check if Ghidra server supports version control."""
+    result = _http_get("/api/version/log", timeout=2.0)
+    return result.get("success", False)
+
+
+def _register_version_tool():
+    """Conditionally register ghidra_version tool if server supports it."""
+    if not _check_version_support():
+        return False
+
+    @mcp.tool()
+    def ghidra_version(
+        action: str,
+        comment: str = "",
+        diff: int = 0,
+        limit: int = 50,
+    ) -> dict:
+        """
+        Version control operations (commit, log, rollback).
+
+        Only available when the program is in a shared Ghidra Server project.
+        Provides git-like version management for collaborative reverse engineering.
+
+        Args:
+            action: Operation to perform:
+                - "log": Show version history (optionally with diff)
+                - "commit": Save and checkin changes to server
+                - "rollback": Discard uncommitted changes, revert to last commit
+            comment: Commit message (for "commit" action)
+            diff: Compare with version N (for "log" action, 0=no diff)
+            limit: Max log entries or diff items (default: 50)
+
+        Returns:
+            dict with:
+                - success: bool
+                - For log: versions list, current_version, is_checked_out
+                - For log+diff: additional diff.changes list
+                - For commit: action, comment, version
+                - For rollback: action, program name
+        """
+        from urllib.parse import quote
+        if action == "log":
+            params = f"limit={limit}"
+            if diff > 0:
+                params += f"&diff={diff}"
+            return _http_get(f"/api/version/log?{params}")
+        elif action == "commit":
+            return _http_get(f"/api/version/commit?comment={quote(comment)}")
+        elif action == "rollback":
+            return _http_get("/api/version/rollback")
+        else:
+            return {"success": False, "error": f"Unknown action: {action}. Use: log, commit, rollback"}
+
+    return True
+
+
+# ============================================================
 # Main Entry Point
 # ============================================================
 
@@ -419,6 +480,12 @@ Examples:
         print(f"Error: Cannot connect to Ghidra HTTP API after {max_retries} attempts")
         print(f"Make sure Ghidra Bridge is running on port {_ghidra_port}")
         sys.exit(1)
+    # Register conditional tools
+    if _register_version_tool():
+        print("  Version control: enabled (ghidra_version tool registered)")
+    else:
+        print("  Version control: not available (non-server mode)")
+
     print(f"Starting MCP SSE server on http://{args.host}:{args.port}/sse")
     print(f"Press Ctrl+C to stop")
 

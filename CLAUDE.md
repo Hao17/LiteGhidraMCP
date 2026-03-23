@@ -25,6 +25,7 @@ This is a PyGhidra-based MCP (Model Context Protocol) Bridge that runs inside Gh
   - **`rename.py`**: Rename API，重命名函数、变量、参数、标签、数据类型、命名空间等
   - **`datatype.py`**: DataType API，数据类型设置、创建、管理和 C 头文件解析
   - **`program.py`**: Program API，程序列表和切换（Docker Server 模式）
+  - **`version.py`**: Version API，版本管理 commit/log/rollback（仅 Ghidra Server 模式）
 
 - **`api_v1/`**: v1 版本 API 模块目录（面向 AI 的聚合接口）：
   - **`search.py`**: 统一搜索 API，支持智能类型推断
@@ -118,6 +119,7 @@ pip install mcp uvicorn httpx
 - `ghidra_list`: 符号列表浏览
 - `ghidra_edit`: 统一编辑 (rename, datatype, comment)
 - `ghidra_basic_info`: 获取程序基本信息
+- `ghidra_version`: 版本管理（commit/log/rollback）— 仅 Server 模式下条件注册
 
 **MCP stdio Mode (for local debugging):**
 
@@ -340,6 +342,14 @@ curl -X POST http://127.0.0.1:8803/api/v1/edit -H "Content-Type: application/jso
 > **环境变量**:
 > - `PROGRAM_NAME` - 启动时指定要打开的程序名称，未设置则默认打开第一个程序
 > - `IMPORT_BINARY_NAME` - 启动时自动从 `/import/` 目录导入的 binary 名称（Docker Client 模式）
+
+**Version API** (`/api/version/*`) - 版本管理（仅 Ghidra Server 共享项目模式）:
+- `GET /api/version/log?limit=50&diff=<n>` - 版本历史；`diff=N` 时附带与版本 N 的差异
+- `GET /api/version/commit?comment=<msg>` - 保存并提交版本（自动处理 checkout）
+- `GET /api/version/rollback` - 丢弃未提交修改，回退到最近一次 commit
+
+> **注意**: 非 Server 模式（GUI 本地项目）调用会返回错误。
+> MCP proxy 启动时自动检测，不支持时不注册 `ghidra_version` tool。
 
 **V1 API** (`/api/v1/*`) - 面向 AI 的聚合接口:
 
