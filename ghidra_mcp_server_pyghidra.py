@@ -769,15 +769,31 @@ class GhidraRequestHandler(BaseHTTPRequestHandler):
         from api import dispatch_route
 
         try:
+            path = self.path.split("?")[0]
+
+            # ============================================================
+            # V1 Edit API (POST-only)
+            # ============================================================
+            if path == "/api/v1/edit":
+                try:
+                    body = self._read_json()
+                except ValueError as e:
+                    return self._send_json(
+                        {"success": False, "error": str(e)}, 400
+                    )
+                from api_v1 import edit as v1_edit
+                result = v1_edit.edit(_mock_state, body)
+                return self._send_json(result)
+
             # Read JSON body
             body = self._read_json()
 
             # Dispatch to API routes (pass body as query params)
-            result = dispatch_route(self.path, _mock_state, body)
+            result = dispatch_route(path, _mock_state, body)
             if result is not None:
                 self._send_json(result)
             else:
-                self._send_json({"error": f"Unknown route: {self.path}"}, 404)
+                self._send_json({"error": f"Unknown route: {path}"}, 404)
         except Exception as exc:
             log_debug(f"Error handling POST {self.path}: {exc}")
             self._send_json({"error": str(exc)}, 500)
