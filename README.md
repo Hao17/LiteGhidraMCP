@@ -141,6 +141,7 @@ Edit config file (`~/Library/Application Support/Claude/claude_desktop_config.js
 {
   "mcpServers": {
     "ghidra": {
+      "type": "sse",
       "url": "http://127.0.0.1:8804/sse"
     }
   }
@@ -186,8 +187,8 @@ Use different ports in different Ghidra instances, then configure multiple MCP s
 ```json
 {
   "mcpServers": {
-    "ghidra-binary1": { "url": "http://127.0.0.1:8804/sse" },
-    "ghidra-binary2": { "url": "http://127.0.0.1:8806/sse" }
+    "ghidra-binary1": { "type": "sse", "url": "http://127.0.0.1:8804/sse" },
+    "ghidra-binary2": { "type": "sse", "url": "http://127.0.0.1:8806/sse" }
   }
 }
 ```

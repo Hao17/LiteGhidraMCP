@@ -141,6 +141,7 @@ coco mcp add-json ghidra '{"type": "sse", "url": "http://127.0.0.1:8804/sse"}'
 {
   "mcpServers": {
     "ghidra": {
+      "type": "sse",
       "url": "http://127.0.0.1:8804/sse"
     }
   }
@@ -186,8 +187,8 @@ export PROGRAM_NAME=""                # 启动时打开的程序名（默认: �
 ```json
 {
   "mcpServers": {
-    "ghidra-binary1": { "url": "http://127.0.0.1:8804/sse" },
-    "ghidra-binary2": { "url": "http://127.0.0.1:8806/sse" }
+    "ghidra-binary1": { "type": "sse", "url": "http://127.0.0.1:8804/sse" },
+    "ghidra-binary2": { "type": "sse", "url": "http://127.0.0.1:8806/sse" }
   }
 }
 ```

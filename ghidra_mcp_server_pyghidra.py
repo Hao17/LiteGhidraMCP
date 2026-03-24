@@ -493,7 +493,15 @@ def _init_ghidra_project():
             # List programs in server repository
             root_folder = _project.getProjectData().getRootFolder()
             program_files = list(root_folder.getFiles())
-            print(f"[PyGhidra-MCP-Bridge] Programs in repo: {[f.getName() for f in program_files]}")
+            all_files = _collect_all_files(root_folder)
+            if all_files:
+                names = []
+                for f in all_files:
+                    path = f.getPathname()  # e.g. "/38.1.0/libsscronet_live.so"
+                    names.append(path.lstrip("/"))
+                print(f"[PyGhidra-MCP-Bridge] Programs in repo ({len(names)}): {names}")
+            else:
+                print(f"[PyGhidra-MCP-Bridge] Programs in repo: (empty)")
 
             # Auto-import binary if IMPORT_BINARY_NAME is set
             import_name = os.environ.get("IMPORT_BINARY_NAME", "")
@@ -507,6 +515,7 @@ def _init_ghidra_project():
                         print(f"[PyGhidra-MCP-Bridge] ✓ Binary imported: {import_name}")
                         # Refresh file list after import
                         program_files = list(root_folder.getFiles())
+                        all_files = _collect_all_files(root_folder)
                     else:
                         print(f"[PyGhidra-MCP-Bridge] Binary already exists: {import_name}")
                 else:
@@ -520,27 +529,47 @@ def _init_ghidra_project():
                 if domain_file is None:
                     # DomainFolder can't see server subdirectories after createProject.
                     # Close project, reopen via GhidraProject which can openProgram by path.
-                    path = "/" + target_name.lstrip("/")
-                    try:
-                        _project.close()
-                        _project = None
-                        _ghidra_project = GhidraProject.openProject(
-                            local_project_dir, local_project_name
-                        )
-                        folder_path = path.rsplit("/", 1)[0] or "/"
-                        prog_name = path.rsplit("/", 1)[1]
-                        _current_program = _ghidra_project.openProgram(folder_path, prog_name, False)
-                        _project = _ghidra_project.getProject()
-                        if _current_program is not None:
-                            print(f"[PyGhidra-MCP-Bridge] ✓ Program loaded via path: {_current_program.getName()}")
-                            domain_file = True  # skip normal DomainFile open
-                    except Exception as e:
-                        print(f"[PyGhidra-MCP-Bridge] openProgram('{path}') error: {type(e).__name__}: {e}")
-                        import traceback; traceback.print_exc()
+                    # Build list of paths to try: explicit path first, then scan subfolders
+                    paths_to_try = ["/" + target_name.lstrip("/")]
+
+                    # If target has no path separator, scan subfolders by filename
+                    if "/" not in target_name:
+                        # Use all_files from earlier listing to find matching filenames
+                        for f in all_files:
+                            if f.getName() == target_name:
+                                resolved = f.getPathname()  # e.g. "/38.1.0/libsscronet_live.so"
+                                if resolved not in paths_to_try:
+                                    paths_to_try.append(resolved)
+                                    print(f"[PyGhidra-MCP-Bridge] Found '{target_name}' at: {resolved}")
+
+                    for try_path in paths_to_try:
+                        try:
+                            if _project is not None:
+                                _project.close()
+                                _project = None
+                            _ghidra_project = GhidraProject.openProject(
+                                local_project_dir, local_project_name
+                            )
+                            folder_path = try_path.rsplit("/", 1)[0] or "/"
+                            prog_name = try_path.rsplit("/", 1)[1]
+                            _current_program = _ghidra_project.openProgram(folder_path, prog_name, False)
+                            _project = _ghidra_project.getProject()
+                            if _current_program is not None:
+                                print(f"[PyGhidra-MCP-Bridge] ✓ Program loaded via path: {_current_program.getName()}")
+                                domain_file = True  # skip normal DomainFile open
+                                break
+                        except Exception as e:
+                            print(f"[PyGhidra-MCP-Bridge] openProgram('{try_path}') error: {type(e).__name__}: {e}")
+
                 if domain_file is None:
-                    raise FileNotFoundError(f"Program '{target_name}' not found")
+                    available = [f.getPathname() for f in all_files] if all_files else []
+                    raise FileNotFoundError(
+                        f"Program '{target_name}' not found. Available: {available}"
+                    )
             elif program_files:
                 domain_file = program_files[0]
+            elif all_files:
+                domain_file = all_files[0]
             else:
                 domain_file = None
 
@@ -878,7 +907,10 @@ def _print_startup_banner(host: str, port: int, mcp_port: Optional[int], routes:
     http_url = f"http://{host}:{port}"
     print(f"HTTP API:   {http_url}")
     if mcp_port:
-        print(f"MCP SSE:    http://{host}:{mcp_port}/sse")
+        mcp_url = f"http://{host}:{mcp_port}/sse"
+        print(f"MCP SSE:    {mcp_url}")
+        mcp_config = json.dumps({"type": "sse", "url": mcp_url})
+        print(f"MCP Config: {mcp_config}")
 
     # Log file
     print(f"Log file:   {get_log_file_path()}")

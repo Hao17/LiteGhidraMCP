@@ -109,6 +109,7 @@ pip install mcp uvicorn httpx
 {
   "mcpServers": {
     "ghidra": {
+      "type": "sse",
       "url": "http://127.0.0.1:8804/sse"
     }
   }

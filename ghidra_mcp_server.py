@@ -582,7 +582,10 @@ def _print_startup_banner(host: str, port: int, mcp_port: Optional[int] = None, 
     http_url = f"http://{host}:{port}"
     print(f"[Ghidra-MCP-Bridge] HTTP Server: {http_url}")
     if mcp_port:
-        print(f"[Ghidra-MCP-Bridge] MCP Server:  http://{host}:{mcp_port}/sse")
+        mcp_url = f"http://{host}:{mcp_port}/sse"
+        print(f"[Ghidra-MCP-Bridge] MCP Server:  {mcp_url}")
+        mcp_config = json.dumps({"type": "sse", "url": mcp_url})
+        print(f"[Ghidra-MCP-Bridge] MCP Config:  {mcp_config}")
 
     # 显示日志文件路径
     print(f"[Ghidra-MCP-Bridge] Log file: {get_log_file_path()}")
