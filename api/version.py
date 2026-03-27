@@ -43,7 +43,8 @@ def _get_program(state):
 
 
 def _get_domain_file(prog):
-    """获取真正的 DomainFile（通过 project root folder，避免 DomainFileProxy）"""
+    """获取真正的 DomainFile（通过 project root folder，避免 DomainFileProxy）。
+    支持子目录结构（如 38.1.0/libmetasec_ml.so）。"""
     from ghidra_mcp_server_pyghidra import _project, _ghidra_project
     proj = _project
     if proj is None and _ghidra_project:
@@ -52,7 +53,31 @@ def _get_domain_file(prog):
         return None
     try:
         root = proj.getProjectData().getRootFolder()
-        return root.getFile(prog.getName())
+        # 1. Try root folder directly
+        df = root.getFile(prog.getName())
+        if df is not None:
+            return df
+        # 2. Use DomainFileProxy pathname to navigate to the correct subfolder
+        proxy = prog.getDomainFile()
+        if proxy is not None:
+            pathname = proxy.getPathname()  # e.g. "/38.1.0/libmetasec_ml.so"
+            if pathname and "/" in pathname.lstrip("/"):
+                parts = pathname.lstrip("/").split("/")
+                folder = root
+                for part in parts[:-1]:
+                    folder = folder.getFolder(part)
+                    if folder is None:
+                        break
+                if folder is not None:
+                    df = folder.getFile(parts[-1])
+                    if df is not None:
+                        return df
+        # 3. Fallback: recursive search by name
+        from ghidra_mcp_server_pyghidra import _collect_all_files
+        for f in _collect_all_files(root):
+            if f.getName() == prog.getName():
+                return f
+        return None
     except Exception:
         return None
 
