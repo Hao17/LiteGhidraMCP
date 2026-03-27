@@ -146,7 +146,12 @@ fi
 # CLIENT mode continues below...
 
 # 1. Parse configuration
-PROJECT_MODE="${PROJECT_MODE:-local}"
+PROJECT_MODE="${PROJECT_MODE:-}"
+if [ -z "$PROJECT_MODE" ]; then
+    echo "ERROR: PROJECT_MODE not set."
+    echo "  Use PROJECT_MODE=auto-server (recommended) or PROJECT_MODE=local"
+    exit 1
+fi
 PROJECT_PATH="${PROJECT_PATH:-/ghidra-projects}"
 PROJECT_NAME="${PROJECT_NAME:-default}"
 GHIDRA_MCP_HOST="${GHIDRA_MCP_HOST:-0.0.0.0}"

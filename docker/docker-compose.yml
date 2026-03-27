@@ -21,7 +21,7 @@ services:
       - GHIDRA_MCP_SSE_PORT=${GHIDRA_MCP_SSE_PORT:-8804}
 
       # Project configuration
-      - PROJECT_MODE=${PROJECT_MODE:-local}
+      - PROJECT_MODE=${PROJECT_MODE:-auto-server}
       - PROJECT_PATH=${PROJECT_PATH:-/ghidra-projects}
       - PROJECT_NAME=${PROJECT_NAME:-default}
 

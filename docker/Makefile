@@ -1,7 +1,7 @@
 # Ghidra MCP Bridge
 # Makefile for common Docker operations
 
-.PHONY: help build up down logs shell test clean rebuild server-up server-down server-logs server-restart server-clean server-users server-add-user server-reset-password server-list-repos client-up client-down client-logs client-restart client2-up client2-down up-separated down-separated logs-separated help-separated check-env check-repo init-data info list-versions switch-version
+.PHONY: help build up down logs shell test clean rebuild server-up server-down server-logs server-restart server-clean server-users server-add-user server-reset-password server-list-repos client client-stop client-logs client-up client-down client-restart client2-up client2-down up-separated down-separated logs-separated help-separated check-env check-repo check-n init-data info list-versions switch-version
 
 # Load environment variables
 -include .env
@@ -24,10 +24,10 @@ help:
 	@echo ""
 	@echo "Separated Server-Client Mode (AI + GUI collaboration):"
 	@echo "  make server-up          - Start standalone Ghidra Server"
-	@echo "  make client-up REPO=<name> [BINARY=<name>] [BINARY_FILE=<path>]"
-	@echo "                          - Start client for a specific binary ⭐"
-	@echo "  make client2-up REPO=<name> [BINARY=<name>] [BINARY_FILE=<path>]"
-	@echo "                          - Start second client (ports 8813/8814)"
+	@echo "  make client N=<1-9> REPO=<name> [BINARY=<name>] [BINARY_FILE=<path>]"
+	@echo "                          - Start client N (ports auto-calculated) ⭐"
+	@echo "  make client-stop N=<1-9>  - Stop client N"
+	@echo "  make client-logs N=<1-9>  - View client N logs"
 	@echo "  make down-separated     - Stop all services"
 	@echo "  make help-separated     - Detailed help for separated mode"
 	@echo ""
@@ -72,11 +72,19 @@ check-env:
 		echo "✓ Created: $(GHIDRA_DATA_DIR)"; \
 	fi
 
-# Validate REPO parameter (required for client-up/client2-up)
+# Validate REPO parameter
 check-repo:
 	@if [ -z "$(REPO)" ]; then \
 		echo "ERROR: REPO is required."; \
-		echo "Usage: make client-up REPO=<name> [BINARY=<name>] [BINARY_FILE=<path>]"; \
+		echo "Usage: make client N=<1-9> REPO=<name> [BINARY=<name>] [BINARY_FILE=<path>]"; \
+		exit 1; \
+	fi
+
+# Validate N parameter (client instance number, default 1)
+N ?= 1
+check-n:
+	@if [ "$(N)" -lt 1 ] 2>/dev/null || [ "$(N)" -gt 9 ] 2>/dev/null; then \
+		echo "ERROR: N must be between 1 and 9 (got: $(N))"; \
 		exit 1; \
 	fi
 
@@ -228,11 +236,12 @@ up-separated: check-repo
 	@echo "  make down-separated - Stop all services"
 	@echo ""
 
-# Stop all services (server + all clients)
+# Stop all services (server + all clients 1-9)
 down-separated:
 	@echo "Stopping all services..."
-	@docker-compose -p ghidra-client-1 -f docker-compose.client.yml down 2>/dev/null || true
-	@docker-compose -p ghidra-client-2 -f docker-compose.client.yml down 2>/dev/null || true
+	@for i in 1 2 3 4 5 6 7 8 9; do \
+		docker-compose -p ghidra-client-$$i -f docker-compose.client.yml down 2>/dev/null || true; \
+	done
 	@docker-compose -f docker-compose.server.yml down
 	@echo "✓ All services stopped"
 
@@ -326,70 +335,67 @@ server-list-repos:
 		echo "ERROR: Server container not running. Start with: make server-up"
 
 # ============================================
-# Client Management
+# Client Management (Generic)
 # ============================================
 
-# Start client (connects to server, opens specific REPO/BINARY)
-client-up: check-env check-repo
+# Port calculation: N=1→8803/8804, N=2→8813/8814, N=3→8823/8824, ...
+# HTTP = 8800 + (N-1)*10 + 3,  SSE = HTTP + 1
+_CLIENT_HTTP_PORT = $(shell echo $$((8800 + ($(N) - 1) * 10 + 3)))
+_CLIENT_SSE_PORT  = $(shell echo $$((8800 + ($(N) - 1) * 10 + 4)))
+
+# Generic: start client N
+# Usage: make client N=3 REPO=aweme BINARY=38.1.0/all_init.o [BINARY_FILE=path]
+client: check-env check-repo check-n
 	@if [ -n "$(BINARY_FILE)" ]; then \
 		mkdir -p "$(GHIDRA_DATA_DIR)/$(GHIDRA_VERSION)/imports"; \
 		cp "$(BINARY_FILE)" "$(GHIDRA_DATA_DIR)/$(GHIDRA_VERSION)/imports/$(or $(BINARY),$(notdir $(BINARY_FILE)))"; \
 		echo "Binary staged: $(BINARY_FILE)"; \
 	fi
-	@GHIDRA_SERVER_REPO=/$(REPO) \
-	 PROGRAM_NAME=$(BINARY) \
-	 IMPORT_BINARY_NAME=$(if $(BINARY_FILE),$(or $(BINARY),$(notdir $(BINARY_FILE))),) \
-	 docker-compose -p ghidra-client-1 -f docker-compose.client.yml up -d
-	@echo ""
-	@echo "✓ Client 1 started"
-	@echo "  Repo:    $(REPO)"
-	@echo "  Binary:  $(or $(BINARY),(first available))"
-	@echo "  HTTP:    http://localhost:8803"
-	@echo "  MCP SSE: http://localhost:8804/sse"
-	@echo ""
-	@echo "Run 'make client-logs' to view logs"
-
-# Stop client
-client-down:
-	@docker-compose -p ghidra-client-1 -f docker-compose.client.yml down 2>/dev/null || \
-	 docker-compose -f docker-compose.client.yml down
-	@echo "✓ Client 1 stopped"
-
-# View client logs
-client-logs:
-	@echo "Client logs (Ctrl+C to exit):"
-	@echo ""
-	@docker logs ghidra-mcp-bridge-client-1 -f 2>/dev/null || \
-	 docker-compose -p ghidra-client-1 -f docker-compose.client.yml logs -f
-
-# Restart client
-client-restart:
-	@$(MAKE) client-down
-	@$(MAKE) client-up REPO=$(REPO) BINARY=$(BINARY)
-
-# Start second client on different ports
-client2-up: check-env check-repo
-	@if [ -n "$(BINARY_FILE)" ]; then \
-		mkdir -p "$(GHIDRA_DATA_DIR)/$(GHIDRA_VERSION)/imports"; \
-		cp "$(BINARY_FILE)" "$(GHIDRA_DATA_DIR)/$(GHIDRA_VERSION)/imports/$(or $(BINARY),$(notdir $(BINARY_FILE)))"; \
-		echo "Binary staged: $(BINARY_FILE)"; \
-	fi
-	@CLIENT_ID=2 CLIENT_MCP_PORT=8813 CLIENT_MCP_SSE_PORT=8814 \
+	@CLIENT_ID=$(N) CLIENT_MCP_PORT=$(_CLIENT_HTTP_PORT) CLIENT_MCP_SSE_PORT=$(_CLIENT_SSE_PORT) \
 	 GHIDRA_SERVER_REPO=/$(REPO) \
 	 PROGRAM_NAME=$(BINARY) \
 	 IMPORT_BINARY_NAME=$(if $(BINARY_FILE),$(or $(BINARY),$(notdir $(BINARY_FILE))),) \
-	 docker-compose -p ghidra-client-2 -f docker-compose.client.yml up -d
+	 docker-compose -p ghidra-client-$(N) -f docker-compose.client.yml up -d
 	@echo ""
-	@echo "✓ Client 2 started"
+	@echo "✓ Client $(N) started"
 	@echo "  Repo:    $(REPO)"
 	@echo "  Binary:  $(or $(BINARY),(first available))"
-	@echo "  HTTP:    http://localhost:8813"
-	@echo "  MCP SSE: http://localhost:8814/sse"
+	@echo "  HTTP:    http://localhost:$(_CLIENT_HTTP_PORT)"
+	@echo "  MCP SSE: http://localhost:$(_CLIENT_SSE_PORT)/sse"
+	@echo ""
+	@echo "Run 'make client-logs N=$(N)' to view logs"
 
-# Stop second client
+# Generic: stop client N
+# Usage: make client-stop N=3
+client-stop: check-n
+	@docker-compose -p ghidra-client-$(N) -f docker-compose.client.yml down 2>/dev/null || true
+	@echo "✓ Client $(N) stopped"
+
+# Generic: view client N logs
+# Usage: make client-logs N=3
+client-logs: check-n
+	@echo "Client $(N) logs (Ctrl+C to exit):"
+	@echo ""
+	@docker logs ghidra-mcp-bridge-client-$(N) -f 2>/dev/null || \
+	 docker-compose -p ghidra-client-$(N) -f docker-compose.client.yml logs -f
+
+# ---- Aliases for backward compatibility ----
+
+client-up: check-env check-repo
+	@$(MAKE) client N=1 REPO=$(REPO) BINARY=$(BINARY) BINARY_FILE=$(BINARY_FILE)
+
+client-down:
+	@$(MAKE) client-stop N=1
+
+client-restart:
+	@$(MAKE) client-stop N=1
+	@$(MAKE) client N=1 REPO=$(REPO) BINARY=$(BINARY)
+
+client2-up: check-env check-repo
+	@$(MAKE) client N=2 REPO=$(REPO) BINARY=$(BINARY) BINARY_FILE=$(BINARY_FILE)
+
 client2-down:
-	@docker-compose -p ghidra-client-2 -f docker-compose.client.yml down
-	@echo "✓ Client 2 stopped"
+	@$(MAKE) client-stop N=2
 
 # ============================================
 # Separated Mode Help
@@ -418,13 +424,14 @@ help-separated:
 	@echo "  make server-list-repos      - List repositories"
 	@echo ""
 	@echo "Client Management (each client = one binary):"
-	@echo "  make client-up  REPO=test BINARY=alpha                - Open existing binary"
-	@echo "  make client-up  REPO=test BINARY=alpha BINARY_FILE=~/alpha.bin  - Import + open"
-	@echo "  make client2-up REPO=test BINARY=beta  BINARY_FILE=~/beta.bin   - Second client"
-	@echo "  make client-down    - Stop client 1"
-	@echo "  make client2-down   - Stop client 2"
-	@echo "  make client-logs    - View client 1 logs"
-	@echo "  make client-restart - Restart client 1"
+	@echo "  make client N=1 REPO=test BINARY=alpha                  - Start client 1 (8803/8804)"
+	@echo "  make client N=2 REPO=test BINARY=beta BINARY_FILE=~/b   - Start client 2 (8813/8814)"
+	@echo "  make client N=3 REPO=aweme BINARY=38.1.0/all_init.o     - Start client 3 (8823/8824)"
+	@echo "  make client-stop N=3   - Stop client 3"
+	@echo "  make client-logs N=3   - View client 3 logs"
+	@echo "  Ports: N=1→8803/8804, N=2→8813/8814, N=3→8823/8824, ..."
+	@echo ""
+	@echo "  Legacy aliases: client-up = client N=1, client2-up = client N=2"
 	@echo ""
 	@echo "Connect Ghidra GUI:"
 	@echo "  1. File → New Project → Shared Project"
