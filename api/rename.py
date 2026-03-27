@@ -1241,11 +1241,17 @@ def rename_function_signature(state, function="", function_address="", signature
     # 执行更新
     tx_id = prog.startTransaction("Update Function Signature")
     try:
+        # Convert Python list to java.util.ArrayList for Jep/JPype compatibility
+        from java.util import ArrayList
+        param_list = ArrayList()
+        for p in new_params:
+            param_list.add(p)
+
         # 1. 更新函数签名（返回类型、参数）
         func.updateFunction(
             new_calling_conv if new_calling_conv else old_calling_conv,
             return_param,
-            new_params,
+            param_list,
             Function.FunctionUpdateType.DYNAMIC_STORAGE_ALL_PARAMS,
             True,  # force
             SourceType.USER_DEFINED
@@ -1259,7 +1265,8 @@ def rename_function_signature(state, function="", function_address="", signature
     except Exception as e:
         prog.endTransaction(tx_id, False)
         error_msg = str(e)
-        if "Duplicate" in error_msg or "already exists" in error_msg.lower():
+        if type(e).__name__ == "DuplicateNameException" or \
+           ("already exists" in error_msg.lower() and "overloads" not in error_msg.lower()):
             return _make_error(f"Name already exists: {new_name}")
         return _make_error(f"Failed to update function signature: {error_msg}")
 
