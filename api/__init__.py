@@ -84,5 +84,27 @@ def dispatch_route(path, state, params=None):
     route_info = _routes[path]
     handler = route_info["handler"]
 
+    # 根据 handler 签名的默认值类型，自动转换 URL 参数类型
+    # URL 参数总是 string，但 handler 可能期望 int 等类型
+    if params:
+        import inspect
+        try:
+            sig = inspect.signature(handler)
+            for key, value in params.items():
+                if key in sig.parameters and isinstance(value, str):
+                    default = sig.parameters[key].default
+                    if isinstance(default, int):
+                        try:
+                            params[key] = int(value)
+                        except (ValueError, TypeError):
+                            pass  # 保留原始字符串，让 handler 自行处理
+                    elif isinstance(default, float):
+                        try:
+                            params[key] = float(value)
+                        except (ValueError, TypeError):
+                            pass
+        except (ValueError, TypeError):
+            pass  # inspect 失败时不影响正常调用
+
     # 调用处理函数，传递 state 和参数
     return handler(state, **params)

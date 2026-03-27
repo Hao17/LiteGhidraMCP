@@ -298,6 +298,15 @@ def edit(state, body):
     if not isinstance(body, dict):
         return _err("Request body must be a JSON object")
 
+    # Inject _active_program into result
+    prog = state.getCurrentProgram()
+    _prog_name = prog.getName() if prog else None
+
+    def _inject_program(result):
+        if isinstance(result, dict) and _prog_name:
+            result["_active_program"] = _prog_name
+        return result
+
     # Check for verbose flag
     verbose = body.get("verbose", False)
     if isinstance(verbose, str):
@@ -305,11 +314,11 @@ def edit(state, body):
 
     # Batch mode: "actions" array
     if "actions" in body:
-        return _handle_batch(state, body["actions"], verbose)
+        return _inject_program(_handle_batch(state, body["actions"], verbose))
 
     # Single mode: "action" field
     if "action" in body:
-        return _handle_single(state, body, verbose)
+        return _inject_program(_handle_single(state, body, verbose))
 
     # No action specified - return help
     return _ok({

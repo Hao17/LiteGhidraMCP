@@ -345,15 +345,6 @@ def overview(state, top_funcs=20, top_strings=30, verbose=""):
     if prog is None:
         return _err("No program loaded")
 
-    try:
-        top_funcs = int(top_funcs)
-    except (ValueError, TypeError):
-        top_funcs = 20
-    try:
-        top_strings = int(top_strings)
-    except (ValueError, TypeError):
-        top_strings = 30
-
     is_verbose = str(verbose).lower() in ("true", "1", "yes")
 
     data = {
@@ -370,4 +361,6 @@ def overview(state, top_funcs=20, top_strings=30, verbose=""):
     if not is_verbose:
         data["_schema"] = COMPACT_SCHEMA
 
-    return _ok(data)
+    result = _ok(data)
+    result["_active_program"] = prog.getName()
+    return result

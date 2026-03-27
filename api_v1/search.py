@@ -517,4 +517,6 @@ def search(state, q="", types="auto", limit=20, verbose=""):
     if errors:
         response["errors"] = errors
 
-    return _ok(response)
+    result = _ok(response)
+    result["_active_program"] = prog.getName()
+    return result

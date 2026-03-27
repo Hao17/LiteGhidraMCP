@@ -577,12 +577,6 @@ def list_symbols(state, q="", types="auto", start="", end="", library="", archiv
     # Parse boolean parameters
     is_show_builtin = str(show_builtin).lower() in ("true", "1", "yes")
 
-    # Parse limit
-    try:
-        limit = int(limit)
-    except (ValueError, TypeError):
-        limit = 100
-
     # Parse address range
     start_addr, end_addr, range_err = _parse_address_range(prog, start, end)
     if range_err:
@@ -658,4 +652,6 @@ def list_symbols(state, q="", types="auto", start="", end="", library="", archiv
     if errors:
         response["errors"] = errors
 
-    return _ok(response)
+    result = _ok(response)
+    result["_active_program"] = prog.getName()
+    return result

@@ -374,7 +374,9 @@ def view(state, q="", type="both", timeout=30, limit=500, verbose=""):
         if errors:
             response["errors"] = errors
 
-        return _ok(response)
+        result = _ok(response)
+        result["_active_program"] = prog.getName()
+        return result
 
     finally:
         if decomp:
