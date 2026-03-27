@@ -387,6 +387,66 @@ def ghidra_overview(
     return _http_get(f"/api/v1/overview?{params}")
 
 
+@mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": True, "openWorldHint": True})
+def ghidra_exec(
+    code: str,
+    language: str = "python",
+    readonly: bool = True,
+    noanalysis: bool = True,
+    timeout: int = 120,
+) -> dict:
+    """Execute a script in Ghidra with full API access.
+
+    Supports Python and Java scripts. In GUI mode, runs via runScript()
+    in the current session. In headless mode, launches a separate Ghidra
+    process for isolated execution.
+
+    Python scripts have access to all Ghidra Flat API functions:
+        currentProgram(), toAddr(), getFunctionAt(), getReferencesTo(),
+        monitor(), getBytes(), and all Java class imports.
+        Set `result` variable to return structured data.
+        Use print() for text output (captured in 'stdout').
+
+    Java scripts: provide the run() method body. Has access to all
+        GhidraScript methods. Use println() for output.
+
+    Args:
+        code: Script source code to execute.
+              Python: arbitrary code with Flat API access.
+              Java: body of the run() method (extends GhidraScript).
+        language: "python" (default) or "java"
+        readonly: If True (default), program is opened read-only (headless mode).
+                  Prevents accidental modifications. Set False to allow writes.
+        noanalysis: If True (default), skip auto-analysis for faster execution.
+        timeout: Max execution time in seconds (default: 120)
+
+    Returns:
+        result: Value of 'result' variable (Python) or null
+        stdout: Captured print/println output
+        success: Whether execution succeeded
+        error/traceback: Error details on failure
+        mode: "gui" or "headless"
+
+    Examples:
+        # Count functions
+        code: "result = currentProgram().getFunctionManager().getFunctionCount()"
+
+        # List function names
+        code: "fm = currentProgram().getFunctionManager()\\nfor f in fm.getFunctions(True):\\n    print(f.getName())"
+
+        # Batch rename with write access
+        code: "...", readonly: false
+    """
+    body = {
+        "code": code,
+        "language": language,
+        "readonly": readonly,
+        "noanalysis": noanalysis,
+        "timeout": timeout,
+    }
+    return _http_post("/api/v1/exec", body, timeout=float(timeout) + 10)
+
+
 # ============================================================
 # Conditional Tools (registered at startup based on capabilities)
 # ============================================================

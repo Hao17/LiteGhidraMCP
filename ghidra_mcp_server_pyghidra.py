@@ -657,6 +657,282 @@ def _switch_program(name):
     return new_program
 
 
+def _serialize(obj, depth=0):
+    """Recursively convert Python/Java objects to JSON-safe types."""
+    if depth > 10:
+        return str(obj)
+    if obj is None:
+        return None
+    if isinstance(obj, (bool, int, float)):
+        return obj
+    if isinstance(obj, str):
+        return obj
+    if isinstance(obj, bytes):
+        return obj.hex()
+    if isinstance(obj, (list, tuple)):
+        return [_serialize(item, depth + 1) for item in obj]
+    if isinstance(obj, dict):
+        return {str(k): _serialize(v, depth + 1) for k, v in obj.items()}
+    if isinstance(obj, set):
+        return [_serialize(item, depth + 1) for item in obj]
+    try:
+        s = str(obj)
+        if s and not s.startswith("<") and "object at 0x" not in s:
+            return s
+    except Exception:
+        pass
+    try:
+        items = []
+        for item in obj:
+            items.append(_serialize(item, depth + 1))
+            if len(items) > 1000:
+                items.append("...(truncated)")
+                break
+        return items
+    except (TypeError, StopIteration):
+        pass
+    try:
+        result = {}
+        for entry in obj.entrySet():
+            result[str(entry.getKey())] = _serialize(entry.getValue(), depth + 1)
+        return result
+    except (AttributeError, TypeError):
+        pass
+    return str(obj)
+
+
+def _exec_python_inprocess(code):
+    """Execute Python code in-process with access to currentProgram via globals."""
+    import io
+    import traceback
+
+    # Build globals with Flat API-like functions
+    exec_globals = {
+        "__builtins__": __builtins__,
+        "currentProgram": lambda: _current_program,
+        "currentAddress": lambda: None,
+        "currentSelection": lambda: None,
+        "currentHighlight": lambda: None,
+    }
+
+    # Make Java imports available
+    try:
+        import ghidra
+        exec_globals["ghidra"] = ghidra
+    except ImportError:
+        pass
+
+    _buf = io.StringIO()
+    _old_stdout = sys.stdout
+    start_time = time.time()
+
+    try:
+        sys.stdout = _buf
+        exec(code, exec_globals)
+        sys.stdout = _old_stdout
+
+        output = {
+            "success": True,
+            "stdout": _buf.getvalue(),
+            "execution_time_ms": int((time.time() - start_time) * 1000),
+        }
+
+        if "result" in exec_globals:
+            try:
+                output["result"] = _serialize(exec_globals["result"])
+            except Exception as e:
+                output["result"] = str(exec_globals["result"])
+                output["result_serialization_warning"] = str(e)
+
+    except Exception:
+        sys.stdout = _old_stdout
+        output = {
+            "success": False,
+            "error": str(sys.exc_info()[1]),
+            "traceback": traceback.format_exc(),
+            "stdout": _buf.getvalue(),
+            "execution_time_ms": int((time.time() - start_time) * 1000),
+        }
+
+    return output
+
+
+def _exec_java_headless(code, readonly=True, noanalysis=True, timeout=120):
+    """Execute Java code via analyzeHeadless subprocess.
+
+    Supports two forms:
+    - Full class: code contains 'extends GhidraScript' -> run as-is
+    - Snippet: code is the run() method body -> wrap in template
+    """
+    import re
+    import tempfile as _tempfile
+
+    ts = int(time.time() * 1000)
+    result_path = os.path.join(_tempfile.gettempdir(), f"ghidra_exec_result_{ts}.json")
+    cleanup_files = [result_path]
+    is_full_class = "extends GhidraScript" in code
+
+    if is_full_class:
+        # Extract class name from source
+        match = re.search(r'public\s+class\s+(\w+)', code)
+        if not match:
+            return {"success": False, "error": "Could not find 'public class <Name>' in Java code"}
+        class_name = match.group(1)
+        code_content = code
+    else:
+        class_name = f"GhidraExec_{ts}"
+        code_content = _build_java_script(class_name, code)
+
+    script_file = os.path.join(_tempfile.gettempdir(), f"{class_name}.java")
+    with open(script_file, 'w', encoding='utf-8') as f:
+        f.write(code_content)
+    cleanup_files.append(script_file)
+
+    try:
+        # For full scripts, result_path is passed as args[0] but script may not use it
+        # For template-wrapped snippets, the template writes result JSON
+        cmd = _build_headless_cmd(
+            script_name=f"{class_name}.java",
+            script_path=_tempfile.gettempdir(),
+            result_path=result_path,
+            extra_args=[],
+            readonly=readonly,
+            noanalysis=noanalysis,
+        )
+
+        start_time = time.time()
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        execution_time_ms = int((time.time() - start_time) * 1000)
+
+        # Try to read structured result (template-wrapped scripts write this)
+        if os.path.exists(result_path):
+            with open(result_path, 'r', encoding='utf-8') as f:
+                result = json.load(f)
+        else:
+            # Full scripts: success based on return code, stdout from subprocess
+            result = {
+                "success": proc.returncode == 0,
+                "stdout": "",
+            }
+            if proc.returncode != 0:
+                result["error"] = "Script execution failed (non-zero exit code)"
+
+        # Extract println output from analyzeHeadless stdout
+        # Script println() lines appear as: "INFO  ClassName.java> message (GhidraScript)"
+        if proc.stdout:
+            lines = proc.stdout.split("\n")
+            script_output = []
+            for line in lines:
+                stripped = line.strip()
+                if "(GhidraScript)" not in stripped:
+                    continue
+                # Remove "INFO  " prefix and " (GhidraScript)" suffix
+                parts = stripped.split(None, 1)
+                if len(parts) < 2:
+                    continue
+                msg = parts[1]
+                paren_idx = msg.rfind("(GhidraScript)")
+                if paren_idx > 0:
+                    msg = msg[:paren_idx].rstrip()
+                # Remove "ClassName.java> " prefix from println output
+                gt_idx = msg.find("> ")
+                if gt_idx > 0 and msg[:gt_idx].endswith(".java"):
+                    msg = msg[gt_idx + 2:]
+                script_output.append(msg)
+
+            if script_output and not result.get("stdout"):
+                result["stdout"] = "\n".join(script_output)
+
+            result["subprocess_stdout"] = proc.stdout[-4000:]
+
+        if proc.stderr:
+            result["subprocess_stderr"] = proc.stderr[-2000:]
+
+        result["returncode"] = proc.returncode
+        result["execution_time_ms"] = execution_time_ms
+        return result
+
+    except subprocess.TimeoutExpired:
+        return {
+            "success": False,
+            "error": f"Timeout after {timeout}s",
+        }
+    except FileNotFoundError as e:
+        return {
+            "success": False,
+            "error": f"analyzeHeadless not found: {e}",
+        }
+    finally:
+        for fp in cleanup_files:
+            try:
+                os.remove(fp)
+            except OSError:
+                pass
+
+
+def _build_java_script(class_name, user_code):
+    """Build a Java Ghidra script from template by replacing placeholders."""
+    template_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "scripts", "exec_runner_template.java"
+    )
+    with open(template_path, 'r', encoding='utf-8') as f:
+        template = f.read()
+    return template.replace("{CLASS_NAME}", class_name).replace("{USER_CODE}", user_code)
+
+
+def _build_headless_cmd(script_name, script_path, result_path, extra_args=None,
+                        readonly=True, noanalysis=True):
+    """Build analyzeHeadless command line from environment configuration."""
+    import tempfile as _tempfile
+
+    ghidra_home = os.environ.get("GHIDRA_HOME", "/opt/ghidra")
+    analyze = os.path.join(ghidra_home, "support", "analyzeHeadless")
+
+    project_mode = os.environ.get("PROJECT_MODE", "local")
+    project_path = os.environ.get("PROJECT_PATH", "/ghidra-projects")
+    project_name = os.environ.get("PROJECT_NAME", "default")
+
+    # Determine current program name
+    prog_name = ""
+    if _current_program:
+        prog_name = _current_program.getName()
+
+    if project_mode == "server":
+        server_host = os.environ.get("GHIDRA_SERVER_HOST", "localhost")
+        server_port = os.environ.get("GHIDRA_SERVER_PORT", "13100")
+        server_user = os.environ.get("GHIDRA_SERVER_USER", "")
+        server_keystore = os.environ.get("GHIDRA_SERVER_KEYSTORE", "")
+        repo_name = os.environ.get("GHIDRA_SERVER_REPO", "").lstrip("/")
+
+        cmd = [
+            analyze,
+            f"ghidra://{server_host}:{server_port}/{repo_name}/",
+        ]
+        if server_user:
+            cmd.extend(["-connect", server_user])
+        if server_keystore:
+            cmd.extend(["-keystore", server_keystore])
+        if prog_name:
+            cmd.extend(["-process", prog_name])
+    else:
+        cmd = [analyze, project_path, project_name]
+        if prog_name:
+            cmd.extend(["-process", prog_name])
+
+    if readonly:
+        cmd.append("-readOnly")
+    if noanalysis:
+        cmd.append("-noanalysis")
+
+    # Script arguments: result_path first, then extras
+    script_args = [result_path] + (extra_args or [])
+    cmd.extend(["-postScript", script_name] + script_args)
+    cmd.extend(["-scriptPath", script_path])
+
+    return cmd
+
+
 def _discover_and_load_api_modules():
     """
     自动发现并加载 api/ 和 api_v*/ 目录下所有模块。
@@ -812,6 +1088,36 @@ class GhidraRequestHandler(BaseHTTPRequestHandler):
                     )
                 from api_v1 import edit as v1_edit
                 result = v1_edit.edit(_mock_state, body)
+                return self._send_json(result)
+
+            # ============================================================
+            # V1 Exec API (POST-only) - Script execution
+            # ============================================================
+            if path == "/api/v1/exec":
+                try:
+                    body = self._read_json()
+                except ValueError as e:
+                    return self._send_json(
+                        {"success": False, "error": str(e)}, 400
+                    )
+
+                code = body.get("code", "")
+                language = body.get("language", "python")
+
+                if not code.strip():
+                    return self._send_json({"success": False, "error": "Missing 'code'"})
+
+                if language == "java":
+                    readonly = body.get("readonly", True)
+                    noanalysis = body.get("noanalysis", True)
+                    timeout = body.get("timeout", 120)
+                    result = _exec_java_headless(
+                        code, readonly=readonly, noanalysis=noanalysis, timeout=timeout
+                    )
+                else:
+                    result = _exec_python_inprocess(code)
+
+                result["mode"] = "headless"
                 return self._send_json(result)
 
             # Read JSON body

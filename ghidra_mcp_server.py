@@ -196,6 +196,17 @@ def _run_script_by_path(script_path: str, extra_args: list = None):
         }
 
 
+def _build_java_script(class_name, user_code):
+    """Build a Java Ghidra script from template by replacing placeholders."""
+    template_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "scripts", "exec_runner_template.java"
+    )
+    with open(template_path, 'r', encoding='utf-8') as f:
+        template = f.read()
+    return template.replace("{CLASS_NAME}", class_name).replace("{USER_CODE}", user_code)
+
+
 def _run_demo_script():
     """执行 api/demo.py 演示脚本（API 开发参考样例）"""
     return _run_script_by_path("api/demo.py", ["demo_param_1", "demo_param_2", "12345"])
@@ -375,6 +386,67 @@ class GhidraRequestHandler(BaseHTTPRequestHandler):
                     )
                 from api_v1 import edit as v1_edit
                 result = v1_edit.edit(_cached_state, body)
+                return self._send_json(result)
+
+            # ============================================================
+            # V1 Exec API (POST-only) - Script execution
+            # ============================================================
+            if path == "/api/v1/exec":
+                try:
+                    body = self._read_json()
+                except ValueError as e:
+                    return self._send_json(
+                        {"success": False, "error": str(e)}, status=400
+                    )
+
+                code = body.get("code", "")
+                language = body.get("language", "python")
+
+                if not code.strip():
+                    return self._send_json({"success": False, "error": "Missing 'code'"})
+
+                ts = int(time.time() * 1000)
+
+                if language == "java":
+                    class_name = f"GhidraExec_{ts}"
+                    code_content = _build_java_script(class_name, code)
+                    code_path = os.path.join(tempfile.gettempdir(), f"{class_name}.java")
+                    with open(code_path, 'w', encoding='utf-8') as f:
+                        f.write(code_content)
+                    try:
+                        raw = _run_script_by_path(code_path, [])
+                    finally:
+                        try:
+                            os.remove(code_path)
+                        except OSError:
+                            pass
+                else:
+                    code_path = os.path.join(tempfile.gettempdir(), f"ghidra_exec_{ts}.py")
+                    with open(code_path, 'w', encoding='utf-8') as f:
+                        f.write(code)
+                    try:
+                        script_dir = os.path.dirname(os.path.abspath(__file__))
+                        runner = os.path.join(script_dir, "scripts", "exec_runner.py")
+                        raw = _run_script_by_path(runner, [code_path])
+                    finally:
+                        try:
+                            os.remove(code_path)
+                        except OSError:
+                            pass
+
+                if raw.get("success") and "script_result" in raw:
+                    result = raw["script_result"]
+                    result["execution_time_ms"] = raw.get("execution_time_ms")
+                    result["mode"] = "gui"
+                else:
+                    result = {
+                        "success": False,
+                        "error": raw.get("error", "Script execution failed"),
+                        "mode": "gui",
+                    }
+                    if "execution_time_ms" in raw:
+                        result["execution_time_ms"] = raw["execution_time_ms"]
+
                 return self._send_json(result)
 
             # 404 for other POST paths

@@ -223,6 +223,43 @@ def ghidra_overview(
     return _call_api(f"/api/v1/overview?{params}")
 
 
+@mcp.tool()
+def ghidra_exec(
+    code: str,
+    language: str = "python",
+    readonly: bool = True,
+    noanalysis: bool = True,
+    timeout: int = 120,
+) -> dict:
+    """Execute a script in Ghidra with full API access.
+
+    Python scripts have access to all Ghidra Flat API functions.
+    Set `result` variable to return structured data.
+    Use print() for text output (captured in 'stdout').
+
+    Java scripts: provide the run() method body (extends GhidraScript).
+
+    Args:
+        code: Script source code to execute
+        language: "python" (default) or "java"
+        readonly: If True (default), read-only mode (headless). Set False to write.
+        noanalysis: If True (default), skip auto-analysis for speed
+        timeout: Max execution time in seconds (default: 120)
+
+    Examples:
+        code: "result = currentProgram().getFunctionManager().getFunctionCount()"
+        code: "fm = currentProgram().getFunctionManager()\\nfor f in fm.getFunctions(True):\\n    print(f.getName())"
+    """
+    body = {
+        "code": code,
+        "language": language,
+        "readonly": readonly,
+        "noanalysis": noanalysis,
+        "timeout": timeout,
+    }
+    return _call_api("/api/v1/exec", method="POST", body=body)
+
+
 # ============================================================
 # Conditional Tools
 # ============================================================
