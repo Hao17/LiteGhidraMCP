@@ -161,11 +161,11 @@ async def test_mcp_sse(host: str, port: int) -> bool:
                     for tool in tools:
                         print(f"  - {tool.name}")
 
-                    # Test a tool
-                    if any(t.name == "ghidra_basic_info" for t in tools):
-                        print("\nCalling ghidra_basic_info...")
+                    # Test a representative tool from the current MCP surface
+                    if any(t.name == "ghidra_overview" for t in tools):
+                        print("\nCalling ghidra_overview...")
                         result = await asyncio.wait_for(
-                            session.call_tool("ghidra_basic_info", {}),
+                            session.call_tool("ghidra_overview", {}),
                             timeout=15.0
                         )
                         if result.content:
@@ -173,8 +173,11 @@ async def test_mcp_sse(host: str, port: int) -> bool:
                                 if hasattr(item, 'text'):
                                     data = json.loads(item.text)
                                     if data.get("success"):
-                                        print(f"  Program: {data.get('name')}")
-                                        print(f"  Functions: {data.get('function_count')}")
+                                        overview = data.get("data", {})
+                                        metadata = overview.get("metadata", {})
+                                        stats = overview.get("statistics", {})
+                                        print(f"  Program: {metadata.get('name', 'N/A')}")
+                                        print(f"  Functions: {stats.get('functions', 'N/A')}")
 
                 except asyncio.TimeoutError:
                     print("  Timeout waiting for response")

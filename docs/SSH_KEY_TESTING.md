@@ -77,7 +77,7 @@ Authentication Method: PKI (会自动选择)
 使用我创建的自动化测试脚本：
 
 ```bash
-cd /Users/syec/Repos/Onmi/OnmiPy/Bridge
+cd /path/to/Bridge
 ./test_ssh_connection.sh
 ```
 
