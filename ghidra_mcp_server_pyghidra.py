@@ -1055,7 +1055,7 @@ class GhidraRequestHandler(BaseHTTPRequestHandler):
             path = self.path.split("?")[0]
 
             # ============================================================
-            # V1 Edit API (POST-only)
+            # V1 Edit API (POST-only) - wrapped with checkout/commit
             # ============================================================
             if path == "/api/v1/edit":
                 try:
@@ -1064,8 +1064,16 @@ class GhidraRequestHandler(BaseHTTPRequestHandler):
                     return self._send_json(
                         {"success": False, "error": str(e)}, 400
                     )
+                from api.checkout import ensure_checkout, auto_commit
+                ok, err = ensure_checkout(_mock_state)
+                if not ok:
+                    return self._send_json(err)
                 from api_v1 import edit as v1_edit
                 result = v1_edit.edit(_mock_state, body)
+                if isinstance(result, dict) and result.get("success", False):
+                    commit_info = auto_commit(_mock_state)
+                    if commit_info is not None:
+                        result["_commit"] = commit_info
                 return self._send_json(result)
 
             # ============================================================
@@ -1081,12 +1089,19 @@ class GhidraRequestHandler(BaseHTTPRequestHandler):
 
                 code = body.get("code", "")
                 language = body.get("language", "python")
+                readonly = body.get("readonly", True)
 
                 if not code.strip():
                     return self._send_json({"success": False, "error": "Missing 'code'"})
 
+                # Checkout/commit wrapper for non-readonly exec
+                if not readonly:
+                    from api.checkout import ensure_checkout, auto_commit
+                    ok, err = ensure_checkout(_mock_state)
+                    if not ok:
+                        return self._send_json(err)
+
                 if language == "java":
-                    readonly = body.get("readonly", True)
                     noanalysis = body.get("noanalysis", True)
                     timeout = body.get("timeout", 120)
                     result = _exec_java_headless(
@@ -1096,6 +1111,13 @@ class GhidraRequestHandler(BaseHTTPRequestHandler):
                     result = _exec_python_inprocess(code)
 
                 result["mode"] = "headless"
+
+                if not readonly and isinstance(result, dict) and result.get("success", False):
+                    from api.checkout import auto_commit
+                    commit_info = auto_commit(_mock_state)
+                    if commit_info is not None:
+                        result["_commit"] = commit_info
+
                 return self._send_json(result)
 
             # Read JSON body

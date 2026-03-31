@@ -438,7 +438,7 @@ def _resolve_field_ordinal(struct_dt, field):
 # Part A: 类型设置 API
 # ============================================================
 
-@route("/api/datatype/set/return")
+@route("/api/datatype/set/return", writes=True)
 def set_return_type(state, function="", function_address="", type=""):
     """
     设置函数返回类型。
@@ -482,7 +482,7 @@ def set_return_type(state, function="", function_address="", type=""):
     })
 
 
-@route("/api/datatype/set/parameter")
+@route("/api/datatype/set/parameter", writes=True)
 def set_parameter_type(state, function="", function_address="", param="", type=""):
     """
     设置函数参数类型。
@@ -552,7 +552,7 @@ def set_parameter_type(state, function="", function_address="", param="", type="
     })
 
 
-@route("/api/datatype/set/decompiler/variable")
+@route("/api/datatype/set/decompiler/variable", writes=True)
 def set_decompiler_variable_type(state, function="", function_address="", var_name="", type="", timeout=30):
     """
     设置反编译器中局部变量的类型（推荐方式）。
@@ -629,7 +629,7 @@ def set_decompiler_variable_type(state, function="", function_address="", var_na
     })
 
 
-@route("/api/datatype/set/decompiler/parameter")
+@route("/api/datatype/set/decompiler/parameter", writes=True)
 def set_decompiler_parameter_type(state, function="", function_address="", param="", type="", timeout=30):
     """
     设置反编译器中参数的类型（推荐方式）。
@@ -718,7 +718,7 @@ def set_decompiler_parameter_type(state, function="", function_address="", param
     })
 
 
-@route("/api/datatype/set/global")
+@route("/api/datatype/set/global", writes=True)
 def set_global_type(state, address="", name="", type=""):
     """
     设置全局变量的类型。
@@ -790,7 +790,7 @@ def set_global_type(state, address="", name="", type=""):
     })
 
 
-@route("/api/datatype/set/field")
+@route("/api/datatype/set/field", writes=True)
 def set_struct_field_type(state, struct="", field="", type=""):
     """
     设置结构体字段的类型。
@@ -866,7 +866,7 @@ def set_struct_field_type(state, struct="", field="", type=""):
 # Part B: 类型创建 API
 # ============================================================
 
-@route("/api/datatype/create/struct")
+@route("/api/datatype/create/struct", writes=True)
 def create_struct(state, name="", category="/", packing=0, fields=""):
     """
     创建结构体。
@@ -952,7 +952,7 @@ def create_struct(state, name="", category="/", packing=0, fields=""):
     })
 
 
-@route("/api/datatype/create/enum")
+@route("/api/datatype/create/enum", writes=True)
 def create_enum(state, name="", category="/", size=4, members=""):
     """
     创建枚举类型。
@@ -1035,7 +1035,7 @@ def create_enum(state, name="", category="/", size=4, members=""):
     })
 
 
-@route("/api/datatype/create/typedef")
+@route("/api/datatype/create/typedef", writes=True)
 def create_typedef(state, name="", base_type="", category="/"):
     """
     创建 typedef。
@@ -1087,7 +1087,7 @@ def create_typedef(state, name="", base_type="", category="/"):
     })
 
 
-@route("/api/datatype/create/union")
+@route("/api/datatype/create/union", writes=True)
 def create_union(state, name="", category="/", members=""):
     """
     创建联合体 (union)。
@@ -1164,7 +1164,7 @@ def create_union(state, name="", category="/", members=""):
     })
 
 
-@route("/api/datatype/create/funcdef")
+@route("/api/datatype/create/funcdef", writes=True)
 def create_funcdef(state, name="", return_type="void", params="", category="/", calling_convention=""):
     """
     创建函数定义（函数指针类型）。
@@ -1262,7 +1262,7 @@ def create_funcdef(state, name="", return_type="void", params="", category="/", 
 # Part C: 类型管理 API
 # ============================================================
 
-@route("/api/datatype/struct/field/add")
+@route("/api/datatype/struct/field/add", writes=True)
 def struct_field_add(state, struct="", type="", name="", comment="", at=-1):
     """
     添加结构体字段。
@@ -1333,7 +1333,7 @@ def struct_field_add(state, struct="", type="", name="", comment="", at=-1):
     })
 
 
-@route("/api/datatype/struct/field/delete")
+@route("/api/datatype/struct/field/delete", writes=True)
 def struct_field_delete(state, struct="", field=""):
     """
     删除结构体字段。
@@ -1394,7 +1394,7 @@ def struct_field_delete(state, struct="", field=""):
     })
 
 
-@route("/api/datatype/struct/field/modify")
+@route("/api/datatype/struct/field/modify", writes=True)
 def struct_field_modify(state, struct="", field="", new_name="", new_type="", new_comment=""):
     """
     修改结构体字段。
@@ -1474,7 +1474,7 @@ def struct_field_modify(state, struct="", field="", new_name="", new_type="", ne
     })
 
 
-@route("/api/datatype/enum/member/add")
+@route("/api/datatype/enum/member/add", writes=True)
 def enum_member_add(state, enum="", name="", value=0):
     """
     添加枚举成员。
@@ -1526,7 +1526,7 @@ def enum_member_add(state, enum="", name="", value=0):
     })
 
 
-@route("/api/datatype/enum/member/delete")
+@route("/api/datatype/enum/member/delete", writes=True)
 def enum_member_delete(state, enum="", name=""):
     """
     删除枚举成员。
@@ -1582,7 +1582,7 @@ def enum_member_delete(state, enum="", name=""):
     })
 
 
-@route("/api/datatype/delete")
+@route("/api/datatype/delete", writes=True)
 def delete_datatype(state, path="", name=""):
     """
     删除数据类型。
@@ -1628,7 +1628,7 @@ def delete_datatype(state, path="", name=""):
     })
 
 
-@route("/api/datatype/copy")
+@route("/api/datatype/copy", writes=True)
 def copy_datatype(state, source="", dest_category="/", new_name=""):
     """
     复制数据类型到其他类别。
@@ -1679,7 +1679,7 @@ def copy_datatype(state, source="", dest_category="/", new_name=""):
     })
 
 
-@route("/api/datatype/move")
+@route("/api/datatype/move", writes=True)
 def move_datatype(state, source="", dest_category="/"):
     """
     移动数据类型到其他类别。
@@ -1730,7 +1730,7 @@ def move_datatype(state, source="", dest_category="/"):
 # Part D: C 头文件解析 API
 # ============================================================
 
-@route("/api/datatype/parse/c")
+@route("/api/datatype/parse/c", writes=True)
 def parse_c_code(state, code="", category=""):
     """
     解析 C 代码创建数据类型。

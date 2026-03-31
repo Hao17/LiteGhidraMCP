@@ -14,17 +14,22 @@
 _routes = {}
 
 
-def route(path, methods=None):
+def route(path, methods=None, writes=False):
     """
     路由装饰器 - 自动注册 API 路由
 
     Args:
         path: 路由路径，如 "/api/basic_info"
         methods: 允许的 HTTP 方法列表，默认 ["GET"]
+        writes: 是否为写操作（True 时自动 checkout/commit）
 
     示例:
         @route("/api/my_api")
         def my_function(state, param1="", limit=100):
+            return {"success": True, ...}
+
+        @route("/api/my_api/update", writes=True)
+        def my_write(state, name="", new_name=""):
             return {"success": True, ...}
 
         # 请求: GET /api/my_api?param1=value&limit=50
@@ -39,6 +44,7 @@ def route(path, methods=None):
             "methods": methods,
             "module": func.__module__,
             "name": func.__name__,
+            "writes": writes,
         }
         return func
 
@@ -106,5 +112,30 @@ def dispatch_route(path, state, params=None):
         except (ValueError, TypeError):
             pass  # inspect 失败时不影响正常调用
 
-    # 调用处理函数，传递 state 和参数
+    # 写操作 middleware: checkout → handler → commit
+    if route_info.get("writes"):
+        return _dispatch_write(handler, state, params)
+
+    # 读操作：直接调用
     return handler(state, **params)
+
+
+def _dispatch_write(handler, state, params):
+    """Dispatch a write route with auto checkout/commit middleware."""
+    from api.checkout import ensure_checkout, auto_commit
+
+    # 1. Ensure checkout (no-op for non-server mode)
+    ok, err = ensure_checkout(state)
+    if not ok:
+        return err
+
+    # 2. Execute handler
+    result = handler(state, **params)
+
+    # 3. Auto commit if handler succeeded (no-op for non-server mode)
+    if isinstance(result, dict) and result.get("success", False):
+        commit_info = auto_commit(state)
+        if commit_info is not None:
+            result["_commit"] = commit_info
+
+    return result

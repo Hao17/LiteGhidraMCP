@@ -54,7 +54,7 @@ def _resolve_address(state, address="", name=""):
     return None, None, {"success": False, "error": "Must provide 'address' or 'name'"}
 
 
-@route("/api/comment/set")
+@route("/api/comment/set", writes=True)
 def set_comment(state, address="", name="", type="EOL", text=""):
     """
     设置注释。

@@ -82,6 +82,24 @@ def _get_domain_file(prog):
         return None
 
 
+def _reopen_program(df):
+    """Reopen program from DomainFile after undoCheckout/revert.
+
+    Uses getDomainObject to get a fresh handle and updates the server module state.
+    """
+    import ghidra_mcp_server_pyghidra as _server_mod
+
+    proj = _server_mod._project
+    if proj is None and _server_mod._ghidra_project:
+        proj = _server_mod._ghidra_project._project
+
+    new_prog = df.getDomainObject(proj, False, False, TaskMonitor.DUMMY)
+
+    with _server_mod._program_lock:
+        _server_mod._current_program = new_prog
+        _server_mod._mock_state._program = new_prog
+
+
 def _release_program():
     """释放当前程序（undoCheckout/revert 前必须调用）"""
     import ghidra_mcp_server_pyghidra as _server_mod
@@ -238,7 +256,7 @@ def version_commit(state, comment=""):
             except Exception as e:
                 return {"success": False, "error": f"Cannot add to version control (requires Ghidra Server mode): {e}"}
 
-        # Case 2: Versioned but not checked out - checkout (exclusive) and reopen writable
+        # Case 2: Versioned but not checked out - checkout (exclusive)
         if not df.isCheckedOut():
             try:
                 result = df.checkout(True, TaskMonitor.DUMMY)
@@ -254,9 +272,6 @@ def version_commit(state, comment=""):
                     "error": f"Checkout failed: {e}",
                     "error_code": "checkout_conflict",
                 }
-            # Must reopen to get writable handle
-            from ghidra_mcp_server_pyghidra import _switch_program
-            prog = _switch_program(prog.getName())
 
         # Case 3: Save local changes
         prog.save(commit_comment, TaskMonitor.DUMMY)
@@ -328,8 +343,7 @@ def version_rollback(state):
         df.undoCheckout(False)
 
         # Reopen the program (now at last committed version)
-        from ghidra_mcp_server_pyghidra import _switch_program
-        _switch_program(prog_name)
+        _reopen_program(df)
 
         return {
             "success": True,
@@ -396,8 +410,7 @@ def version_revert(state, version=0):
             deleted.append(latest)
 
         # Reopen program at the target version
-        from ghidra_mcp_server_pyghidra import _switch_program
-        _switch_program(prog_name)
+        _reopen_program(df)
 
         return {
             "success": True,
@@ -410,8 +423,7 @@ def version_revert(state, version=0):
     except Exception as e:
         # Try to reopen program even if revert partially failed
         try:
-            from ghidra_mcp_server_pyghidra import _switch_program
-            _switch_program(prog_name)
+            _reopen_program(df)
         except Exception:
             pass
         return {"success": False, "error": f"Revert failed: {e}"}

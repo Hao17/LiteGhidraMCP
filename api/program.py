@@ -24,7 +24,7 @@ def open_program(state, name=""):
     }
 
 
-@route("/api/program/import")
+@route("/api/program/import", writes=True)
 def import_program(state, path="", name="", analyze="true"):
     """
     Import a binary file into the current project/repository.

@@ -83,7 +83,7 @@ def _find_function(state, address="", name=""):
 # 函数重命名
 # ============================================================
 
-@route("/api/rename/function")
+@route("/api/rename/function", writes=True)
 def rename_function(state, address="", name="", new_name=""):
     """
     重命名函数。
@@ -131,7 +131,7 @@ def rename_function(state, address="", name="", new_name=""):
 # 局部变量重命名
 # ============================================================
 
-@route("/api/rename/variable")
+@route("/api/rename/variable", writes=True)
 def rename_variable(state, function="", function_address="", var_name="", new_name=""):
     """
     重命名函数内的局部变量。
@@ -192,7 +192,7 @@ def rename_variable(state, function="", function_address="", var_name="", new_na
 # 参数重命名
 # ============================================================
 
-@route("/api/rename/parameter")
+@route("/api/rename/parameter", writes=True)
 def rename_parameter(state, function="", function_address="", param="", new_name=""):
     """
     重命名函数参数。
@@ -263,7 +263,7 @@ def rename_parameter(state, function="", function_address="", param="", new_name
 # 全局变量重命名
 # ============================================================
 
-@route("/api/rename/global")
+@route("/api/rename/global", writes=True)
 def rename_global(state, address="", name="", new_name=""):
     """
     重命名全局变量。
@@ -340,7 +340,7 @@ def rename_global(state, address="", name="", new_name=""):
 # 标签重命名
 # ============================================================
 
-@route("/api/rename/label")
+@route("/api/rename/label", writes=True)
 def rename_label(state, address="", new_name=""):
     """
     重命名标签。
@@ -409,7 +409,7 @@ def rename_label(state, address="", new_name=""):
 # 数据类型重命名
 # ============================================================
 
-@route("/api/rename/datatype")
+@route("/api/rename/datatype", writes=True)
 def rename_datatype(state, name="", path="", new_name=""):
     """
     重命名数据类型。
@@ -482,7 +482,7 @@ def rename_datatype(state, name="", path="", new_name=""):
 # 命名空间/类重命名
 # ============================================================
 
-@route("/api/rename/namespace")
+@route("/api/rename/namespace", writes=True)
 def rename_namespace(state, name="", new_name=""):
     """
     重命名命名空间或类。
@@ -601,7 +601,7 @@ def _decompile_function(prog, func, timeout=30):
         decomp.dispose()
 
 
-@route("/api/rename/decompiler/variable")
+@route("/api/rename/decompiler/variable", writes=True)
 def rename_decompiler_variable(state, function="", function_address="", var_name="", new_name="", timeout=30):
     """
     重命名反编译器中的局部变量（推荐方式）。
@@ -680,7 +680,7 @@ def rename_decompiler_variable(state, function="", function_address="", var_name
     })
 
 
-@route("/api/rename/decompiler/parameter")
+@route("/api/rename/decompiler/parameter", writes=True)
 def rename_decompiler_parameter(state, function="", function_address="", param="", new_name="", timeout=30):
     """
     重命名反编译器中的函数参数（推荐方式）。
@@ -838,7 +838,7 @@ def _find_varnode_at_address(high_func, var_name, use_address, prog):
     return target_vn, target_sym, None
 
 
-@route("/api/rename/decompiler/split")
+@route("/api/rename/decompiler/split", writes=True)
 def split_variable(state, function="", function_address="", var_name="", use_address="", new_name="", timeout=30):
     """
     拆分变量（Split out as new variable）。
@@ -1151,7 +1151,7 @@ def _parse_parameter(param_str, index):
     return {"type": type_part, "name": name}
 
 
-@route("/api/rename/function_signature")
+@route("/api/rename/function_signature", writes=True)
 def rename_function_signature(state, function="", function_address="", signature="", timeout=30):
     """
     通过 C 签名字符串修改完整函数签名。
