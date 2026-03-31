@@ -215,7 +215,7 @@ def _run_demo_script():
 def _handle_api_request(path, params):
     """
     统一处理 API 请求。
-    根据已注册的路由调用对应的 handler。
+    通过 dispatch_route 分发到对应的 handler（包含 writes middleware）。
 
     Args:
         path: 请求路径，如 "/api/basic_info"
@@ -224,29 +224,13 @@ def _handle_api_request(path, params):
     Returns:
         dict 或 None（None 表示路由未找到）
     """
-    from api import get_routes
+    from api import dispatch_route
 
     if _cached_state is None:
         return {"success": False, "error": "State not cached"}
 
-    routes = get_routes()
-
-    if path not in routes:
-        return None  # 404
-
-    handler = routes[path]["handler"]
-
-    # 自动转换参数类型
-    converted_params = {}
-    for key, value in params.items():
-        # 尝试转换为整数
-        if value.isdigit() or (value.startswith("-") and value[1:].isdigit()):
-            converted_params[key] = int(value)
-        else:
-            converted_params[key] = value
-
     try:
-        return handler(_cached_state, **converted_params)
+        return dispatch_route(path, _cached_state, params)
     except TypeError as e:
         # 参数不匹配时的错误处理
         return {"success": False, "error": f"Invalid parameters: {e}"}
