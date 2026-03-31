@@ -26,6 +26,7 @@ This is a PyGhidra-based MCP (Model Context Protocol) Bridge that runs inside Gh
   - **`datatype.py`**: DataType API，数据类型设置、创建、管理和 C 头文件解析
   - **`program.py`**: Program API，程序枚举与导入；运行时切换已废弃
   - **`version.py`**: Version API，版本管理 commit/log/rollback/revert（仅 Ghidra Server 模式）
+  - **`checkout.py`**: Checkout Manager，写操作自动 checkout/save/checkin 生命周期（仅 Headless 模式）
   - **`memory.py`**: Memory API，读取任意地址的原始字节数据
 
 - **`api_v1/`**: v1 版本 API 模块目录（面向 AI 的聚合接口）：
@@ -370,6 +371,42 @@ curl -X POST http://127.0.0.1:8803/api/v1/edit -H "Content-Type: application/jso
 > MCP proxy 启动时自动检测，不支持时不注册 `ghidra_version` tool。
 > Commit 使用独占 checkout，同一 binary 同时只有一个写入者。
 
+### 版本管理与协作模式
+
+Bridge 在两种运行模式下对写操作（rename、comment、datatype 等）的版本管理行为不同：
+
+**Headless 模式（Docker/PyGhidra）— 自动 checkout/commit**
+
+写操作自动完成完整的版本管理生命周期，MCP 使用者无需手动调用 `ghidra_version`：
+
+```
+写操作请求 → ensure_checkout(exclusive=True) → handler(startTransaction → modify → endTransaction) → auto_commit(save + checkin) → 返回结果
+```
+
+- `@route` 装饰器通过 `writes=True` 标记写操作路由，`dispatch_route` 自动包裹 checkout/commit middleware
+- `POST /api/v1/edit` 和 `POST /api/v1/exec`（`readonly=False`）在 `do_POST` 中包裹，整个 batch 共享一次 checkout/commit
+- 非 Server 模式（本地项目）所有 checkout/commit 函数为 no-op
+- 成功的写操作返回结果中附带 `_commit` 字段，包含版本号和提交信息
+- `ghidra_version` tool 仍可用于查看历史（log）、手动回滚（rollback）等操作
+
+**GUI 模式（Ghidra CodeBrowser）— 用户管理**
+
+GUI 模式下 checkout/checkin 由用户通过 Ghidra 界面管理，Bridge 不干预：
+
+- `checkout.py` 通过检测 `ghidra_mcp_server_pyghidra` 模块是否加载来判断运行模式
+- GUI 模式下 `_get_domain_file()` 返回 `None`，所有 checkout/commit 函数为 no-op
+- 写操作正常执行（startTransaction → modify → endTransaction），但不触发 checkout/commit
+- 用户需通过 Ghidra GUI 的 Project 菜单手动 checkout、save、checkin
+
+**写操作路由标记**:
+
+```python
+@route("/api/rename/function", writes=True)  # 写操作，自动 checkout/commit（Headless）
+@route("/api/search/functions")              # 读操作，无 checkout/commit
+```
+
+写操作模块: `rename.py`(11), `comment.py`(1), `datatype.py`(20), `program.py`(1 import)
+
 **V1 API** (`/api/v1/*`) - 面向 AI 的聚合接口:
 
 所有 V1 API 默认返回 compact 格式（数组 + `_schema`），可通过 `verbose=true` 获取完整 dict 格式。
@@ -416,19 +453,23 @@ from api import route
 
 @route("/api/my_api")
 def my_function(state, param1="", param2=None, limit=100):
-    """
-    我的 API 功能描述。
-
-    路由: GET /api/my_api?param1=xxx&limit=50
-    """
+    """读操作示例。"""
     prog = state.getCurrentProgram()
     # ... 业务逻辑
     return {"success": True, "data": ...}
 
-# 一个文件可以定义多个路由
-@route("/api/my_api/detail")
-def my_detail(state, address=""):
-    # ...
+# 写操作：添加 writes=True，Headless 模式下自动 checkout/commit
+@route("/api/my_api/update", writes=True)
+def my_update(state, name="", new_name=""):
+    """写操作示例。"""
+    prog = state.getCurrentProgram()
+    tx_id = prog.startTransaction("My Update")
+    try:
+        # ... 修改操作
+        prog.endTransaction(tx_id, True)
+    except Exception as e:
+        prog.endTransaction(tx_id, False)
+        return {"success": False, "error": str(e)}
     return {"success": True, ...}
 ```
 
@@ -442,6 +483,7 @@ curl http://127.0.0.1:8803/_reload
 - 后续参数从 URL query 自动注入
 - 参数应提供默认值，如 `q=""`, `limit=100`
 - 整数字符串会自动转换为 int 类型
+- 修改程序数据的路由须标记 `writes=True`，Headless 模式下自动 checkout/commit
 
 **State 对象可用方法**:
 - `state.getCurrentProgram()` - 当前程序
