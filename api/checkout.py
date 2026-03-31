@@ -30,16 +30,18 @@ DefaultCheckinHandler = sys.modules.get(_CACHE_PREFIX + 'DefaultCheckinHandler')
 
 
 def _get_domain_file(prog):
-    """Get the real DomainFile for a program (delegates to version.py's logic)."""
+    """Get the real DomainFile for a program (headless/PyGhidra mode only).
+
+    Returns None in GUI mode — version.py's _get_domain_file imports from
+    ghidra_mcp_server_pyghidra which is not loaded in GUI mode.
+    This ensures all checkout/commit functions are no-ops in GUI mode,
+    where the user manages version control through the Ghidra GUI.
+    """
     try:
         from api.version import _get_domain_file as _vdf
         return _vdf(prog)
-    except ImportError:
-        # Fallback: try prog.getDomainFile() directly
-        try:
-            return prog.getDomainFile()
-        except Exception:
-            return None
+    except Exception:
+        return None
 
 
 def is_server_versioned(state):

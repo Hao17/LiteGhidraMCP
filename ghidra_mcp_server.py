@@ -353,7 +353,7 @@ class GhidraRequestHandler(BaseHTTPRequestHandler):
             path = self.path.split("?")[0]
 
             # ============================================================
-            # V1 Edit API (POST-only) - wrapped with checkout/commit
+            # V1 Edit API (POST-only)
             # ============================================================
             if path == "/api/v1/edit":
                 if _cached_state is None:
@@ -368,16 +368,8 @@ class GhidraRequestHandler(BaseHTTPRequestHandler):
                         {"success": False, "error": str(e)},
                         status=400
                     )
-                from api.checkout import ensure_checkout, auto_commit
-                ok, err = ensure_checkout(_cached_state)
-                if not ok:
-                    return self._send_json(err)
                 from api_v1 import edit as v1_edit
                 result = v1_edit.edit(_cached_state, body)
-                if isinstance(result, dict) and result.get("success", False):
-                    commit_info = auto_commit(_cached_state)
-                    if commit_info is not None:
-                        result["_commit"] = commit_info
                 return self._send_json(result)
 
             # ============================================================
@@ -393,17 +385,9 @@ class GhidraRequestHandler(BaseHTTPRequestHandler):
 
                 code = body.get("code", "")
                 language = body.get("language", "python")
-                readonly = body.get("readonly", True)
 
                 if not code.strip():
                     return self._send_json({"success": False, "error": "Missing 'code'"})
-
-                # Checkout/commit wrapper for non-readonly exec
-                if not readonly:
-                    from api.checkout import ensure_checkout, auto_commit
-                    ok, err = ensure_checkout(_cached_state)
-                    if not ok:
-                        return self._send_json(err)
 
                 ts = int(time.time() * 1000)
 
@@ -446,12 +430,6 @@ class GhidraRequestHandler(BaseHTTPRequestHandler):
                     }
                     if "execution_time_ms" in raw:
                         result["execution_time_ms"] = raw["execution_time_ms"]
-
-                if not readonly and isinstance(result, dict) and result.get("success", False):
-                    from api.checkout import auto_commit
-                    commit_info = auto_commit(_cached_state)
-                    if commit_info is not None:
-                        result["_commit"] = commit_info
 
                 return self._send_json(result)
 
