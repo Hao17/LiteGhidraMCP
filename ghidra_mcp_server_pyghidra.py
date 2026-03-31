@@ -306,18 +306,18 @@ def _init_ghidra_project():
                 names = [f.getPathname() for f in all_files]
                 raise FileNotFoundError(f"Program '{target_name}' not found. Available: {names}")
             folder_path = domain_file.getPathname().rsplit("/", 1)[0] or "/"
-            _current_program = _ghidra_project.openProgram(folder_path, domain_file.getName(), False)
+            _current_program = _ghidra_project.openProgram(folder_path, domain_file.getName(), True)
             print(f"[PyGhidra-MCP-Bridge] ✓ Program loaded (PROGRAM_NAME): {domain_file.getPathname()}")
         elif program_files:
             # Open first program
             program_file = program_files[0]
             program_name = program_file.getName()
-            _current_program = _ghidra_project.openProgram("/", program_name, False)
+            _current_program = _ghidra_project.openProgram("/", program_name, True)
             print(f"[PyGhidra-MCP-Bridge] ✓ Program loaded: {program_name}")
         elif all_files:
             domain_file = all_files[0]
             folder_path = domain_file.getPathname().rsplit("/", 1)[0] or "/"
-            _current_program = _ghidra_project.openProgram(folder_path, domain_file.getName(), False)
+            _current_program = _ghidra_project.openProgram(folder_path, domain_file.getName(), True)
             print(f"[PyGhidra-MCP-Bridge] ✓ Program loaded: {domain_file.getPathname()}")
         else:
             print("[PyGhidra-MCP-Bridge] ⚠ No programs found in project")
@@ -558,7 +558,7 @@ def _init_ghidra_project():
                             )
                             folder_path = try_path.rsplit("/", 1)[0] or "/"
                             prog_name = try_path.rsplit("/", 1)[1]
-                            _current_program = _ghidra_project.openProgram(folder_path, prog_name, False)
+                            _current_program = _ghidra_project.openProgram(folder_path, prog_name, True)
                             _project = _ghidra_project.getProject()
                             if _current_program is not None:
                                 print(f"[PyGhidra-MCP-Bridge] ✓ Program loaded via path: {_current_program.getName()}")
