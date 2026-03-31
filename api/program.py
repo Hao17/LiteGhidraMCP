@@ -1,4 +1,4 @@
-# api/program.py - Program management API (list/switch/import programs)
+# api/program.py - Program inventory/import API (runtime switching is deprecated)
 
 from api import route
 
@@ -13,23 +13,15 @@ def list_programs(state):
 
 @route("/api/program/open")
 def open_program(state, name=""):
-    """Switch the active program by name."""
-    if not name:
-        return {"success": False, "error": "Missing 'name' parameter"}
-    from ghidra_mcp_server_pyghidra import _switch_program
-    try:
-        prog = _switch_program(name)
-        return {
-            "success": True,
-            "program": {
-                "name": prog.getName(),
-                "arch": str(prog.getLanguage().getProcessor()),
-                "bits": prog.getLanguage().getDefaultSpace().getSize() * 8,
-                "functions": prog.getFunctionManager().getFunctionCount()
-            }
-        }
-    except (FileNotFoundError, RuntimeError) as e:
-        return {"success": False, "error": str(e)}
+    """Deprecated. Program selection must be fixed at startup."""
+    return {
+        "success": False,
+        "error": (
+            "Runtime program switching is deprecated and disabled. "
+            "Start the bridge with PROGRAM_NAME (or Docker BINARY) set to "
+            "the target program name/path."
+        ),
+    }
 
 
 @route("/api/program/import")

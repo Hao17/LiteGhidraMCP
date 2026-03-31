@@ -34,7 +34,7 @@
 
 ### Separated Server-Client 模式 ⭐ 推荐
 
-AI（Docker）+ GUI（人工）协作，一条命令部署。每个 Client 启动时绑定一个 REPO/BINARY。
+AI（Docker）+ GUI（人工）协作，一条命令部署。每个 Client 启动时绑定一个 REPO/BINARY（程序名或仓库路径），运行时不支持切换。
 
 ```bash
 cd docker/
@@ -47,11 +47,12 @@ vim .env  # 设置 GHIDRA_DATA_DIR（如 ~/ghidra-data）
 make server-up
 
 # 启动 Client（REPO 必选，BINARY 推荐）
-make client-up REPO=test BINARY=my_binary                    # 打开已有 binary
+make client-up REPO=test BINARY=my_binary                       # 打开已有 binary
+make client-up REPO=test BINARY=38.1.0/my_binary               # 按仓库路径打开 binary
 make client-up REPO=test BINARY=my_binary BINARY_FILE=~/a.bin  # 导入并打开
 
 # 第二个客户端，使用不同端口 (8813/8814)
-make client2-up REPO=test BINARY=other_binary
+make client2-up REPO=test BINARY=modules/other_binary
 ```
 
 **启动后：**
@@ -177,7 +178,7 @@ curl "http://127.0.0.1:8803/api/memory/read?address=0x401000&length=256"
 export GHIDRA_MCP_HOST=127.0.0.1      # HTTP API 主机（默认: 127.0.0.1）
 export GHIDRA_MCP_PORT=8803           # HTTP API 端口（默认: 8803）
 export GHIDRA_MCP_SSE_PORT=8804       # MCP SSE 端口（默认: 8804）
-export PROGRAM_NAME=""                # 启动时打开的程序名（默认: 第一个可用程序）
+export PROGRAM_NAME=""                # 启动时打开的程序名或仓库路径（默认: 第一个可用程序）
 ```
 
 ### 多程序同时分析

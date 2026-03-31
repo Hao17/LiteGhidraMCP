@@ -24,7 +24,7 @@ This is a PyGhidra-based MCP (Model Context Protocol) Bridge that runs inside Gh
   - **`comment.py`**: Comment API，设置/删除注释
   - **`rename.py`**: Rename API，重命名函数、变量、参数、标签、数据类型、命名空间等
   - **`datatype.py`**: DataType API，数据类型设置、创建、管理和 C 头文件解析
-  - **`program.py`**: Program API，程序列表和切换（Docker Server 模式）
+  - **`program.py`**: Program API，程序枚举与导入；运行时切换已废弃
   - **`version.py`**: Version API，版本管理 commit/log/rollback/revert（仅 Ghidra Server 模式）
   - **`memory.py`**: Memory API，读取任意地址的原始字节数据
 
@@ -75,7 +75,7 @@ analyzeHeadless <projDir> <projName> -import <binary> -scriptPath . -postScript 
 # GHIDRA_MCP_HOST (default: 127.0.0.1)
 # GHIDRA_MCP_PORT (default: 8803)
 # GHIDRA_MCP_SSE_PORT (default: 8804) - MCP SSE server port
-# PROGRAM_NAME (default: "") - specify program to open at startup (empty = first available)
+# PROGRAM_NAME (default: "") - specify program name or repository path at startup (empty = first available)
 
 # 手动热重载 API 模块（无需在 Ghidra 中重新执行脚本）
 curl http://127.0.0.1:8803/_reload
@@ -349,13 +349,13 @@ curl -X POST http://127.0.0.1:8803/api/v1/edit -H "Content-Type: application/jso
   - `format`: `hex`(默认) / `base64` / `ascii` / `u8` / `u16le` / `u16be` / `u32le` / `u32be` / `u64le` / `u64be`
   - `length`: 最大 16384 (16KB)
 
-**Program API** (`/api/program/*`) - 程序管理（列表/切换/导入）:
+**Program API** (`/api/program/*`) - 程序枚举/导入（运行时切换已废弃）:
 - `GET /api/program/list` - 列出当前项目/仓库中的所有程序（包含 `active` 标记）
-- `GET /api/program/open?name=<name>` - 切换活动程序（返回程序基本信息）
+- `GET /api/program/open?name=<name>` - 已废弃，不需要；请在启动时通过 `PROGRAM_NAME` / `BINARY` 指定程序名或仓库路径
 - `GET /api/program/import?path=<path>&name=<name>&analyze=true` - 导入 binary 到项目
 
 > **环境变量**:
-> - `PROGRAM_NAME` - 启动时指定要打开的程序名称，未设置则默认打开第一个程序
+> - `PROGRAM_NAME` - 启动时指定要打开的程序名称或仓库路径，未设置则默认打开第一个程序
 > - `IMPORT_BINARY_NAME` - 启动时自动从 `/import/` 目录导入的 binary 名称（Docker Client 模式）
 
 **Version API** (`/api/version/*`) - 版本管理（仅 Ghidra Server 共享项目模式）:
@@ -509,11 +509,14 @@ make server-up
 # Client 1：连接已有 repo 中的 binary
 make client-up REPO=test BINARY=test_alpha
 
+# Client 1：按仓库路径绑定指定 binary
+make client-up REPO=test BINARY=38.1.0/test_alpha
+
 # Client 1：导入新 binary 并启动
 make client-up REPO=test BINARY=test_alpha BINARY_FILE=~/binaries/alpha.bin
 
 # Client 2：另一个 binary（不同端口 8813/8814）
-make client2-up REPO=test BINARY=test_beta BINARY_FILE=~/binaries/beta.bin
+make client2-up REPO=test BINARY=modules/test_beta BINARY_FILE=~/binaries/beta.bin
 
 # 停止
 make client-down      # Client 1
@@ -523,12 +526,13 @@ make down-separated   # 全部停止
 
 **参数说明**:
 - `REPO`（必选）：Ghidra Server 仓库名
-- `BINARY`（推荐）：要打开的程序名
+- `BINARY`（推荐）：要打开的程序名或仓库路径
 - `BINARY_FILE`（可选）：主机上的 binary 文件路径，自动导入到 repo
 
 **设计原则**:
 - MCP Tools（5 个）保持不变，纯分析工具，不包含 program 管理
 - Client 生命周期完全由 Makefile 管理
-- Program 管理通过 HTTP API（`/api/program/*`）提供，但不暴露为 MCP tool
+- 程序在启动时通过 `BINARY` / `PROGRAM_NAME` 绑定；运行时切换不需要
+- Program API 仅保留枚举/导入能力，不暴露为 MCP tool
 
 详细架构、数据持久化和部署说明见 `docker/ARCHITECTURE.md` 和 `docker/QUICKSTART.md`。

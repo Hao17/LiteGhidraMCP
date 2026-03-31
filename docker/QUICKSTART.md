@@ -226,10 +226,13 @@ cd docker/
 # 1. Start server
 make server-up
 
-# 2. Start client(s)
-make client-up           # First client (8803/8804)
-make client2-up          # Second client (8813/8814)
+# 2. Start client(s) with the target binary fixed at startup
+make client-up REPO=test BINARY=38.1.0/app.bin   # First client (8803/8804)
+make client2-up REPO=test BINARY=modules/lib.so  # Second client (8813/8814)
 ```
+
+Each client should bind to its target binary at startup via `BINARY` / `PROGRAM_NAME`.
+Runtime program switching is deprecated and intentionally unsupported.
 
 ### What Gets Created
 

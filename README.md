@@ -34,7 +34,7 @@ After setup, → [Configure AI Client](#configure-ai-client) to connect your AI 
 
 ### Separated Server-Client Mode ⭐ Recommended
 
-AI (Docker) + GUI (Human) collaboration with one command. Each client binds to one REPO/BINARY at startup.
+AI (Docker) + GUI (Human) collaboration with one command. Each client binds to one REPO/BINARY (name or repo path) at startup, and runtime switching is intentionally unsupported.
 
 ```bash
 cd docker/
@@ -47,11 +47,12 @@ vim .env  # Set GHIDRA_DATA_DIR (e.g., ~/ghidra-data)
 make server-up
 
 # Start client (REPO required, BINARY recommended)
-make client-up REPO=test BINARY=my_binary                    # Open existing binary
+make client-up REPO=test BINARY=my_binary                       # Open existing binary
+make client-up REPO=test BINARY=38.1.0/my_binary               # Open binary by repo path
 make client-up REPO=test BINARY=my_binary BINARY_FILE=~/a.bin  # Import + open
 
 # Second client on different ports (8813/8814)
-make client2-up REPO=test BINARY=other_binary
+make client2-up REPO=test BINARY=modules/other_binary
 ```
 
 **What happens:**
@@ -177,7 +178,7 @@ For complete API documentation, see [CLAUDE.md](CLAUDE.md).
 export GHIDRA_MCP_HOST=127.0.0.1      # HTTP API host (default: 127.0.0.1)
 export GHIDRA_MCP_PORT=8803           # HTTP API port (default: 8803)
 export GHIDRA_MCP_SSE_PORT=8804       # MCP SSE port (default: 8804)
-export PROGRAM_NAME=""                # Program to open at startup (default: first available)
+export PROGRAM_NAME=""                # Program name or repo path to open at startup (default: first available)
 ```
 
 ### Multi-Program Analysis

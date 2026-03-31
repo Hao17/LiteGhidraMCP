@@ -50,7 +50,7 @@ _current_program = None
 _mock_state = None
 
 # Server mode shared project state
-_server_handle = None     # RepositoryServerAdapter (for runtime program switching)
+_server_handle = None     # Reserved for shared-project server integrations
 _project = None           # Underlying Project object (server mode shared project)
 _program_lock = threading.Lock()
 
@@ -294,25 +294,31 @@ def _init_ghidra_project():
         )
         print(f"[PyGhidra-MCP-Bridge] ✓ Project opened: {project_name}")
 
-        # Open program: prefer PROGRAM_NAME env var, fallback to first available
+        # Open program selected at startup via PROGRAM_NAME (name or project path).
         root_folder = _ghidra_project.getProjectData().getRootFolder()
         program_files = list(root_folder.getFiles())
+        all_files = _collect_all_files(root_folder)
         target_name = os.environ.get("PROGRAM_NAME", "")
 
         if target_name:
-            # Try to open the specified program
-            domain_file = root_folder.getFile(target_name)
+            domain_file = _find_domain_file(root_folder, target_name)
             if domain_file is None:
-                names = [f.getName() for f in program_files]
+                names = [f.getPathname() for f in all_files]
                 raise FileNotFoundError(f"Program '{target_name}' not found. Available: {names}")
-            _current_program = _ghidra_project.openProgram("/", target_name, False)
-            print(f"[PyGhidra-MCP-Bridge] ✓ Program loaded (PROGRAM_NAME): {target_name}")
+            folder_path = domain_file.getPathname().rsplit("/", 1)[0] or "/"
+            _current_program = _ghidra_project.openProgram(folder_path, domain_file.getName(), False)
+            print(f"[PyGhidra-MCP-Bridge] ✓ Program loaded (PROGRAM_NAME): {domain_file.getPathname()}")
         elif program_files:
             # Open first program
             program_file = program_files[0]
             program_name = program_file.getName()
             _current_program = _ghidra_project.openProgram("/", program_name, False)
             print(f"[PyGhidra-MCP-Bridge] ✓ Program loaded: {program_name}")
+        elif all_files:
+            domain_file = all_files[0]
+            folder_path = domain_file.getPathname().rsplit("/", 1)[0] or "/"
+            _current_program = _ghidra_project.openProgram(folder_path, domain_file.getName(), False)
+            print(f"[PyGhidra-MCP-Bridge] ✓ Program loaded: {domain_file.getPathname()}")
         else:
             print("[PyGhidra-MCP-Bridge] ⚠ No programs found in project")
             print("[PyGhidra-MCP-Bridge] ⚠ You can import binaries via API or manually")
@@ -621,40 +627,12 @@ def _list_programs():
 
 
 def _switch_program(name):
-    """Switch the active program. Returns the new Program object."""
-    global _current_program
-
-    # Determine the underlying project object for domain file operations
-    proj = _project
-    if proj is None and _ghidra_project:
-        # GhidraProject wraps a Project internally
-        proj = _ghidra_project._project
-
-    if proj is None:
-        raise RuntimeError("No project loaded")
-
-    root = proj.getProjectData().getRootFolder()
-    domain_file = _find_domain_file(root, name)
-    if domain_file is None:
-        all_files = _collect_all_files(root)
-        paths = [f.getPathname() for f in all_files]
-        raise FileNotFoundError(f"Program '{name}' not found. Available: {paths}")
-
-    with _program_lock:
-        # Close old program
-        if _current_program:
-            try:
-                _current_program.release(proj)
-            except Exception:
-                pass
-
-        # Open new program
-        from ghidra.util.task import TaskMonitor
-        new_program = domain_file.getDomainObject(proj, False, False, TaskMonitor.DUMMY)
-        _current_program = new_program
-        _mock_state._program = new_program
-
-    return new_program
+    """Deprecated. Program selection must be fixed at startup."""
+    raise RuntimeError(
+        "Runtime program switching is deprecated and disabled. "
+        "Start a dedicated bridge/client with PROGRAM_NAME or BINARY set "
+        "to the target program name/path."
+    )
 
 
 def _serialize(obj, depth=0):

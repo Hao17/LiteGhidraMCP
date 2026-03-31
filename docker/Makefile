@@ -24,7 +24,7 @@ help:
 	@echo ""
 	@echo "Separated Server-Client Mode (AI + GUI collaboration):"
 	@echo "  make server-up          - Start standalone Ghidra Server"
-	@echo "  make client N=<1-9> REPO=<name> [BINARY=<name>] [BINARY_FILE=<path>]"
+	@echo "  make client N=<1-9> REPO=<name> [BINARY=<name-or-path>] [BINARY_FILE=<path>]"
 	@echo "                          - Start client N (ports auto-calculated) ⭐"
 	@echo "  make client-stop N=<1-9>  - Stop client N"
 	@echo "  make client-logs N=<1-9>  - View client N logs"
@@ -76,7 +76,7 @@ check-env:
 check-repo:
 	@if [ -z "$(REPO)" ]; then \
 		echo "ERROR: REPO is required."; \
-		echo "Usage: make client N=<1-9> REPO=<name> [BINARY=<name>] [BINARY_FILE=<path>]"; \
+		echo "Usage: make client N=<1-9> REPO=<name> [BINARY=<name-or-path>] [BINARY_FILE=<path>]"; \
 		exit 1; \
 	fi
 
@@ -425,7 +425,7 @@ help-separated:
 	@echo ""
 	@echo "Client Management (each client = one binary):"
 	@echo "  make client N=1 REPO=test BINARY=alpha                  - Start client 1 (8803/8804)"
-	@echo "  make client N=2 REPO=test BINARY=beta BINARY_FILE=~/b   - Start client 2 (8813/8814)"
+	@echo "  make client N=2 REPO=test BINARY=modules/beta BINARY_FILE=~/b - Start client 2 (8813/8814)"
 	@echo "  make client N=3 REPO=aweme BINARY=38.1.0/all_init.o     - Start client 3 (8823/8824)"
 	@echo "  make client-stop N=3   - Stop client 3"
 	@echo "  make client-logs N=3   - View client 3 logs"

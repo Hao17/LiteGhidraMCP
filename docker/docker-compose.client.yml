@@ -43,7 +43,7 @@ services:
       - GHIDRA_SERVER_PORT=${GHIDRA_SERVER_PORT:-13100}
       - AUTO_SERVER_REPO=${GHIDRA_SERVER_REPO:-/mcp-projects}
 
-      # Program selection (open specific program from repository)
+      # Program binding at startup (program name or repo path; runtime switching deprecated)
       - PROGRAM_NAME=${PROGRAM_NAME:-}
 
       # Auto-import: binary name to import from /import on startup
