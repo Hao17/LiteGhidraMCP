@@ -130,6 +130,7 @@ def _format_version(v):
 def version_log(state, limit=50, diff=0, types="all"):
     """
     获取版本历史，可选附带与指定版本的差异。
+    自动 flush 未提交的修改，确保 log 反映最新状态。
 
     路由: GET /api/version/log?limit=50&diff=<n>&types=all
 
@@ -138,6 +139,13 @@ def version_log(state, limit=50, diff=0, types="all"):
         diff: 与指定版本号比较差异 (0=不比较)
         types: diff 过滤类型 (默认 all)
     """
+    # Flush any pending deferred checkin so log reflects latest state
+    try:
+        from api.checkout import flush_checkin
+        flush_checkin(state)
+    except Exception:
+        pass
+
     prog, err = _get_program(state)
     if err:
         return err
@@ -320,6 +328,13 @@ def version_rollback(state):
 
     路由: GET /api/version/rollback
     """
+    # Cancel any pending deferred checkin (we're discarding changes, not committing)
+    try:
+        from api.checkout import _cancel_checkin_timer
+        _cancel_checkin_timer()
+    except Exception:
+        pass
+
     prog, err = _get_program(state)
     if err:
         return err
@@ -369,6 +384,12 @@ def version_revert(state, version=0):
     注意: 这是破坏性操作！被删除的版本无法恢复。
     文件不能被任何人 checkout（包括自己），操作前会自动 undo checkout。
     """
+    # Cancel any pending deferred checkin
+    try:
+        from api.checkout import _cancel_checkin_timer
+        _cancel_checkin_timer()
+    except Exception:
+        pass
     target = int(version)
     if target < 1:
         return {"success": False, "error": "version parameter is required and must be >= 1"}

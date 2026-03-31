@@ -121,10 +121,16 @@ def dispatch_route(path, state, params=None):
 
 
 def _dispatch_write(handler, state, params):
-    """Dispatch a write route with auto checkout/commit middleware."""
-    from api.checkout import ensure_checkout, auto_commit
+    """Dispatch a write route with auto checkout/save middleware.
 
-    # 1. Ensure checkout (no-op for non-server mode)
+    Checkout is acquired before the handler runs. After a successful write,
+    changes are saved locally and a deferred checkin timer is (re)started.
+    The actual checkin happens after CHECKIN_DELAY seconds of no writes,
+    batching consecutive modifications into a single commit.
+    """
+    from api.checkout import ensure_checkout, auto_save
+
+    # 1. Ensure checkout + cancel pending checkin timer (no-op for non-server mode)
     ok, err = ensure_checkout(state)
     if not ok:
         return err
@@ -132,10 +138,10 @@ def _dispatch_write(handler, state, params):
     # 2. Execute handler
     result = handler(state, **params)
 
-    # 3. Auto commit if handler succeeded (no-op for non-server mode)
+    # 3. Save + schedule deferred checkin (no-op for non-server mode)
     if isinstance(result, dict) and result.get("success", False):
-        commit_info = auto_commit(state)
-        if commit_info is not None:
-            result["_commit"] = commit_info
+        save_info = auto_save(state)
+        if save_info is not None:
+            result["_saved"] = save_info
 
     return result

@@ -1064,16 +1064,16 @@ class GhidraRequestHandler(BaseHTTPRequestHandler):
                     return self._send_json(
                         {"success": False, "error": str(e)}, 400
                     )
-                from api.checkout import ensure_checkout, auto_commit
+                from api.checkout import ensure_checkout, auto_save
                 ok, err = ensure_checkout(_mock_state)
                 if not ok:
                     return self._send_json(err)
                 from api_v1 import edit as v1_edit
                 result = v1_edit.edit(_mock_state, body)
                 if isinstance(result, dict) and result.get("success", False):
-                    commit_info = auto_commit(_mock_state)
-                    if commit_info is not None:
-                        result["_commit"] = commit_info
+                    save_info = auto_save(_mock_state)
+                    if save_info is not None:
+                        result["_saved"] = save_info
                 return self._send_json(result)
 
             # ============================================================
@@ -1094,9 +1094,9 @@ class GhidraRequestHandler(BaseHTTPRequestHandler):
                 if not code.strip():
                     return self._send_json({"success": False, "error": "Missing 'code'"})
 
-                # Checkout/commit wrapper for non-readonly exec
+                # Checkout/save wrapper for non-readonly exec
                 if not readonly:
-                    from api.checkout import ensure_checkout, auto_commit
+                    from api.checkout import ensure_checkout
                     ok, err = ensure_checkout(_mock_state)
                     if not ok:
                         return self._send_json(err)
@@ -1113,10 +1113,10 @@ class GhidraRequestHandler(BaseHTTPRequestHandler):
                 result["mode"] = "headless"
 
                 if not readonly and isinstance(result, dict) and result.get("success", False):
-                    from api.checkout import auto_commit
-                    commit_info = auto_commit(_mock_state)
-                    if commit_info is not None:
-                        result["_commit"] = commit_info
+                    from api.checkout import auto_save
+                    save_info = auto_save(_mock_state)
+                    if save_info is not None:
+                        result["_saved"] = save_info
 
                 return self._send_json(result)
 

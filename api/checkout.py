@@ -2,11 +2,20 @@
 """
 Checkout Manager - 自动为写操作处理 checkout/save/checkin 生命周期。
 
-Server 模式下：写操作前 checkout(exclusive=True)，写操作后 save + checkin。
+Headless 模式下的写操作流程：
+  1. ensure_checkout(): 首次写操作时获取 exclusive checkout
+  2. handler 执行修改（startTransaction → modify → endTransaction）
+  3. auto_save(): prog.save() 保存到本地，重置 idle timer
+  4. idle timer 到期（无新写操作）→ checkin 并释放 checkout
+
+连续的写操作共享同一次 checkout，idle timer 不断重置，
+直到最后一次写操作后 CHECKIN_DELAY 秒无新写入才 checkin，产生一个 commit。
+
 非 Server 模式（GUI/本地）：所有函数为 no-op，直接透传。
 """
 
 import sys
+import threading
 
 # Cache Java classes in sys.modules to survive hot reloads on worker threads
 _CACHE_PREFIX = '_ghidra_api_checkout_'
@@ -27,6 +36,12 @@ for _key, (_pkg, _cls_name) in _classes_to_cache.items():
 
 TaskMonitor = sys.modules.get(_CACHE_PREFIX + 'TaskMonitor')
 DefaultCheckinHandler = sys.modules.get(_CACHE_PREFIX + 'DefaultCheckinHandler')
+
+
+# Deferred checkin timer
+CHECKIN_DELAY = 5  # seconds after last write before auto-checkin
+_checkin_timer = None
+_checkin_lock = threading.Lock()
 
 
 def _get_domain_file(prog):
@@ -63,7 +78,7 @@ def is_server_versioned(state):
 
 
 def ensure_checkout(state):
-    """Acquire exclusive checkout if needed.
+    """Acquire exclusive checkout if needed, cancel any pending checkin timer.
 
     Returns (success, error_dict_or_None).
     - Non-versioned: returns (True, None) immediately (no-op).
@@ -71,6 +86,9 @@ def ensure_checkout(state):
     - Checkout acquired: returns (True, None).
     - Checkout failed: returns (False, error_dict).
     """
+    # Cancel pending checkin to prevent race with handler execution
+    _cancel_checkin_timer()
+
     prog = state.getCurrentProgram()
     if prog is None:
         return True, None
@@ -106,14 +124,11 @@ def ensure_checkout(state):
         }
 
 
-def auto_commit(state, comment="Auto-commit via API"):
-    """Save and checkin after a successful write operation.
+def auto_save(state, comment="Auto-commit via API"):
+    """Save locally after a successful write operation, schedule deferred checkin.
 
-    Returns a dict with commit info, or None if not applicable.
-    - Non-versioned: returns None (no-op).
-    - Not checked out: returns None (shouldn't happen after ensure_checkout).
-    - Success: returns commit info dict.
-    - Error: returns error info dict (but does NOT fail the operation).
+    Returns a dict with save info, or None if not applicable.
+    The actual checkin happens after CHECKIN_DELAY seconds of no writes.
     """
     prog = state.getCurrentProgram()
     if prog is None:
@@ -130,13 +145,88 @@ def auto_commit(state, comment="Auto-commit via API"):
         return None
 
     if not df.isCheckedOut():
-        return None  # Not checked out, nothing to commit
+        return None
 
     # Save local changes
     try:
         prog.save(comment, TaskMonitor.DUMMY)
     except Exception as e:
         return {"action": "save_failed", "error": str(e)}
+
+    # Schedule deferred checkin
+    _schedule_checkin(state, comment)
+
+    return {"action": "saved", "comment": comment}
+
+
+def flush_checkin(state, comment="Auto-commit via API"):
+    """Force immediate checkin if checked out. Cancel any pending timer.
+
+    Used before version log (to show latest state) and on shutdown.
+    Returns commit info dict, or None if not applicable.
+    """
+    _cancel_checkin_timer()
+    return _do_checkin(state, comment)
+
+
+# ============================================================
+# Internal timer management
+# ============================================================
+
+def _cancel_checkin_timer():
+    """Cancel the pending deferred checkin timer."""
+    global _checkin_timer
+    with _checkin_lock:
+        if _checkin_timer is not None:
+            _checkin_timer.cancel()
+            _checkin_timer = None
+
+
+def _schedule_checkin(state, comment):
+    """Reset the deferred checkin timer. Called after each save."""
+    global _checkin_timer
+    with _checkin_lock:
+        if _checkin_timer is not None:
+            _checkin_timer.cancel()
+        _checkin_timer = threading.Timer(
+            CHECKIN_DELAY, _deferred_checkin, args=[state, comment]
+        )
+        _checkin_timer.daemon = True
+        _checkin_timer.start()
+
+
+def _deferred_checkin(state, comment):
+    """Timer callback: perform checkin after idle period."""
+    global _checkin_timer
+    with _checkin_lock:
+        _checkin_timer = None
+    _do_checkin(state, comment)
+
+
+def _do_checkin(state, comment):
+    """Perform save + checkin(keepCheckedOut=False).
+
+    Returns commit info dict, or None if not applicable.
+    """
+    prog = state.getCurrentProgram()
+    if prog is None:
+        return None
+
+    df = _get_domain_file(prog)
+    if df is None:
+        return None
+
+    try:
+        if not df.isVersioned() or not df.isCheckedOut():
+            return None
+    except Exception:
+        return None
+
+    # Save before checkin to ensure latest state
+    try:
+        prog.save(comment, TaskMonitor.DUMMY)
+    except Exception:
+        pass  # May fail if no changes since last save, that's OK
 
     # Checkin to server (keepCheckedOut=False to release the lock)
     try:
@@ -150,11 +240,12 @@ def auto_commit(state, comment="Auto-commit via API"):
     except Exception as e:
         err_str = str(e)
         if "has not been modified since checkout" in err_str:
-            return {
-                "action": "no_changes",
-                "comment": comment,
-                "message": "No changes since last commit",
-            }
+            # No changes — undo checkout to release the lock
+            try:
+                df.undoCheckout(False)
+            except Exception:
+                pass
+            return None
         if "merge" in err_str.lower() or "newer version" in err_str.lower():
             return {
                 "action": "merge_required",

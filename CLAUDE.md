@@ -377,17 +377,21 @@ Bridge 在两种运行模式下对写操作（rename、comment、datatype 等）
 
 **Headless 模式（Docker/PyGhidra）— 自动 checkout/commit**
 
-写操作自动完成完整的版本管理生命周期，MCP 使用者无需手动调用 `ghidra_version`：
+写操作自动完成 checkout/save，通过 idle timer 延迟 checkin，MCP 使用者无需手动管理版本：
 
 ```
-写操作请求 → ensure_checkout(exclusive=True) → handler(startTransaction → modify → endTransaction) → auto_commit(save + checkin) → 返回结果
+首次写操作 → ensure_checkout(exclusive=True) → handler → auto_save(prog.save + 重置 timer)
+后续写操作 → 已 checked out → handler → auto_save(prog.save + 重置 timer)
+最后一次写操作后 5 秒无新写入 → timer 触发 → checkin(keepCheckedOut=False) → 释放 checkout
 ```
 
-- `@route` 装饰器通过 `writes=True` 标记写操作路由，`dispatch_route` 自动包裹 checkout/commit middleware
-- `POST /api/v1/edit` 和 `POST /api/v1/exec`（`readonly=False`）在 `do_POST` 中包裹，整个 batch 共享一次 checkout/commit
-- 非 Server 模式（本地项目）所有 checkout/commit 函数为 no-op
-- 成功的写操作返回结果中附带 `_commit` 字段，包含版本号和提交信息
-- `ghidra_version` tool 仍可用于查看历史（log）、手动回滚（rollback）等操作
+- 连续的写操作共享同一次 checkout，idle timer 不断重置，最终产生一个 commit
+- `@route` 装饰器通过 `writes=True` 标记写操作路由，`dispatch_route` 自动包裹 checkout/save middleware
+- `POST /api/v1/edit` 和 `POST /api/v1/exec`（`readonly=False`）在 `do_POST` 中包裹
+- 非 Server 模式（本地项目）所有 checkout/save 函数为 no-op
+- 成功的写操作返回结果中附带 `_saved` 字段
+- `ghidra_version(action="log")` 调用前会自动 flush 未提交的修改
+- `ghidra_version` tool 仍可用于查看历史（log）、回滚（rollback）、回退（revert）
 
 **GUI 模式（Ghidra CodeBrowser）— 用户管理**
 
