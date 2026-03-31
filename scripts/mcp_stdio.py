@@ -278,19 +278,17 @@ def _register_version_tool():
     @mcp.tool()
     def ghidra_version(
         action: str,
-        comment: str = "",
         version: int = 0,
         diff: int = 0,
         limit: int = 50,
     ) -> dict:
         """
-        Version control operations (commit, log, rollback, revert).
+        Version history and rollback (write operations auto-commit, no manual commit needed).
 
         Only available when the program is in a shared Ghidra Server project.
 
         Args:
-            action: "log", "commit", "rollback", or "revert"
-            comment: Commit message (for "commit" action)
+            action: "log", "rollback", or "revert"
             version: Target version number (for "revert" action, DESTRUCTIVE)
             diff: Compare with version N (for "log" action, 0=no diff)
             limit: Max log entries or diff items
@@ -300,14 +298,12 @@ def _register_version_tool():
             if diff > 0:
                 params += f"&diff={diff}"
             return _call_api(f"/api/version/log?{params}")
-        elif action == "commit":
-            return _call_api(f"/api/version/commit?comment={urllib.parse.quote(comment)}")
         elif action == "rollback":
             return _call_api("/api/version/rollback")
         elif action == "revert":
             return _call_api(f"/api/version/revert?version={version}")
         else:
-            return {"success": False, "error": f"Unknown action: {action}. Use: log, commit, rollback, revert"}
+            return {"success": False, "error": f"Unknown action: {action}. Use: log, rollback, revert"}
 
     return True
 

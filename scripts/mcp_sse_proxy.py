@@ -465,24 +465,20 @@ def _register_version_tool():
     @mcp.tool()
     def ghidra_version(
         action: str,
-        comment: str = "",
         version: int = 0,
         diff: int = 0,
         limit: int = 50,
     ) -> dict:
         """
-        Version control operations (commit, log, rollback, revert).
+        Version history and rollback (write operations auto-commit, no manual commit needed).
 
         Only available when the program is in a shared Ghidra Server project.
-        Provides git-like version management for collaborative reverse engineering.
 
         Args:
             action: Operation to perform:
                 - "log": Show version history (optionally with diff)
-                - "commit": Save and checkin changes to server
-                - "rollback": Discard uncommitted local changes, revert to last commit
+                - "rollback": Discard the last uncommitted change, revert to previous commit
                 - "revert": Permanently delete versions after N, go back to version N (DESTRUCTIVE)
-            comment: Commit message (for "commit" action)
             version: Target version number (for "revert" action, required)
             diff: Compare with version N (for "log" action, 0=no diff)
             limit: Max log entries or diff items (default: 50)
@@ -492,26 +488,20 @@ def _register_version_tool():
                 - success: bool
                 - For log: versions list, current_version, is_checked_out
                 - For log+diff: additional diff.changes list
-                - For commit: action, comment, version
-                  - error_code "merge_required": server has newer version, rollback and re-apply needed
-                  - error_code "checkout_conflict": another user holds exclusive checkout
                 - For rollback: action, program name
                 - For revert: target_version, deleted_versions list
         """
-        from urllib.parse import quote
         if action == "log":
             params = f"limit={limit}"
             if diff > 0:
                 params += f"&diff={diff}"
             return _http_get(f"/api/version/log?{params}")
-        elif action == "commit":
-            return _http_get(f"/api/version/commit?comment={quote(comment)}")
         elif action == "rollback":
             return _http_get("/api/version/rollback")
         elif action == "revert":
             return _http_get(f"/api/version/revert?version={version}")
         else:
-            return {"success": False, "error": f"Unknown action: {action}. Use: log, commit, rollback, revert"}
+            return {"success": False, "error": f"Unknown action: {action}. Use: log, rollback, revert"}
 
     return True
 

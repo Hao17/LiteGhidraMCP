@@ -123,7 +123,7 @@ pip install mcp uvicorn httpx
 - `ghidra_view`: 反编译/反汇编/内存查看
 - `ghidra_list`: 符号列表浏览
 - `ghidra_edit`: 统一编辑 (rename, datatype, comment)
-- `ghidra_version`: 版本管理（commit/log/rollback）— 仅 Server 模式下条件注册
+- `ghidra_version`: 版本历史与回滚（log/rollback/revert）— 仅 Server 模式下条件注册；写操作已自动 commit，无需手动提交
 
 **MCP stdio Mode (for local debugging):**
 
