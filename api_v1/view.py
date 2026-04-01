@@ -123,6 +123,11 @@ def _decompile_function(decomp, func, timeout):
 
         if not results.decompileCompleted():
             error_msg = results.getErrorMessage()
+            if not error_msg:
+                try:
+                    error_msg = decomp.getLastMessage()
+                except Exception:
+                    error_msg = ""
             return None, f"Decompilation failed: {error_msg}"
 
         decomp_func = results.getDecompiledFunction()
@@ -205,13 +210,14 @@ def _disassemble_function(prog, func, limit):
 # View Single Function
 # ============================================================
 
-def _view_single_function(prog, decomp, func, view_type, timeout, limit):
+def _view_single_function(prog, decomp, decomp_error, func, view_type, timeout, limit):
     """
     View a single function with specified type.
 
     Args:
         prog: Ghidra program object
         decomp: DecompInterface instance (can be None if not needed)
+        decomp_error: Decompiler initialization error string, if any
         func: Ghidra function object
         view_type: "both", "decompile", or "disassemble"
         timeout: Decompilation timeout
@@ -230,7 +236,10 @@ def _view_single_function(prog, decomp, func, view_type, timeout, limit):
 
     # Decompile if needed
     if view_type in ("both", "decompile"):
-        if decomp:
+        if decomp_error:
+            result["decompiled"] = None
+            result["decompile_error"] = decomp_error
+        elif decomp:
             c_code, err = _decompile_function(decomp, func, timeout)
             if err:
                 result["decompiled"] = None
@@ -312,9 +321,22 @@ def view(state, q="", type="both", timeout=30, limit=500, verbose=""):
 
     # Initialize decompiler if needed
     decomp = None
+    decomp_error = None
     if view_type in ("both", "decompile"):
         decomp = DecompInterface()
-        decomp.openProgram(prog)
+        try:
+            open_ok = decomp.openProgram(prog)
+            if not open_ok:
+                last_msg = ""
+                try:
+                    last_msg = decomp.getLastMessage()
+                except Exception:
+                    last_msg = ""
+                decomp_error = "Decompiler initialization failed: " + (
+                    last_msg or "unknown error"
+                )
+        except Exception as e:
+            decomp_error = f"Decompiler initialization failed: {str(e)}"
 
     try:
         functions = []
@@ -327,7 +349,7 @@ def view(state, q="", type="both", timeout=30, limit=500, verbose=""):
                 continue
 
             func_result = _view_single_function(
-                prog, decomp, func, view_type, timeout, limit
+                prog, decomp, decomp_error, func, view_type, timeout, limit
             )
 
             if is_verbose:

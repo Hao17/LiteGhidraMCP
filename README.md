@@ -36,6 +36,9 @@ After setup, → [Configure AI Client](#configure-ai-client) to connect your AI 
 
 AI (Docker) + GUI (Human) collaboration with one command. Each client binds to one REPO/BINARY (name or repo path) at startup, and runtime switching is intentionally unsupported.
 
+> **Apple Silicon / ARM hosts**:
+> The official Ghidra distribution currently does not ship a `linux_arm_64` decompiler binary. Run the Bridge containers as `linux/amd64`; the compose files in this repo now default to that platform to avoid `Could not find decompiler executable`.
+
 ```bash
 cd docker/
 

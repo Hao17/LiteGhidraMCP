@@ -36,6 +36,9 @@
 
 AI（Docker）+ GUI（人工）协作，一条命令部署。每个 Client 启动时绑定一个 REPO/BINARY（程序名或仓库路径），运行时不支持切换。
 
+> **Apple Silicon / ARM 主机注意**：
+> Ghidra 官方发布包目前不包含 `linux_arm_64` 的反编译器二进制。Docker 运行 Bridge 时应使用 `linux/amd64`；本仓库的 compose 默认已固定为该平台，避免出现 `Could not find decompiler executable`。
+
 ```bash
 cd docker/
 

@@ -210,7 +210,18 @@ def _decompile_function(prog, func, timeout=30):
         (high_func, error) 二元组
     """
     decomp = DecompInterface()
-    decomp.openProgram(prog)
+    try:
+        open_ok = decomp.openProgram(prog)
+    except Exception as e:
+        return None, _make_error(f"Decompiler initialization failed: {str(e)}")
+
+    if not open_ok:
+        last_msg = ""
+        try:
+            last_msg = decomp.getLastMessage()
+        except Exception:
+            last_msg = ""
+        return None, _make_error(f"Decompiler initialization failed: {last_msg or 'unknown error'}")
 
     try:
         monitor = ConsoleTaskMonitor()
@@ -218,6 +229,11 @@ def _decompile_function(prog, func, timeout=30):
 
         if not results.decompileCompleted():
             error_msg = results.getErrorMessage()
+            if not error_msg:
+                try:
+                    error_msg = decomp.getLastMessage()
+                except Exception:
+                    error_msg = ""
             return None, _make_error(f"Decompilation failed: {error_msg}")
 
         high_func = results.getHighFunction()

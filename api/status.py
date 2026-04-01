@@ -43,6 +43,7 @@ def status(state):
         "state": {
             "has_program": False,
             "program_name": None,
+            "decompiler": None,
         }
     }
 
@@ -53,6 +54,29 @@ def status(state):
             if prog:
                 result["state"]["has_program"] = True
                 result["state"]["program_name"] = prog.getName()
+                try:
+                    from ghidra.app.decompiler import DecompInterface
+
+                    decomp = DecompInterface()
+                    try:
+                        open_ok = decomp.openProgram(prog)
+                        message = None
+                        if not open_ok:
+                            try:
+                                message = decomp.getLastMessage() or "unknown error"
+                            except Exception:
+                                message = "unknown error"
+                        result["state"]["decompiler"] = {
+                            "available": bool(open_ok),
+                            "message": message,
+                        }
+                    finally:
+                        decomp.dispose()
+                except Exception as e:
+                    result["state"]["decompiler"] = {
+                        "available": False,
+                        "message": str(e),
+                    }
     except Exception as e:
         result["state"]["error"] = str(e)
 

@@ -5,6 +5,7 @@ version: '3.8'
 
 services:
   ghidra-bridge-dev:
+    platform: ${DOCKER_PLATFORM:-linux/amd64}
     build:
       context: ..
       dockerfile: docker/Dockerfile
