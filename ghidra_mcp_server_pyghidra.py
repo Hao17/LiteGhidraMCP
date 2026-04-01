@@ -306,18 +306,18 @@ def _init_ghidra_project():
                 names = [f.getPathname() for f in all_files]
                 raise FileNotFoundError(f"Program '{target_name}' not found. Available: {names}")
             folder_path = domain_file.getPathname().rsplit("/", 1)[0] or "/"
-            _current_program = _ghidra_project.openProgram(folder_path, domain_file.getName(), True)
+            _current_program = _ghidra_project.openProgram(folder_path, domain_file.getName(), False)
             print(f"[PyGhidra-MCP-Bridge] ✓ Program loaded (PROGRAM_NAME): {domain_file.getPathname()}")
         elif program_files:
             # Open first program
             program_file = program_files[0]
             program_name = program_file.getName()
-            _current_program = _ghidra_project.openProgram("/", program_name, True)
+            _current_program = _ghidra_project.openProgram("/", program_name, False)
             print(f"[PyGhidra-MCP-Bridge] ✓ Program loaded: {program_name}")
         elif all_files:
             domain_file = all_files[0]
             folder_path = domain_file.getPathname().rsplit("/", 1)[0] or "/"
-            _current_program = _ghidra_project.openProgram(folder_path, domain_file.getName(), True)
+            _current_program = _ghidra_project.openProgram(folder_path, domain_file.getName(), False)
             print(f"[PyGhidra-MCP-Bridge] ✓ Program loaded: {domain_file.getPathname()}")
         else:
             print("[PyGhidra-MCP-Bridge] ⚠ No programs found in project")
@@ -556,16 +556,36 @@ def _init_ghidra_project():
                             _ghidra_project = GhidraProject.openProject(
                                 local_project_dir, local_project_name
                             )
+                            _project = _ghidra_project.getProject()
                             folder_path = try_path.rsplit("/", 1)[0] or "/"
                             prog_name = try_path.rsplit("/", 1)[1]
-                            _current_program = _ghidra_project.openProgram(folder_path, prog_name, True)
-                            _project = _ghidra_project.getProject()
+
+                            from ghidra.util.task import TaskMonitor
+                            _folder = _project.getProjectData().getFolder(folder_path)
+                            _df = _folder.getFile(prog_name) if _folder else None
+                            if _df is None:
+                                print(f"[PyGhidra-MCP-Bridge] '{try_path}' not found in project")
+                                continue  # try next path
+
+                            # Exclusive checkout → writable program handle
+                            if _df.isVersioned() and not _df.isCheckedOut():
+                                _ok = _df.checkout(True, TaskMonitor.DUMMY)
+                                if _ok:
+                                    print(f"[PyGhidra-MCP-Bridge] ✓ Exclusive checkout acquired: {_df.getName()}")
+                                else:
+                                    print(f"[PyGhidra-MCP-Bridge] ⚠ Checkout conflict (another user): {_df.getName()}")
+                            elif _df.isCheckedOut():
+                                print(f"[PyGhidra-MCP-Bridge] ✓ Already checked out: {_df.getName()}")
+
+                            # getDomainObject avoids GhidraProject's "Batch Processing" transaction
+                            # that blocks prog.save() in startTransaction/endTransaction flow
+                            _current_program = _df.getDomainObject(_project, False, False, TaskMonitor.DUMMY)
                             if _current_program is not None:
                                 print(f"[PyGhidra-MCP-Bridge] ✓ Program loaded via path: {_current_program.getName()}")
                                 domain_file = True  # skip normal DomainFile open
                                 break
                         except Exception as e:
-                            print(f"[PyGhidra-MCP-Bridge] openProgram('{try_path}') error: {type(e).__name__}: {e}")
+                            print(f"[PyGhidra-MCP-Bridge] getDomainObject('{try_path}') error: {type(e).__name__}: {e}")
 
                 if domain_file is None:
                     available = [f.getPathname() for f in all_files] if all_files else []
@@ -583,6 +603,16 @@ def _init_ghidra_project():
                 pass  # Already loaded via GhidraProject.openProgram above
             elif domain_file:
                 from ghidra.util.task import TaskMonitor
+                # Exclusive checkout before opening → writable program handle
+                try:
+                    if domain_file.isVersioned() and not domain_file.isCheckedOut():
+                        ok = domain_file.checkout(True, TaskMonitor.DUMMY)
+                        if ok:
+                            print(f"[PyGhidra-MCP-Bridge] ✓ Exclusive checkout acquired: {domain_file.getName()}")
+                        else:
+                            print(f"[PyGhidra-MCP-Bridge] ⚠ Checkout conflict (another user): {domain_file.getName()}")
+                except Exception as e:
+                    print(f"[PyGhidra-MCP-Bridge] ⚠ Checkout error: {e}")
                 _current_program = domain_file.getDomainObject(_project, False, False, TaskMonitor.DUMMY)
                 print(f"[PyGhidra-MCP-Bridge] ✓ Program loaded: {domain_file.getName()}")
             else:
@@ -741,9 +771,25 @@ def _exec_java_headless(code, readonly=True, noanalysis=True, timeout=120):
     Supports two forms:
     - Full class: code contains 'extends GhidraScript' -> run as-is
     - Snippet: code is the run() method body -> wrap in template
+
+    When readonly=False in server mode, performs checkout handoff:
+    releases MCP's exclusive checkout so the subprocess can write,
+    then reloads the program afterward to pick up changes.
     """
     import re
     import tempfile as _tempfile
+
+    # Checkout handoff only needed for writable exec in server mode
+    project_mode = os.environ.get("PROJECT_MODE", "local")
+    need_handoff = (not readonly) and (project_mode == "server")
+
+    if need_handoff:
+        # Flush pending writes and release checkout so subprocess can acquire it
+        try:
+            from api.checkout import flush_checkin
+            flush_checkin(_mock_state)
+        except Exception as _e:
+            print(f"[PyGhidra-MCP-Bridge] ⚠ flush_checkin before exec: {_e}")
 
     ts = int(time.time() * 1000)
     result_path = os.path.join(_tempfile.gettempdir(), f"ghidra_exec_result_{ts}.json")
@@ -828,6 +874,22 @@ def _exec_java_headless(code, readonly=True, noanalysis=True, timeout=120):
 
         result["returncode"] = proc.returncode
         result["execution_time_ms"] = execution_time_ms
+
+        # After writable exec: reload program to pick up subprocess changes
+        if need_handoff:
+            try:
+                from api.version import _get_domain_file, _release_program, _reopen_program
+                from ghidra.util.task import TaskMonitor
+                df = _get_domain_file(_current_program) if _current_program else None
+                _release_program()
+                # Re-acquire exclusive checkout for continued MCP writes
+                if df and df.isVersioned() and not df.isCheckedOut():
+                    df.checkout(True, TaskMonitor.DUMMY)
+                _reopen_program(df)
+                result["_handoff"] = "program reloaded after exec"
+            except Exception as _e:
+                result["_handoff_error"] = f"Program reload failed: {_e}"
+
         return result
 
     except subprocess.TimeoutExpired:
