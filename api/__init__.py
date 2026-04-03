@@ -112,6 +112,16 @@ def dispatch_route(path, state, params=None):
         except (ValueError, TypeError):
             pass  # inspect 失败时不影响正常调用
 
+    # 写操作或版本操作：检查 server 连接
+    if route_info.get("writes") or path.startswith("/api/version/"):
+        try:
+            from ghidra_mcp_server_pyghidra import _ensure_server_connection
+            ok, err = _ensure_server_connection()
+            if not ok:
+                return err
+        except ImportError:
+            pass  # GUI mode, no server connection to check
+
     # 写操作 middleware: checkout → handler → commit
     if route_info.get("writes"):
         return _dispatch_write(handler, state, params)

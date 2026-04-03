@@ -18,6 +18,7 @@ Entry point: main()
 import importlib
 import json
 import os
+import signal
 import subprocess
 import sys
 import threading
@@ -53,6 +54,90 @@ _mock_state = None
 _server_handle = None     # Reserved for shared-project server integrations
 _project = None           # Underlying Project object (server mode shared project)
 _program_lock = threading.Lock()
+_reconnect_lock = threading.Lock()
+_MAX_RECONNECT_RETRIES = 3
+
+
+def _release_stale_checkout(df):
+    """Release stale exclusive checkout from a previous container instance.
+
+    Uses the RepositoryAdapter to find and undo checkouts owned by our user.
+    This handles the case where a container was killed without graceful shutdown,
+    leaving an orphaned server-side checkout lock.
+
+    Returns True if a stale checkout was released, False otherwise.
+    """
+    try:
+        repo = _project.getProjectData().getRepository()
+        if repo is None:
+            return False
+
+        parent_path = df.getParent().getPathname()
+        file_name = df.getName()
+        checkouts = repo.getCheckouts(parent_path, file_name)
+        if not checkouts:
+            return False
+
+        our_user = repo.getUser().getName()
+        for co in checkouts:
+            if co.getUser() == our_user:
+                checkout_id = co.getCheckoutId()
+                print(f"[PyGhidra-MCP-Bridge] Found stale checkout (id={checkout_id}) from {our_user}, releasing...")
+                repo.terminateCheckout(parent_path, file_name, checkout_id, False)
+                print(f"[PyGhidra-MCP-Bridge] Released stale checkout")
+                return True
+        return False
+    except Exception as e:
+        print(f"[PyGhidra-MCP-Bridge] Could not release stale checkout: {e}")
+        return False
+
+
+def _ensure_server_connection():
+    """Check server connection and reconnect if needed.
+
+    Returns (True, None) if connected, (False, error_dict) if reconnect failed.
+    Silent on success, logs on reconnect attempts.
+    """
+    if os.environ.get("PROJECT_MODE", "local") != "server":
+        return True, None
+
+    if _project is None:
+        return True, None
+
+    repo = _project.getProjectData().getRepository()
+    if repo is None:
+        return True, None
+
+    try:
+        repo.verifyConnection()
+        return True, None
+    except Exception:
+        pass  # Connection lost, attempt reconnect
+
+    with _reconnect_lock:
+        # Double-check after acquiring lock (another thread may have reconnected)
+        try:
+            repo.verifyConnection()
+            return True, None
+        except Exception:
+            pass
+
+        for attempt in range(1, _MAX_RECONNECT_RETRIES + 1):
+            try:
+                print(f"[PyGhidra-MCP-Bridge] Reconnecting to server (attempt {attempt}/{_MAX_RECONNECT_RETRIES})...")
+                repo.connect()
+                print("[PyGhidra-MCP-Bridge] Reconnected to server")
+                return True, None
+            except Exception as e:
+                print(f"[PyGhidra-MCP-Bridge] Reconnect attempt {attempt} failed: {e}")
+                if attempt < _MAX_RECONNECT_RETRIES:
+                    time.sleep(1)
+
+    return False, {
+        "success": False,
+        "error": "Lost connection to Ghidra Server and reconnect failed after multiple attempts",
+        "error_code": "server_disconnected",
+    }
 
 
 class MockGhidraState:
@@ -570,6 +655,10 @@ def _init_ghidra_project():
                             # Exclusive checkout → writable program handle
                             if _df.isVersioned() and not _df.isCheckedOut():
                                 _ok = _df.checkout(True, TaskMonitor.DUMMY)
+                                if not _ok:
+                                    # May be stale checkout from previous container — release and retry
+                                    if _release_stale_checkout(_df):
+                                        _ok = _df.checkout(True, TaskMonitor.DUMMY)
                                 if _ok:
                                     print(f"[PyGhidra-MCP-Bridge] ✓ Exclusive checkout acquired: {_df.getName()}")
                                 else:
@@ -607,6 +696,9 @@ def _init_ghidra_project():
                 try:
                     if domain_file.isVersioned() and not domain_file.isCheckedOut():
                         ok = domain_file.checkout(True, TaskMonitor.DUMMY)
+                        if not ok:
+                            if _release_stale_checkout(domain_file):
+                                ok = domain_file.checkout(True, TaskMonitor.DUMMY)
                         if ok:
                             print(f"[PyGhidra-MCP-Bridge] ✓ Exclusive checkout acquired: {domain_file.getName()}")
                         else:
@@ -1126,6 +1218,9 @@ class GhidraRequestHandler(BaseHTTPRequestHandler):
                     return self._send_json(
                         {"success": False, "error": str(e)}, 400
                     )
+                ok, err = _ensure_server_connection()
+                if not ok:
+                    return self._send_json(err)
                 from api.checkout import ensure_checkout, auto_save
                 ok, err = ensure_checkout(_mock_state)
                 if not ok:
@@ -1158,6 +1253,9 @@ class GhidraRequestHandler(BaseHTTPRequestHandler):
 
                 # Checkout/save wrapper for non-readonly exec
                 if not readonly:
+                    ok, err = _ensure_server_connection()
+                    if not ok:
+                        return self._send_json(err)
                     from api.checkout import ensure_checkout
                     ok, err = ensure_checkout(_mock_state)
                     if not ok:
@@ -1303,6 +1401,34 @@ def _print_startup_banner(host: str, port: int, mcp_port: Optional[int], routes:
     print("\n")
 
 
+def _shutdown_cleanup():
+    """Release checkout and stop server on shutdown."""
+    # Flush pending checkin (save + checkin if checked out)
+    try:
+        from api.checkout import flush_checkin
+        if _mock_state:
+            result = flush_checkin(_mock_state)
+            if result:
+                print(f"[PyGhidra-MCP-Bridge] Flush checkin: {result}")
+    except Exception as e:
+        print(f"[PyGhidra-MCP-Bridge] Flush checkin error: {e}")
+
+    # Fallback: if still checked out, release program then undoCheckout
+    try:
+        if _current_program:
+            from api.version import _get_domain_file, _release_program
+            df = _get_domain_file(_current_program)
+            if df and df.isVersioned() and df.isCheckedOut():
+                _release_program()
+                df.undoCheckout(False)
+                print("[PyGhidra-MCP-Bridge] Checkout released via undoCheckout")
+    except Exception as e:
+        print(f"[PyGhidra-MCP-Bridge] undoCheckout error: {e}")
+
+    if _server_instance:
+        _server_instance.shutdown()
+
+
 def main():
     """Main entry point for PyGhidra mode."""
     try:
@@ -1319,6 +1445,14 @@ def main():
         # Print startup banner
         _print_startup_banner(HOST, actual_port, actual_mcp_port, routes)
 
+        # Graceful shutdown: release checkout on SIGTERM (docker stop)
+        def _graceful_shutdown(signum, frame):
+            print("\n[PyGhidra-MCP-Bridge] Received SIGTERM, shutting down...")
+            _shutdown_cleanup()
+            sys.exit(0)
+
+        signal.signal(signal.SIGTERM, _graceful_shutdown)
+
         # Keep main thread alive
         print("[PyGhidra-MCP-Bridge] Server running. Press Ctrl+C to stop.")
         try:
@@ -1326,8 +1460,7 @@ def main():
                 time.sleep(1)
         except KeyboardInterrupt:
             print("\n[PyGhidra-MCP-Bridge] Shutting down...")
-            if _server_instance:
-                _server_instance.shutdown()
+            _shutdown_cleanup()
 
         return srv
     except Exception as exc:

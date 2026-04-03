@@ -110,6 +110,14 @@ def ensure_checkout(state):
     try:
         result = df.checkout(True, TaskMonitor.DUMMY)
         if not result:
+            # May be stale checkout from previous container — release and retry
+            try:
+                from ghidra_mcp_server_pyghidra import _release_stale_checkout
+                if _release_stale_checkout(df):
+                    result = df.checkout(True, TaskMonitor.DUMMY)
+            except ImportError:
+                pass  # GUI mode
+        if not result:
             return False, {
                 "success": False,
                 "error": "Exclusive checkout failed: another user has the file checked out",
@@ -200,7 +208,13 @@ def _deferred_checkin(state, comment):
     global _checkin_timer
     with _checkin_lock:
         _checkin_timer = None
-    _do_checkin(state, comment)
+
+    result = _do_checkin(state, comment)
+
+    # If checkin failed (e.g. connection lost), retry after delay
+    if isinstance(result, dict) and result.get("action") == "checkin_failed":
+        print(f"[PyGhidra-MCP-Bridge] Deferred checkin failed, scheduling retry in {CHECKIN_DELAY}s...")
+        _schedule_checkin(state, comment)
 
 
 def _do_checkin(state, comment):
@@ -227,6 +241,15 @@ def _do_checkin(state, comment):
         prog.save(comment, TaskMonitor.DUMMY)
     except Exception:
         pass  # May fail if no changes since last save, that's OK
+
+    # Ensure server connection before checkin (reconnect if needed)
+    try:
+        from ghidra_mcp_server_pyghidra import _ensure_server_connection
+        ok, _err = _ensure_server_connection()
+        if not ok:
+            return {"action": "checkin_failed", "error": "Server connection lost"}
+    except ImportError:
+        pass  # GUI mode
 
     # Checkin to server (keepCheckedOut=False to release the lock)
     try:

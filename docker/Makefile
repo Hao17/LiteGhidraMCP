@@ -1,7 +1,7 @@
 # Ghidra MCP Bridge
 # Makefile for common Docker operations
 
-.PHONY: help build up down logs shell test clean rebuild server-up server-down server-logs server-restart server-clean server-users server-add-user server-reset-password server-list-repos client client-stop client-logs client-up client-down client-restart client2-up client2-down up-separated down-separated logs-separated help-separated check-env check-repo check-n init-data info list-versions switch-version
+.PHONY: help build up down logs shell test clean rebuild server-up server-down server-logs server-restart server-clean server-users server-add-user server-reset-password server-list-repos client client-stop client-logs client-up client-down client-restart client2-up client2-down up-separated down-separated logs-separated help-separated check-env check-repo check-n init-data info list-versions switch-version troubleshoot troubleshoot-fix
 
 # Load environment variables
 -include .env
@@ -36,6 +36,10 @@ help:
 	@echo "  make server-add-user NAME=x - Add new user (password auth)"
 	@echo "  make server-reset-password NAME=x - Reset user password"
 	@echo "  make server-list-repos      - List repositories"
+	@echo ""
+	@echo "Troubleshoot:"
+	@echo "  make troubleshoot       - Diagnose problems (checkout locks, unhealthy clients, ...)"
+	@echo "  make troubleshoot-fix   - Auto-fix detected problems"
 	@echo ""
 	@echo "Development & Testing:"
 	@echo "  make up-dev             - Start in development mode (with logs)"
@@ -396,6 +400,16 @@ client2-up: check-env check-repo
 
 client2-down:
 	@$(MAKE) client-stop N=2
+
+# ============================================
+# Troubleshoot
+# ============================================
+
+troubleshoot: check-env
+	@bash troubleshoot.sh check $(if $(REPO),--repo $(REPO),)
+
+troubleshoot-fix: check-env
+	@bash troubleshoot.sh fix $(if $(REPO),--repo $(REPO),)
 
 # ============================================
 # Separated Mode Help
