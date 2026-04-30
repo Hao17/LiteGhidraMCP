@@ -102,17 +102,58 @@ Connect to an existing Ghidra Server with `PROJECT_MODE=server`. See [docker/QUI
 
 ## GUI Mode
 
-**Requirements:** Ghidra 12.0+ and `pip install -r requirements.txt`
+**Requirements:** Ghidra 12.0+ (the script depends on PyGhidra and will not run under the default Jython/Java runtime).
+
+### 1. Launch Ghidra with PyGhidra
+
+The script must be loaded by the **PyGhidra** plugin. Use the dedicated launcher shipped with Ghidra:
+
+```bash
+# macOS / Linux
+<ghidra_install>/support/pyghidraRun
+
+# Windows
+<ghidra_install>\support\pyghidraRun.bat
+```
+
+The first launch provisions a dedicated Python venv (kept outside your Ghidra install dir):
+
+| OS | Default venv location |
+|---|---|
+| macOS | `~/Library/ghidra/ghidra_<VERSION>_PUBLIC/venv/` |
+| Linux | `~/.config/ghidra/ghidra_<VERSION>_PUBLIC/venv/` |
+| Windows | `%APPDATA%\ghidra\ghidra_<VERSION>_PUBLIC\venv\` |
+
+If you previously used Ghidra without PyGhidra and the venv looks broken, delete that directory and relaunch — `pyghidraRun` will rebuild it.
+
+### 2. Install Bridge dependencies into the PyGhidra venv
+
+The Bridge spawns an SSE proxy subprocess that imports `mcp`, `uvicorn`, `httpx`. They must live in the **PyGhidra venv** (not your system Python):
+
+```bash
+# macOS example — adjust the version segment for your install
+~/Library/ghidra/ghidra_12.0.3_PUBLIC/venv/bin/python3 -m pip install -r requirements.txt
+```
+
+Verify:
+
+```bash
+~/Library/ghidra/ghidra_12.0.3_PUBLIC/venv/bin/python3 -c "from mcp.server.fastmcp import FastMCP; import uvicorn, httpx"
+```
+
+### 3. Run the script
 
 1. Open a binary in Ghidra CodeBrowser
 2. Open Script Manager (`Window` → `Script Manager`)
-3. **Add script path** (first time): Click "Manage Script Directories" (folder icon) → `+` → select the project root directory → OK
-4. Run `ghidra_mcp_server.py`
-5. Confirm in log:
+3. **Add script path** (first time): Click "Manage Script Directories" (folder icon) → `+` → select this project root → OK
+4. Run `ghidra_mcp_server.py` (do **not** run `docker_only_ghidra_mcp_server.py` — that one is Docker-only and will error on container paths)
+5. Confirm in the script console:
    ```
-   Server started on http://127.0.0.1:8803
-   MCP SSE server started on http://127.0.0.1:8804
+   [Ghidra-MCP-Bridge] HTTP Server: http://127.0.0.1:8803
+   [Ghidra-MCP-Bridge] MCP Server:  http://127.0.0.1:8804/sse
+   [Ghidra-MCP-Bridge] Current Loaded Program: <name> (...)
    ```
+   If you see `MCP proxy failed to start` with `ModuleNotFoundError: No module named 'mcp'`, step 2 was missed or installed into the wrong Python.
 
 ---
 

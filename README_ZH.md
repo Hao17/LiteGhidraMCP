@@ -102,17 +102,58 @@ docker-compose up -d
 
 ## GUI 模式
 
-**环境要求：** Ghidra 12.0+ 和 `pip install -r requirements.txt`
+**环境要求：** Ghidra 12.0+（脚本依赖 PyGhidra 运行时，默认 Jython/Java 环境下无法运行）。
+
+### 1. 用 PyGhidra 启动 Ghidra
+
+脚本必须在 **PyGhidra** 插件下加载。使用 Ghidra 自带的专用启动器：
+
+```bash
+# macOS / Linux
+<ghidra_install>/support/pyghidraRun
+
+# Windows
+<ghidra_install>\support\pyghidraRun.bat
+```
+
+首次启动会创建一个独立的 Python venv（不在 Ghidra 安装目录里）：
+
+| 系统 | 默认 venv 位置 |
+|---|---|
+| macOS | `~/Library/ghidra/ghidra_<版本>_PUBLIC/venv/` |
+| Linux | `~/.config/ghidra/ghidra_<版本>_PUBLIC/venv/` |
+| Windows | `%APPDATA%\ghidra\ghidra_<版本>_PUBLIC\venv\` |
+
+如果之前没用 PyGhidra 启动过、或 venv 已损坏，直接删掉该目录后重新运行 `pyghidraRun` 即可重建。
+
+### 2. 把 Bridge 依赖装到 PyGhidra venv
+
+Bridge 会拉起一个 SSE 代理子进程，它需要 `mcp`、`uvicorn`、`httpx`。三个包必须装进 **PyGhidra venv**（不是系统 Python）：
+
+```bash
+# macOS 示例 —— 版本号根据自己的安装调整
+~/Library/ghidra/ghidra_12.0.3_PUBLIC/venv/bin/python3 -m pip install -r requirements.txt
+```
+
+验证：
+
+```bash
+~/Library/ghidra/ghidra_12.0.3_PUBLIC/venv/bin/python3 -c "from mcp.server.fastmcp import FastMCP; import uvicorn, httpx"
+```
+
+### 3. 运行脚本
 
 1. 在 Ghidra CodeBrowser 中打开一个二进制文件
 2. 打开 Script Manager (`Window` → `Script Manager`)
-3. **添加脚本路径**（首次使用）：点击 "Manage Script Directories"（文件夹图标）→ `+` → 选择项目根目录 → OK
-4. 运行 `ghidra_mcp_server.py`
-5. 确认日志中显示：
+3. **添加脚本路径**（首次使用）：点击 "Manage Script Directories"（文件夹图标）→ `+` → 选择本项目根目录 → OK
+4. 运行 `ghidra_mcp_server.py`（**不要**运行 `docker_only_ghidra_mcp_server.py`，那是 Docker 专用，在 GUI 下会因容器路径报错）
+5. 确认 Script 控制台显示：
    ```
-   Server started on http://127.0.0.1:8803
-   MCP SSE server started on http://127.0.0.1:8804
+   [Ghidra-MCP-Bridge] HTTP Server: http://127.0.0.1:8803
+   [Ghidra-MCP-Bridge] MCP Server:  http://127.0.0.1:8804/sse
+   [Ghidra-MCP-Bridge] Current Loaded Program: <name> (...)
    ```
+   如果看到 `MCP proxy failed to start` 配 `ModuleNotFoundError: No module named 'mcp'`，说明第 2 步漏装或装到了错误的 Python。
 
 ---
 

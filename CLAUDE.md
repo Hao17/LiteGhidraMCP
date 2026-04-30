@@ -64,13 +64,37 @@ def my_function(state, q="", limit=100):
 ## Development Commands
 
 ### Running the Bridge
+
+**GUI prerequisites (one-time setup):**
+
+`ghidra_mcp_server.py` only runs under **PyGhidra**, not Ghidrathon/Jython. Launch Ghidra via the dedicated entrypoint and install Bridge deps into the PyGhidra venv:
+
+```bash
+# 1. Launch Ghidra with PyGhidra (creates the venv on first run)
+<ghidra_install>/support/pyghidraRun         # macOS/Linux
+<ghidra_install>\support\pyghidraRun.bat     # Windows
+
+# 2. Install mcp/uvicorn/httpx INTO THE PYGHIDRA VENV (not system Python)
+#    venv path: ~/Library/ghidra/ghidra_<VER>_PUBLIC/venv/ (macOS)
+#               ~/.config/ghidra/ghidra_<VER>_PUBLIC/venv/ (Linux)
+#               %APPDATA%\ghidra\ghidra_<VER>_PUBLIC\venv\ (Windows)
+~/Library/ghidra/ghidra_12.0.3_PUBLIC/venv/bin/python3 -m pip install -r requirements.txt
+```
+
+**Symptom of skipping step 2:** banner prints `MCP proxy failed to start` + `ModuleNotFoundError: No module named 'mcp'`; HTTP API still serves on 8803 but SSE on 8804 is dead.
+
+**Running:**
+
 ```bash
 # Inside Ghidra CodeBrowser: Execute ghidra_mcp_server.py via PyGhidra
-# - 首次执行：启动服务器，日志显示 "Server started on http://HOST:PORT"
-# - 再次执行：自动检测已运行的服务器，触发热重载，日志显示 "API modules reloaded"
+# - 首次执行：启动服务器，日志显示 "HTTP Server: http://HOST:PORT" + "Current Loaded Program: ..."
+# - 再次执行：每次 Run 都会新开一对端口（端口冲突自动 +1）；旧实例不会自动停。
+#   要清理可 curl http://127.0.0.1:8803/_shutdown，或用 /_reload 走热重载而不重启。
 
-# Headless mode:
-analyzeHeadless <projDir> <projName> -import <binary> -scriptPath . -postScript ghidra_mcp_server.py
+# Headless / Docker mode: don't use analyzeHeadless. Instead invoke the
+# standalone entrypoint directly (it self-initializes via pyghidra.start()):
+#   python3 docker_only_ghidra_mcp_server.py
+# In the Docker image this is `docker/entrypoint.sh`'s last line.
 
 # Environment variables:
 # GHIDRA_MCP_HOST (default: 127.0.0.1)
