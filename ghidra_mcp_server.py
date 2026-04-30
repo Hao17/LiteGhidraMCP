@@ -428,31 +428,22 @@ class GhidraRequestHandler(BaseHTTPRequestHandler):
                 ts = int(time.time() * 1000)
 
                 if language == "java":
-                    class_name = f"GhidraExec_{ts}"
-                    code_content = _build_java_script(class_name, code)
-                    code_path = os.path.join(tempfile.gettempdir(), f"{class_name}.java")
-                    with open(code_path, 'w', encoding='utf-8') as f:
-                        f.write(code_content)
+                    return self._send_json({
+                        "success": False,
+                        "error": "Java exec is temporarily disabled in GUI mode",
+                        "mode": "gui",
+                    })
+
+                code_path = os.path.join(tempfile.gettempdir(), f"ghidra_exec_{ts}.py")
+                with open(code_path, 'w', encoding='utf-8') as f:
+                    f.write(code)
+                try:
+                    raw = _run_script_by_path("scripts/exec_runner.py", [code_path])
+                finally:
                     try:
-                        raw = _run_script_by_path(code_path, [])
-                    finally:
-                        try:
-                            os.remove(code_path)
-                        except OSError:
-                            pass
-                else:
-                    code_path = os.path.join(tempfile.gettempdir(), f"ghidra_exec_{ts}.py")
-                    with open(code_path, 'w', encoding='utf-8') as f:
-                        f.write(code)
-                    try:
-                        script_dir = os.path.dirname(os.path.abspath(__file__))
-                        runner = os.path.join(script_dir, "scripts", "exec_runner.py")
-                        raw = _run_script_by_path(runner, [code_path])
-                    finally:
-                        try:
-                            os.remove(code_path)
-                        except OSError:
-                            pass
+                        os.remove(code_path)
+                    except OSError:
+                        pass
 
                 if raw.get("success") and "script_result" in raw:
                     result = raw["script_result"]
