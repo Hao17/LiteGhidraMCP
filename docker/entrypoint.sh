@@ -317,4 +317,4 @@ export LOG_LEVEL
 export LOG_DIR
 
 # Execute Python script
-exec python3 /app/ghidra_mcp_server_pyghidra.py
+exec python3 /app/docker_only_ghidra_mcp_server.py

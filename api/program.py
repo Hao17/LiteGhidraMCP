@@ -6,7 +6,7 @@ from api import route
 @route("/api/program/list")
 def list_programs(state):
     """List all programs in the current project/repository."""
-    from ghidra_mcp_server_pyghidra import _list_programs
+    from docker_only_ghidra_mcp_server import _list_programs
     programs = _list_programs()
     return {"success": True, "programs": programs, "total": len(programs)}
 
@@ -34,7 +34,7 @@ def import_program(state, path="", name="", analyze="true"):
     if not path:
         return {"success": False, "error": "Missing 'path' parameter"}
 
-    from ghidra_mcp_server_pyghidra import _import_program
+    from docker_only_ghidra_mcp_server import _import_program
     try:
         do_analyze = str(analyze).lower() in ("true", "1", "yes")
         result = _import_program(path, name=name, analyze=do_analyze)

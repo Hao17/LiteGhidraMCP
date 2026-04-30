@@ -76,7 +76,7 @@ echo
 
 echo "Checking runtime sources..."
 check_file "ghidra_mcp_server.py"
-check_file "ghidra_mcp_server_pyghidra.py"
+check_file "docker_only_ghidra_mcp_server.py"
 check_dir "api"
 check_dir "api_v1"
 check_dir "scripts"

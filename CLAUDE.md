@@ -12,7 +12,7 @@ This is a PyGhidra-based MCP (Model Context Protocol) Bridge that runs inside Gh
 
 - **`ghidra_mcp_server.py`**: GUI mode HTTP server, runs inside Ghidra via Script Manager. Caches `state` object at startup and imports API modules directly.
 
-- **`ghidra_mcp_server_pyghidra.py`**: Docker/Headless mode server, runs via PyGhidra CLI. Handles server connection, SSH key auth, and headless analysis.
+- **`docker_only_ghidra_mcp_server.py`**: Docker/Headless mode server, runs via PyGhidra CLI. Handles server connection, SSH key auth, and headless analysis. **Do not run in Ghidra GUI Script Manager** — it expects container paths (`/ghidra-projects/...`) and will fail.
 
 - **`api/`**: API 模块目录，包含所有可调用的 API 实现：
   - **`demo.py`**: API 开发参考样例（使用 runScript 模式）
@@ -397,7 +397,7 @@ Bridge 在两种运行模式下对写操作（rename、comment、datatype 等）
 
 GUI 模式下 checkout/checkin 由用户通过 Ghidra 界面管理，Bridge 不干预：
 
-- `checkout.py` 通过检测 `ghidra_mcp_server_pyghidra` 模块是否加载来判断运行模式
+- `checkout.py` 通过检测 `docker_only_ghidra_mcp_server` 模块是否加载来判断运行模式
 - GUI 模式下 `_get_domain_file()` 返回 `None`，所有 checkout/commit 函数为 no-op
 - 写操作正常执行（startTransaction → modify → endTransaction），但不触发 checkout/commit
 - 用户需通过 Ghidra GUI 的 Project 菜单手动 checkout、save、checkin

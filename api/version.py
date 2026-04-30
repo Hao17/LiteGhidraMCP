@@ -45,7 +45,7 @@ def _get_program(state):
 def _get_domain_file(prog):
     """获取真正的 DomainFile（通过 project root folder，避免 DomainFileProxy）。
     支持子目录结构（如 38.1.0/libmetasec_ml.so）。"""
-    from ghidra_mcp_server_pyghidra import _project, _ghidra_project
+    from docker_only_ghidra_mcp_server import _project, _ghidra_project
     proj = _project
     if proj is None and _ghidra_project:
         proj = _ghidra_project._project
@@ -73,7 +73,7 @@ def _get_domain_file(prog):
                     if df is not None:
                         return df
         # 3. Fallback: recursive search by name
-        from ghidra_mcp_server_pyghidra import _collect_all_files
+        from docker_only_ghidra_mcp_server import _collect_all_files
         for f in _collect_all_files(root):
             if f.getName() == prog.getName():
                 return f
@@ -87,7 +87,7 @@ def _reopen_program(df):
 
     Uses getDomainObject to get a fresh handle and updates the server module state.
     """
-    import ghidra_mcp_server_pyghidra as _server_mod
+    import docker_only_ghidra_mcp_server as _server_mod
 
     proj = _server_mod._project
     if proj is None and _server_mod._ghidra_project:
@@ -102,7 +102,7 @@ def _reopen_program(df):
 
 def _release_program():
     """释放当前程序（undoCheckout/revert 前必须调用）"""
-    import ghidra_mcp_server_pyghidra as _server_mod
+    import docker_only_ghidra_mcp_server as _server_mod
     proj = _server_mod._project
     if proj is None and _server_mod._ghidra_project:
         proj = _server_mod._ghidra_project._project

@@ -1472,6 +1472,6 @@ def main():
 
 if __name__ == "__main__":
     # Ensure this module is accessible by name (not just as __main__)
-    # so that API modules importing "ghidra_mcp_server_pyghidra" see the same globals.
-    sys.modules["ghidra_mcp_server_pyghidra"] = sys.modules[__name__]
+    # so that API modules importing "docker_only_ghidra_mcp_server" see the same globals.
+    sys.modules["docker_only_ghidra_mcp_server"] = sys.modules[__name__]
     main()

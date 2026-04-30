@@ -115,7 +115,7 @@ def dispatch_route(path, state, params=None):
     # 写操作或版本操作：检查 server 连接
     if route_info.get("writes") or path.startswith("/api/version/"):
         try:
-            from ghidra_mcp_server_pyghidra import _ensure_server_connection
+            from docker_only_ghidra_mcp_server import _ensure_server_connection
             ok, err = _ensure_server_connection()
             if not ok:
                 return err

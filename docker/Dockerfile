@@ -43,7 +43,7 @@ RUN pip3 install --no-cache-dir --break-system-packages -r /tmp/requirements.txt
 WORKDIR /app
 
 # Copy source code
-COPY ghidra_mcp_server_pyghidra.py /app/
+COPY docker_only_ghidra_mcp_server.py /app/
 COPY api/ /app/api/
 COPY api_v1/ /app/api_v1/
 COPY utils/ /app/utils/

@@ -202,7 +202,7 @@ Use different ports in different Ghidra instances, then configure multiple MCP s
 ```
 Bridge/
 ├── ghidra_mcp_server.py           # GUI mode server (Ghidra Script Manager)
-├── ghidra_mcp_server_pyghidra.py  # Docker/Headless mode server (PyGhidra)
+├── docker_only_ghidra_mcp_server.py  # Docker/Headless mode server (PyGhidra) — DO NOT run in GUI Script Manager
 ├── api/                           # API modules (basic_info, search, view, memory, comment, rename, datatype, version, ...)
 ├── api_v1/                        # AI-friendly aggregated API (overview, search, view, list, edit)
 ├── scripts/

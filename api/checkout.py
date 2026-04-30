@@ -48,7 +48,7 @@ def _get_domain_file(prog):
     """Get the real DomainFile for a program (headless/PyGhidra mode only).
 
     Returns None in GUI mode — version.py's _get_domain_file imports from
-    ghidra_mcp_server_pyghidra which is not loaded in GUI mode.
+    docker_only_ghidra_mcp_server which is not loaded in GUI mode.
     This ensures all checkout/commit functions are no-ops in GUI mode,
     where the user manages version control through the Ghidra GUI.
     """
@@ -112,7 +112,7 @@ def ensure_checkout(state):
         if not result:
             # May be stale checkout from previous container — release and retry
             try:
-                from ghidra_mcp_server_pyghidra import _release_stale_checkout
+                from docker_only_ghidra_mcp_server import _release_stale_checkout
                 if _release_stale_checkout(df):
                     result = df.checkout(True, TaskMonitor.DUMMY)
             except ImportError:
@@ -244,7 +244,7 @@ def _do_checkin(state, comment):
 
     # Ensure server connection before checkin (reconnect if needed)
     try:
-        from ghidra_mcp_server_pyghidra import _ensure_server_connection
+        from docker_only_ghidra_mcp_server import _ensure_server_connection
         ok, _err = _ensure_server_connection()
         if not ok:
             return {"action": "checkin_failed", "error": "Server connection lost"}

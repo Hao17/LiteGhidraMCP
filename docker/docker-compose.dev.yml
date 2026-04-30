@@ -35,7 +35,7 @@ services:
       - ../api_v1:/app/api_v1:ro
       - ../utils:/app/utils:ro
       - ../scripts:/app/scripts:ro
-      - ../ghidra_mcp_server_pyghidra.py:/app/ghidra_mcp_server_pyghidra.py:ro
+      - ../docker_only_ghidra_mcp_server.py:/app/docker_only_ghidra_mcp_server.py:ro
 
       # Logs (read-write)
       - ../logs:/app/logs:rw
