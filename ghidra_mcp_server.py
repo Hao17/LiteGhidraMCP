@@ -256,17 +256,53 @@ def _cache_ghidra_context():
     """Cache Ghidra script and state objects at startup."""
     global _cached_script, _cached_state
 
-    try:
-        _cached_script = script()
-    except:
-        _cached_script = None
-        print("[Ghidra-MCP-Bridge] Warning: Failed to cache script")
+    # PyGhidraScript(dict) 通过 __missing__ 把 state/script/currentProgram 等
+    # 转发到底层 GhidraScript 实例。dict.get() 不触发 __missing__，必须用
+    # globals()[k] 配 KeyError 兜底；__this__/this 是真实存在的键，可作为
+    # 最后兜底拿到 GhidraScript 实例并 getState()。
+    main_mod = sys.modules.get("__main__")
+    namespaces = [globals()]
+    if main_mod is not None and vars(main_mod) is not globals():
+        namespaces.append(vars(main_mod))
+
+    def _resolve(*names):
+        for ns in namespaces:
+            for n in names:
+                try:
+                    val = ns[n]
+                except KeyError:
+                    continue
+                except Exception:
+                    continue
+                if val is not None:
+                    return val
+        return None
+
+    state_obj = _resolve("state", "currentState")
+    script_obj = _resolve("script", "currentScript", "__this__", "this")
+
+    if state_obj is None and script_obj is not None and hasattr(script_obj, "getState"):
+        try:
+            state_obj = script_obj.getState()
+        except Exception as e:
+            print(f"[Ghidra-MCP-Bridge] Warning: script.getState() failed: {type(e).__name__}: {e}")
 
     try:
-        _cached_state = state()
-    except:
+        _cached_script = script_obj() if callable(script_obj) else script_obj
+    except Exception as e:
+        _cached_script = None
+        print(f"[Ghidra-MCP-Bridge] Warning: Failed to cache script: {type(e).__name__}: {e}")
+
+    try:
+        _cached_state = state_obj() if callable(state_obj) else state_obj
+    except Exception as e:
         _cached_state = None
-        print("[Ghidra-MCP-Bridge] Warning: Failed to cache state")
+        print(f"[Ghidra-MCP-Bridge] Warning: Failed to cache state: {type(e).__name__}: {e}")
+
+    if _cached_state is None:
+        print("[Ghidra-MCP-Bridge] Warning: state object not resolvable "
+              "(tried state/currentState bare lookup + script.getState()). "
+              "API will return 'State not cached'.")
 
     # 自动加载 API 模块
     result = _discover_and_load_api_modules()
@@ -557,6 +593,7 @@ def _start_mcp_server(host: str, port: int, http_port: int) -> Optional[int]:
                 "--ghidra-host", host,
                 "--ghidra-port", str(http_port),
             ],
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             start_new_session=True,  # Detach from parent process group
