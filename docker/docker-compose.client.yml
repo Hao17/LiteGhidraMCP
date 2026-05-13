@@ -53,9 +53,6 @@ services:
       # Client identity (determines username: bridge-1, bridge-2, ...)
       - CLIENT_ID=${CLIENT_ID:-1}
 
-      # Idle auto-shutdown (seconds, 0 = disabled)
-      - IDLE_TIMEOUT=${IDLE_TIMEOUT:-0}
-
       # Logging
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_DIR=/app/logs

@@ -45,31 +45,6 @@ MCP_PORT = int(os.environ.get("GHIDRA_MCP_SSE_PORT", "8804"))
 _server_instance: Optional["ThreadingHTTPServer"] = None
 _server_thread: Optional[threading.Thread] = None
 
-# Idle tracking — standby mode releases checkout locks but keeps server alive
-_last_activity = time.time()
-_activity_lock = threading.Lock()
-_standby = False
-IDLE_TIMEOUT = int(os.environ.get("IDLE_TIMEOUT", "0"))  # seconds, 0 = disabled
-
-
-def _touch_activity():
-    global _last_activity, _standby
-    with _activity_lock:
-        _last_activity = time.time()
-        if _standby:
-            _standby = False
-            print("[PyGhidra-MCP-Bridge] Resuming from standby")
-
-
-def _idle_seconds():
-    with _activity_lock:
-        return time.time() - _last_activity
-
-
-def _is_standby():
-    with _activity_lock:
-        return _standby
-
 
 # Cache Ghidra context (PyGhidra style)
 _ghidra_project = None
@@ -1223,7 +1198,6 @@ class GhidraRequestHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         """Handle GET requests."""
-        _touch_activity()
         from api import dispatch_route
 
         # Special system routes
@@ -1263,7 +1237,6 @@ class GhidraRequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         """Handle POST requests."""
-        _touch_activity()
         from api import dispatch_route
 
         try:
@@ -1513,32 +1486,6 @@ def main():
             sys.exit(0)
 
         signal.signal(signal.SIGTERM, _graceful_shutdown)
-
-        # Start idle watchdog if IDLE_TIMEOUT is set
-        if IDLE_TIMEOUT > 0:
-            def _idle_watchdog():
-                global _standby
-                while True:
-                    time.sleep(30)
-                    with _activity_lock:
-                        if _standby:
-                            continue
-                    idle = _idle_seconds()
-                    if idle >= IDLE_TIMEOUT:
-                        print(f"[PyGhidra-MCP-Bridge] Idle {int(idle)}s >= {IDLE_TIMEOUT}s, entering standby...")
-                        try:
-                            from api.checkout import flush_checkin
-                            if _mock_state:
-                                result = flush_checkin(_mock_state)
-                                if result:
-                                    print(f"[PyGhidra-MCP-Bridge] Released checkout: {result}")
-                        except Exception as e:
-                            print(f"[PyGhidra-MCP-Bridge] Standby flush error: {e}")
-                        with _activity_lock:
-                            _standby = True
-                        print("[PyGhidra-MCP-Bridge] Standby mode — locks released, server still listening")
-            threading.Thread(target=_idle_watchdog, daemon=True).start()
-            print(f"[PyGhidra-MCP-Bridge] Idle standby enabled: {IDLE_TIMEOUT}s")
 
         # Keep main thread alive
         print("[PyGhidra-MCP-Bridge] Server running. Press Ctrl+C to stop.")
