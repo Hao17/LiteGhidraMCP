@@ -20,12 +20,16 @@ def _project_root() -> Path:
     return config.find_docker_dir().parent
 
 
-def _skill_path() -> Path:
+def _skill_doc_path() -> Path:
     return _project_root() / "docs" / "SKILL.md"
 
 
+def _commands_dir() -> Path:
+    return _project_root() / ".claude" / "commands"
+
+
 def _read_skill() -> str:
-    path = _skill_path()
+    path = _skill_doc_path()
     if not path.is_file():
         output.error(f"Skill document not found at {path}")
         raise SystemExit(1)
@@ -35,10 +39,11 @@ def _read_skill() -> str:
 SKILL_MARKER = "<!-- ghidra-mcp-skill -->"
 
 
-def _write_agent_file(filename: str):
+def _write_agent_file(filename: str, target_dir: Path | None = None):
     """Write or update a project-level instruction file with skill content."""
     skill = _read_skill()
-    target = _project_root() / filename
+    root = target_dir if target_dir else _project_root()
+    target = root / filename
     block = f"{SKILL_MARKER}\n{skill}\n{SKILL_MARKER}"
 
     if target.is_file():
@@ -62,29 +67,64 @@ def _write_agent_file(filename: str):
     output.info(f"Path: {target}")
 
 
+def _symlink_commands(target_dir: Path | None = None):
+    """Symlink .claude/commands/*.md into target project's .claude/commands/."""
+    src_dir = _commands_dir()
+    if not src_dir.is_dir():
+        output.error(f"Commands directory not found at {src_dir}")
+        raise SystemExit(1)
+
+    src_files = sorted(src_dir.glob("ghidra*.md"))
+    if not src_files:
+        output.error(f"No ghidra*.md command files found in {src_dir}")
+        raise SystemExit(1)
+
+    root = target_dir if target_dir else Path.cwd()
+    dest_dir = root / ".claude" / "commands"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    for src in src_files:
+        dest = dest_dir / src.name
+        if dest.is_symlink() or dest.exists():
+            dest.unlink()
+        dest.symlink_to(src.resolve())
+        output.success(f"  {src.name} → {dest}")
+
+    output.info(f"Linked {len(src_files)} commands to {dest_dir}")
+
+
 @click.group()
-def install():
+@click.option("--dir", "-d", "target_dir", default=None, type=click.Path(exists=True, file_okay=False, resolve_path=True),
+              help="Target project directory (default: Bridge project root).")
+@click.pass_context
+def install(ctx, target_dir):
     """Install skill to project-level AI instruction files."""
+    ctx.ensure_object(dict)
+    ctx.obj["target_dir"] = Path(target_dir) if target_dir else None
 
 
 # ── Skill install targets ──────────────────────────────────
 
 @install.command("codex")
-def codex():
+@click.pass_context
+def codex(ctx):
     """Install skill to AGENTS.md (OpenAI Codex)."""
-    _write_agent_file("AGENTS.md")
+    _write_agent_file("AGENTS.md", ctx.obj["target_dir"])
 
 
 @install.command("claude-code")
-def claude_code():
-    """Install skill to CLAUDE.md (Claude Code)."""
-    _write_agent_file("CLAUDE.md")
+@click.pass_context
+def claude_code(ctx):
+    """Install skill commands to .claude/commands/ (Claude Code, symlinks)."""
+    _symlink_commands(ctx.obj["target_dir"])
 
 
 @install.command("cursor")
-def cursor():
+@click.pass_context
+def cursor(ctx):
     """Install skill to .cursor/rules/ghidra-mcp.md (Cursor)."""
-    rules_dir = _project_root() / ".cursor" / "rules"
+    root = ctx.obj["target_dir"] or _project_root()
+    rules_dir = root / ".cursor" / "rules"
     rules_dir.mkdir(parents=True, exist_ok=True)
     target = rules_dir / "ghidra-mcp.md"
     target.write_text(_read_skill())
@@ -92,11 +132,13 @@ def cursor():
 
 
 @install.command("copilot")
-def copilot():
+@click.pass_context
+def copilot(ctx):
     """Install skill to .github/copilot-instructions.md (GitHub Copilot)."""
-    github_dir = _project_root() / ".github"
+    root = ctx.obj["target_dir"] or _project_root()
+    github_dir = root / ".github"
     github_dir.mkdir(parents=True, exist_ok=True)
-    _write_agent_file(".github/copilot-instructions.md")
+    _write_agent_file(".github/copilot-instructions.md", ctx.obj["target_dir"])
 
 
 # ── MCP connection config ──────────────────────────────────
@@ -194,19 +236,25 @@ def _mcp_coco(port: int, name: str):
 @install.command("skill")
 def skill():
     """Show available install targets."""
-    path = _skill_path()
-    if path.is_file():
-        output.success(f"Skill document: {path}")
-        click.echo()
-        click.echo("  Install skill:")
-        click.echo("    gmcp install codex         # → AGENTS.md")
-        click.echo("    gmcp install claude-code   # → CLAUDE.md")
-        click.echo("    gmcp install cursor        # → .cursor/rules/ghidra-mcp.md")
-        click.echo("    gmcp install copilot       # → .github/copilot-instructions.md")
-        click.echo()
-        click.echo("  Configure MCP connection:")
-        click.echo("    gmcp install mcp claude-code")
-        click.echo("    gmcp install mcp claude-desktop")
-        click.echo("    gmcp install mcp coco")
-    else:
-        output.error(f"Skill document not found at {path}")
+    cmds_dir = _commands_dir()
+    cmd_files = sorted(cmds_dir.glob("ghidra*.md")) if cmds_dir.is_dir() else []
+    doc_path = _skill_doc_path()
+
+    if cmd_files:
+        output.success(f"Commands directory: {cmds_dir}")
+        for f in cmd_files:
+            click.echo(f"  /{f.stem}")
+    if doc_path.is_file():
+        output.success(f"Skill document: {doc_path}")
+
+    click.echo()
+    click.echo("  Install skill:")
+    click.echo("    gmcp install claude-code   # → .claude/commands/ (symlinks)")
+    click.echo("    gmcp install codex         # → AGENTS.md")
+    click.echo("    gmcp install cursor        # → .cursor/rules/ghidra-mcp.md")
+    click.echo("    gmcp install copilot       # → .github/copilot-instructions.md")
+    click.echo()
+    click.echo("  Configure MCP connection:")
+    click.echo("    gmcp install mcp claude-code")
+    click.echo("    gmcp install mcp claude-desktop")
+    click.echo("    gmcp install mcp coco")
