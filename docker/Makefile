@@ -266,12 +266,39 @@ logs-separated:
 # Server Management
 # ============================================
 
+# Admin config marker (persists across restarts)
+_ADMIN_CONFIG = $(GHIDRA_DATA_DIR)/$(GHIDRA_VERSION)/config/.admin_user
+
 # Start standalone Ghidra Server
 server-up: init-data
 	@echo "Starting Ghidra Server..."
 	@echo "  Version: $(GHIDRA_VERSION)"
 	@echo "  Data:    $(GHIDRA_DATA_DIR)/$(GHIDRA_VERSION)/"
 	@docker-compose -f docker-compose.server.yml up -d
+	@if [ ! -f "$(_ADMIN_CONFIG)" ]; then \
+		echo ""; \
+		echo "=================================================="; \
+		echo "  First-time Setup: Register Admin User"; \
+		echo "=================================================="; \
+		echo "This account is for Ghidra GUI access."; \
+		echo "All repositories will auto-grant access to this user."; \
+		echo ""; \
+		read -p "Enter admin username: " ADMIN_USER; \
+		if [ -z "$$ADMIN_USER" ]; then \
+			echo "Skipped. Run 'make server-add-user NAME=<username>' later."; \
+		else \
+			echo "Waiting for server to be ready..."; \
+			for i in $$(seq 1 30); do \
+				if docker exec ghidra-server-standalone nc -z localhost 13100 2>/dev/null; then break; fi; \
+				sleep 1; \
+			done; \
+			echo "Setting password for '$$ADMIN_USER':"; \
+			docker exec -it ghidra-server-standalone $(SVRADMIN_CMD) -add "$$ADMIN_USER" --p && \
+			echo "$$ADMIN_USER" > "$(_ADMIN_CONFIG)" && \
+			echo "✓ Admin '$$ADMIN_USER' registered. All repos will auto-grant access." || \
+			echo "WARNING: Registration failed. Run 'make server-add-user NAME=$$ADMIN_USER' later."; \
+		fi; \
+	fi
 	@echo ""
 	@echo "✓ Server Started"
 	@echo "  Port: $(GHIDRA_SERVER_PORT)"
@@ -308,6 +335,7 @@ server-clean:
 	@docker-compose -f docker-compose.server.yml down -v
 	@rm -rf "$(GHIDRA_DATA_DIR)/$(GHIDRA_VERSION)/ssh/"
 	@rm -rf "$(GHIDRA_DATA_DIR)/$(GHIDRA_VERSION)"/client-config-*/
+	@rm -f "$(_ADMIN_CONFIG)"
 	@echo "✓ Server data removed"
 
 # Server user management
