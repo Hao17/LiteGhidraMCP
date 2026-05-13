@@ -15,6 +15,8 @@ A PyGhidra-based MCP (Model Context Protocol) Bridge that runs inside Ghidra 12.
 - **Multi-binary cross-analysis** — Spin up multiple clients against different binaries in one project. Ideal for scenarios like VMP unpacking, DLL-EXE interaction tracing, and multi-module firmware.
 - **AI-friendly** — Clone the repo, install the skill, and let Claude Code / Codex handle the rest — start server, spin up clients, configure MCP, and begin analysis.
 
+---
+
 ## Quick Start Guide
 
 ### Let AI Do It ⭐
@@ -25,7 +27,11 @@ pip install -e .
 gmcp install skill claude-code   # or: codex / cursor / copilot
 ```
 
-Then just tell your AI: *"Help me analyze ~/Downloads/firmware.bin"* — it knows how to start the server, import the binary, configure MCP, and begin analysis.
+Then just tell your AI:
+
+> *"Help me analyze ~/Downloads/firmware.bin"*
+
+It knows how to start the server, import the binary, configure MCP, and begin analysis.
 
 ### Manual Setup
 
@@ -74,14 +80,15 @@ gmcp client start 2 --repo test --binary modules/other_binary
 gmcp up --repo test --binary my_binary
 ```
 
-**What happens:**
+#### What happens
+
 - Ghidra Server starts on port `13100`
 - **First run only**: prompts you to register an admin user (username + password) for GUI access. All future repositories will auto-grant access to this admin.
 - Each client auto-generates SSH key and registers as `bridge-<N>`
 - Repository is auto-created on first client connection
 - HTTP API: `http://localhost:8803`, MCP SSE: `http://localhost:8804/sse`
 
-**Connect Ghidra GUI:**
+#### Connect Ghidra GUI
 
 1. File → New Project → **Shared Project**
 2. Server: `localhost:13100`
@@ -89,7 +96,7 @@ gmcp up --repo test --binary my_binary
 4. Password: the one you set during registration (for `root`: check `gmcp server logs`)
 5. Select a repository
 
-**Useful commands:**
+#### Useful commands
 
 ```bash
 gmcp server logs         # View server logs
@@ -103,7 +110,7 @@ gmcp info                # Show current configuration
 gmcp troubleshoot check  # Diagnose problems
 ```
 
-**Detailed guide**: [docker/QUICKSTART.md](docker/QUICKSTART.md#separated-server-client-mode-recommended-for-aigui-collaboration)
+> **Detailed guide**: [docker/QUICKSTART.md](docker/QUICKSTART.md)
 
 ### Local Project Mode (Automation Only)
 
@@ -169,11 +176,13 @@ Verify:
 3. **Add script path** (first time): Click "Manage Script Directories" (folder icon) → `+` → select this project root → OK
 4. Run `ghidra_mcp_server.py` (do **not** run `docker_only_ghidra_mcp_server.py` — that one is Docker-only and will error on container paths)
 5. Confirm in the script console:
+
    ```
    [Ghidra-MCP-Bridge] HTTP Server: http://127.0.0.1:8803
    [Ghidra-MCP-Bridge] MCP Server:  http://127.0.0.1:8804/sse
    [Ghidra-MCP-Bridge] Current Loaded Program: <name> (...)
    ```
+
    If you see `MCP proxy failed to start` with `ModuleNotFoundError: No module named 'mcp'`, step 2 was missed or installed into the wrong Python.
 
 ---
@@ -191,7 +200,7 @@ gmcp install skill cursor         # Cursor → .cursor/rules/ghidra-mcp.md
 gmcp install skill copilot        # GitHub Copilot → .github/copilot-instructions.md
 ```
 
-What the skill covers: [docs/SKILL.md](docs/SKILL.md)
+> What the skill covers: [docs/SKILL.md](docs/SKILL.md)
 
 ### Configure MCP Connection
 
@@ -210,11 +219,13 @@ gmcp install mcp claude-code --client 2   # → ghidra-2 on port 8814
 <summary>Manual MCP configuration</summary>
 
 **Claude Code:**
+
 ```bash
 claude mcp add --transport sse ghidra http://127.0.0.1:8804/sse
 ```
 
 **Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+
 ```json
 {
   "mcpServers": {
@@ -227,6 +238,7 @@ claude mcp add --transport sse ghidra http://127.0.0.1:8804/sse
 ```
 
 **Coco:**
+
 ```bash
 coco mcp add-json ghidra '{"type": "sse", "url": "http://127.0.0.1:8804/sse"}'
 ```
@@ -260,7 +272,7 @@ curl "http://127.0.0.1:8803/api/v1/view?q=main&type=decompile"
 curl "http://127.0.0.1:8803/api/memory/read?address=0x401000&length=256"
 ```
 
-For complete API documentation, see [CLAUDE.md](CLAUDE.md).
+> For complete API documentation, see [CLAUDE.md](CLAUDE.md).
 
 ### Environment Variables
 
@@ -283,6 +295,8 @@ Use different ports in different Ghidra instances, then configure multiple MCP s
   }
 }
 ```
+
+---
 
 ## Project Structure
 
@@ -314,4 +328,4 @@ Bridge/
 
 ## Development
 
-For detailed API development guide and architecture documentation, see [CLAUDE.md](CLAUDE.md).
+> For detailed API development guide and architecture documentation, see [CLAUDE.md](CLAUDE.md).
