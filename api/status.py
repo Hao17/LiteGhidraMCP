@@ -28,6 +28,16 @@ def status(state):
     """
     current_time = time.time()
 
+    # Import idle tracking from docker server if available
+    idle_seconds = 0
+    idle_timeout = 0
+    try:
+        import docker_only_ghidra_mcp_server as _srv
+        idle_seconds = round(_srv._idle_seconds(), 1)
+        idle_timeout = _srv.IDLE_TIMEOUT
+    except (ImportError, AttributeError):
+        pass
+
     result = {
         "success": True,
         "server": {
@@ -40,6 +50,8 @@ def status(state):
             "load_timestamp": _MODULE_LOAD_TIME,
             "uptime_seconds": round(current_time - _MODULE_LOAD_TIME, 2),
         },
+        "idle_seconds": idle_seconds,
+        "idle_timeout": idle_timeout,
         "state": {
             "has_program": False,
             "program_name": None,

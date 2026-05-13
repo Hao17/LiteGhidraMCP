@@ -1,7 +1,7 @@
 # Ghidra MCP Bridge
 # Makefile for common Docker operations
 
-.PHONY: help build up down logs shell test clean rebuild server-up server-down server-logs server-restart server-clean server-users server-add-user server-reset-password server-list-repos client client-stop client-logs client-up client-down client-restart client2-up client2-down up-separated down-separated logs-separated help-separated check-env check-repo check-n init-data info list-versions switch-version troubleshoot troubleshoot-fix
+.PHONY: help build up down logs shell test clean rebuild server-up server-down server-logs server-restart server-clean server-users server-add-user server-reset-password server-list-repos client client-stop client-logs client-list client-up client-down client-restart client2-up client2-down up-separated down-separated logs-separated help-separated check-env check-repo check-n init-data info list-versions switch-version troubleshoot troubleshoot-fix
 
 # Load environment variables
 -include .env
@@ -24,10 +24,11 @@ help:
 	@echo ""
 	@echo "Separated Server-Client Mode (AI + GUI collaboration):"
 	@echo "  make server-up          - Start standalone Ghidra Server"
-	@echo "  make client N=<1-99> REPO=<name> [BINARY=<name-or-path>] [BINARY_FILE=<path>]"
+	@echo "  make client N=<n> REPO=<name> [BINARY=<name-or-path>] [BINARY_FILE=<path>]"
 	@echo "                          - Start client N (ports auto-calculated) ⭐"
-	@echo "  make client-stop N=<1-99>  - Stop client N"
-	@echo "  make client-logs N=<1-99>  - View client N logs"
+	@echo "  make client-stop N=<n>  - Stop client N"
+	@echo "  make client-logs N=<n>  - View client N logs"
+	@echo "  make client-list        - List all running clients"
 	@echo "  make down-separated     - Stop all services"
 	@echo "  make help-separated     - Detailed help for separated mode"
 	@echo ""
@@ -80,15 +81,15 @@ check-env:
 check-repo:
 	@if [ -z "$(REPO)" ]; then \
 		echo "ERROR: REPO is required."; \
-		echo "Usage: make client N=<1-99> REPO=<name> [BINARY=<name-or-path>] [BINARY_FILE=<path>]"; \
+		echo "Usage: make client N=<n> REPO=<name> [BINARY=<name-or-path>] [BINARY_FILE=<path>]"; \
 		exit 1; \
 	fi
 
 # Validate N parameter (client instance number, default 1)
 N ?= 1
 check-n:
-	@if [ "$(N)" -lt 1 ] 2>/dev/null || [ "$(N)" -gt 99 ] 2>/dev/null; then \
-		echo "ERROR: N must be between 1 and 99 (got: $(N))"; \
+	@if [ "$(N)" -lt 1 ] 2>/dev/null; then \
+		echo "ERROR: N must be >= 1 (got: $(N))"; \
 		exit 1; \
 	fi
 
@@ -359,6 +360,7 @@ client: check-env check-repo check-n
 	 GHIDRA_SERVER_REPO=/$(REPO) \
 	 PROGRAM_NAME=$(BINARY) \
 	 IMPORT_BINARY_NAME=$(if $(BINARY_FILE),$(or $(BINARY),$(notdir $(BINARY_FILE))),) \
+	 IDLE_TIMEOUT=$(or $(IDLE_TIMEOUT),0) \
 	 docker-compose -p ghidra-client-$(N) -f docker-compose.client.yml up -d
 	@echo ""
 	@echo "✓ Client $(N) started"
@@ -382,6 +384,26 @@ client-logs: check-n
 	@echo ""
 	@docker logs ghidra-mcp-bridge-client-$(N) -f 2>/dev/null || \
 	 docker-compose -p ghidra-client-$(N) -f docker-compose.client.yml logs -f
+
+# Generic: list all running clients with status
+client-list:
+	@echo "Running Ghidra MCP Bridge clients:"
+	@echo ""
+	@printf "%-6s %-12s %-8s %-14s %s\n" "N" "STATUS" "HTTP" "SSE" "IDLE"
+	@printf "%-6s %-12s %-8s %-14s %s\n" "---" "--------" "-----" "-----" "----"
+	@docker ps -a --filter "name=ghidra-mcp-bridge-client-" --format '{{.Names}} {{.Status}}' 2>/dev/null | \
+	 sort -t- -k5 -n | while read name status; do \
+		n=$$(echo "$$name" | sed 's/ghidra-mcp-bridge-client-//'); \
+		port=$$(( 8800 + ($$n - 1) * 10 + 3 )); \
+		sse=$$(( port + 1 )); \
+		idle=""; \
+		if echo "$$status" | grep -q "^Up"; then \
+			idle=$$(curl -sf --max-time 2 "http://127.0.0.1:$$port/api/status" 2>/dev/null | \
+				python3 -c "import sys,json; d=json.load(sys.stdin); s=d.get('idle_seconds',0); print(f'{int(s//60)}m{int(s%60)}s') if s else print('-')" 2>/dev/null || echo "?"); \
+		fi; \
+		printf "%-6s %-12s %-8s %-14s %s\n" "$$n" "$$status" "$$port" "$$sse" "$$idle"; \
+	done
+	@echo ""
 
 # ---- Aliases for backward compatibility ----
 
@@ -437,13 +459,21 @@ help-separated:
 	@echo "  make server-reset-password NAME=x - Reset password"
 	@echo "  make server-list-repos      - List repositories"
 	@echo ""
-	@echo "Client Management (each client = one binary):"
+	@echo "Client Management (each client = one binary, N has no upper limit):"
 	@echo "  make client N=1 REPO=test BINARY=alpha                  - Start client 1 (8803/8804)"
 	@echo "  make client N=2 REPO=test BINARY=modules/beta BINARY_FILE=~/b - Start client 2 (8813/8814)"
 	@echo "  make client N=3 REPO=aweme BINARY=38.1.0/all_init.o     - Start client 3 (8823/8824)"
+	@echo "  make client N=15 REPO=x BINARY=y IDLE_TIMEOUT=1800      - Auto-shutdown after 30min idle"
 	@echo "  make client-stop N=3   - Stop client 3"
 	@echo "  make client-logs N=3   - View client 3 logs"
+	@echo "  make client-list       - List all running clients with idle time"
 	@echo "  Ports: N=1→8803/8804, N=2→8813/8814, N=3→8823/8824, ..."
+	@echo ""
+	@echo "Idle Auto-Shutdown:"
+	@echo "  IDLE_TIMEOUT=<seconds>  - Auto-stop client after N seconds with no API requests"
+	@echo "  IDLE_TIMEOUT=1800       - 30 minutes"
+	@echo "  IDLE_TIMEOUT=3600       - 1 hour"
+	@echo "  IDLE_TIMEOUT=0          - Disabled (default)"
 	@echo ""
 	@echo "  Legacy aliases: client-up = client N=1, client2-up = client N=2"
 	@echo ""
