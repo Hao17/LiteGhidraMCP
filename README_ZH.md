@@ -13,7 +13,7 @@
 - **7 个 MCP 工具** — 统一入口，模式分发到 50+ API，无工具膨胀。
 - **版本控制 + AI/人类协作** — 多个 AI Agent 与人类分析师通过 Ghidra Server 协同分析同一 binary，完整版本历史。
 - **多 binary 跨文件分析** — 同一项目下启动多个 Client 分析不同 binary。适用于 VMP 脱壳、DLL-EXE 交互追踪、多模块固件等场景。
-- **GUI、Headless、Docker** — 同一套 API 代码支持所有模式。Docker Server-Client 支持 AI 全自主分析。
+- **AI 友好** — 克隆仓库、安装 Skill，然后让 Claude Code / Codex 帮你完成一切 — 启动 Server、拉起 Client、配置 MCP、开始分析。
 
 ## 快速开始指引
 
