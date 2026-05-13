@@ -389,8 +389,8 @@ client-logs: check-n
 client-list:
 	@echo "Running Ghidra MCP Bridge clients:"
 	@echo ""
-	@printf "%-6s %-12s %-8s %-14s %s\n" "N" "STATUS" "HTTP" "SSE" "IDLE"
-	@printf "%-6s %-12s %-8s %-14s %s\n" "---" "--------" "-----" "-----" "----"
+	@printf "%-6s %-14s %-8s %-8s %s\n" "N" "STATUS" "HTTP" "SSE" "IDLE"
+	@printf "%-6s %-14s %-8s %-8s %s\n" "---" "----------" "-----" "-----" "----"
 	@docker ps -a --filter "name=ghidra-mcp-bridge-client-" --format '{{.Names}} {{.Status}}' 2>/dev/null | \
 	 sort -t- -k5 -n | while read name status; do \
 		n=$$(echo "$$name" | sed 's/ghidra-mcp-bridge-client-//'); \
@@ -399,9 +399,9 @@ client-list:
 		idle=""; \
 		if echo "$$status" | grep -q "^Up"; then \
 			idle=$$(curl -sf --max-time 2 "http://127.0.0.1:$$port/api/status" 2>/dev/null | \
-				python3 -c "import sys,json; d=json.load(sys.stdin); s=d.get('idle_seconds',0); print(f'{int(s//60)}m{int(s%60)}s') if s else print('-')" 2>/dev/null || echo "?"); \
+				python3 -c "import sys,json;d=json.load(sys.stdin);s=d.get('idle_seconds',0);sb=d.get('standby',False);t=f'{int(s//60)}m{int(s%60)}s';print(f'{t} (standby)' if sb else t) if s else print('-')" 2>/dev/null || echo "?"); \
 		fi; \
-		printf "%-6s %-12s %-8s %-14s %s\n" "$$n" "$$status" "$$port" "$$sse" "$$idle"; \
+		printf "%-6s %-14s %-8s %-8s %s\n" "$$n" "$$status" "$$port" "$$sse" "$$idle"; \
 	done
 	@echo ""
 
