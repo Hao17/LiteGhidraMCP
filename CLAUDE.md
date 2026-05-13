@@ -568,25 +568,19 @@ The bridge handles both GUI and headless modes with appropriate threading models
 
 单一镜像通过 `RUN_MODE` 环境变量控制运行模式（`SERVER` / `CLIENT`）。
 
-### Client 生命周期
-
-每个 Client 专属一个 binary，启动时确定 repo + binary，运行时不切换：
+### 快速启动
 
 ```bash
-# 启动 Server（首次自动创建配置 + 注册管理员用户）
+pip install -e .          # 安装 gmcp CLI
+
+# 启动 Server（首次自动创建 .env + 注册管理员用户）
 gmcp server up
 
-# Client 1：连接已有 repo 中的 binary
-gmcp client start 1 --repo test --binary test_alpha
-
-# Client 1：按仓库路径绑定指定 binary
-gmcp client start 1 --repo test --binary 38.1.0/test_alpha
-
-# Client 1：导入新 binary 并启动
-gmcp client start 1 --repo test --binary test_alpha --binary-file ~/binaries/alpha.bin
-
-# Client 2：另一个 binary（不同端口 8813/8814）
-gmcp client start 2 --repo test --binary modules/test_beta --binary-file ~/binaries/beta.bin
+# 启动 Client（每个 Client 绑定一个 binary，运行时不切换）
+gmcp client start 1 --repo test --binary test_alpha                              # 打开已有 binary
+gmcp client start 1 --repo test --binary 38.1.0/test_alpha                       # 按仓库路径
+gmcp client start 1 --repo test --binary test_alpha --binary-file ~/alpha.bin    # 导入并打开
+gmcp client start 2 --repo test --binary modules/test_beta                       # Client 2（8813/8814）
 
 # 停止
 gmcp client stop 1    # Client 1
@@ -594,27 +588,58 @@ gmcp client stop 2    # Client 2
 gmcp down             # 全部停止
 ```
 
+**首次启动流程**:
+1. `gmcp server up` 自动创建 `docker/.env`（默认 `GHIDRA_DATA_DIR=~/ghidra-data`）
+2. 启动 Ghidra Server（端口 13100）
+3. 交互式注册管理员用户（用户名 + 密码），用于 Ghidra GUI 访问
+4. ACL sync loop（每 5 秒）自动将该管理员授权到所有 repo
+
+**连接 Ghidra GUI**: File → New Project → Shared Project → `localhost:13100` → 使用注册的管理员用户名
+
+### 常用命令
+
+```bash
+# Server 管理
+gmcp server up / down / restart / logs
+gmcp server users              # 列出用户
+gmcp server add-user <name>    # 添加用户
+gmcp server repos              # 列出仓库和权限
+gmcp server clean              # 删除所有数据（下次启动重新注册管理员）
+
+# Client 管理
+gmcp client start N --repo <name> [--binary <name>] [--binary-file <path>]
+gmcp client stop N / logs N / list
+
+# 一键操作
+gmcp up --repo <name> --binary <name>   # 启动 Server + Client 1
+gmcp down                               # 停止全部
+
+# 信息和调试
+gmcp info                      # 当前配置
+gmcp troubleshoot check        # 诊断问题
+```
+
 **Makefile 替代方式**（从 `docker/` 目录执行）:
 ```bash
-make server-up
+make server-up                 # 同 gmcp server up（首次也会注册管理员）
 make client N=1 REPO=test BINARY=test_alpha
-make client N=2 REPO=test BINARY=modules/test_beta BINARY_FILE=~/binaries/beta.bin
+make client N=2 REPO=test BINARY=modules/test_beta BINARY_FILE=~/beta.bin
 make client-stop N=1
 make down-separated
 ```
 
-**参数说明**:
+### 参数和端口
+
 - `--repo` / `REPO`（必选）：Ghidra Server 仓库名
 - `--binary` / `BINARY`（推荐）：要打开的程序名或仓库路径
 - `--binary-file` / `BINARY_FILE`（可选）：主机上的 binary 文件路径，自动导入到 repo
+- **端口计算**: Client N → HTTP 8800+(N-1)*10+3, SSE +1（如 N=1→8803/8804, N=2→8813/8814）
 
-**端口计算**: Client N → HTTP 8800+(N-1)*10+3, SSE +1（如 N=1→8803/8804, N=2→8813/8814）
+### 设计原则
 
-**设计原则**:
 - MCP Tools 保持不变，纯分析工具，不包含 program 管理
 - Client 生命周期由 `gmcp` CLI 或 Makefile 管理
 - 程序在启动时通过 `--binary` / `PROGRAM_NAME` 绑定；运行时切换不需要
 - Program API 仅保留枚举/导入能力，不暴露为 MCP tool
-- 首次 `gmcp server up` / `make server-up` 交互式注册管理员用户，ACL sync loop 自动授权到所有 repo
 
 详细架构、数据持久化和部署说明见 `docker/ARCHITECTURE.md` 和 `docker/QUICKSTART.md`。
