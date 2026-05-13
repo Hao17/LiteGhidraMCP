@@ -173,6 +173,36 @@ Use this to identify which MCP endpoint connects to which binary.
 
 ---
 
+## MCP Connection Setup
+
+To use the Ghidra MCP tools, your AI client needs an MCP connection to the Bridge SSE endpoint.
+
+Default endpoint: `http://127.0.0.1:8804/sse` (Client 1). Multi-client ports: Client N → `880N4` (e.g. Client 2 → `8814`).
+
+**Quick setup:**
+```bash
+gmcp install mcp claude-code              # Claude Code
+gmcp install mcp claude-desktop           # Claude Desktop
+gmcp install mcp coco                     # Coco
+gmcp install mcp claude-code --client 2   # Client 2 → port 8814
+```
+
+**Manual setup:**
+```bash
+# Claude Code
+claude mcp add --transport sse ghidra http://127.0.0.1:8804/sse
+
+# Coco
+coco mcp add-json ghidra '{"type": "sse", "url": "http://127.0.0.1:8804/sse"}'
+```
+
+**Claude Desktop** — edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
+```json
+{"mcpServers": {"ghidra": {"type": "sse", "url": "http://127.0.0.1:8804/sse"}}}
+```
+
+---
+
 ## gmcp CLI Quick Reference
 
 ```bash
@@ -210,11 +240,14 @@ gmcp dev shell              # Enter container
 gmcp troubleshoot check
 gmcp troubleshoot fix
 
-# Install skill + MCP for AI clients
-gmcp install claude-code    # CLAUDE.md + MCP connection
-gmcp install codex          # AGENTS.md
-gmcp install cursor         # .cursor/rules/ghidra-mcp.md
-gmcp install copilot        # .github/copilot-instructions.md
-gmcp install claude-desktop # Claude Desktop config.json
-gmcp install coco           # Coco MCP config
+# Install skill (project-level AI instructions)
+gmcp install codex          # → AGENTS.md
+gmcp install claude-code    # → CLAUDE.md
+gmcp install cursor         # → .cursor/rules/ghidra-mcp.md
+gmcp install copilot        # → .github/copilot-instructions.md
+
+# Configure MCP connection (separate from skill)
+gmcp install mcp claude-code
+gmcp install mcp claude-desktop
+gmcp install mcp coco
 ```
