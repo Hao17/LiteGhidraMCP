@@ -237,18 +237,7 @@ def _import_program(path, name="", analyze=True):
 
     # Run auto-analysis if requested
     if analyze:
-        try:
-            from ghidra.app.util.importer import AutoAnalysisManager
-            mgr = AutoAnalysisManager.getAnalysisManager(program)
-            txid = program.startTransaction("Auto-analysis")
-            try:
-                mgr.initializeOptions()
-                mgr.reAnalyzeAll(None)
-                mgr.startAnalysis(TaskMonitor.DUMMY)
-            finally:
-                program.endTransaction(txid, True)
-        except Exception:
-            pass  # Analysis is best-effort
+        _analyze_program(program)
 
     # CRITICAL: Call load_results.save() to create DomainFile in project folder
     # program.save() only saves internal state; load_results.save() creates the file
@@ -295,6 +284,46 @@ def _import_program(path, name="", analyze=True):
         "versioned": versioned
     }
     return result
+
+
+def _analyze_program(program):
+    """Run auto-analysis on a program if not already analyzed.
+
+    AutoAnalysisManager manages its own transactions internally, so no
+    explicit startTransaction/endTransaction wrapping is needed.
+    """
+    if program is None:
+        return
+    try:
+        from ghidra.program.util import GhidraProgramUtilities
+
+        if GhidraProgramUtilities.isAnalyzed(program):
+            print(f"[PyGhidra-MCP-Bridge] Program already analyzed: {program.getName()}")
+            return
+
+        print(f"[PyGhidra-MCP-Bridge] Running auto-analysis: {program.getName()} ...")
+
+        from ghidra.app.util.importer import AutoAnalysisManager
+        from ghidra.util.task import TaskMonitor
+
+        mgr = AutoAnalysisManager.getAnalysisManager(program)
+        mgr.initializeOptions()
+        mgr.reAnalyzeAll(None)
+        mgr.startAnalysis(TaskMonitor.DUMMY)
+        GhidraProgramUtilities.setAnalyzedFlag(program)
+
+        # Save analysis results. May fail for transient programs (import path)
+        # where the DomainFile is created later by load_results.save().
+        try:
+            program.save("Auto-analysis", TaskMonitor.DUMMY)
+        except Exception:
+            pass
+
+        print(f"[PyGhidra-MCP-Bridge] ✓ Auto-analysis complete: {program.getName()}")
+    except Exception as e:
+        print(f"[PyGhidra-MCP-Bridge] ⚠ Auto-analysis failed: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 def _collect_all_files(folder):
@@ -408,6 +437,8 @@ def _init_ghidra_project():
             print("[PyGhidra-MCP-Bridge] ⚠ No programs found in project")
             print("[PyGhidra-MCP-Bridge] ⚠ You can import binaries via API or manually")
             _current_program = None
+
+        _analyze_program(_current_program)
 
     elif project_mode == "server":
         # Ghidra Server mode with SSH key authentication
@@ -710,6 +741,8 @@ def _init_ghidra_project():
             else:
                 print(f"[PyGhidra-MCP-Bridge] ⚠ No programs in repository")
                 _current_program = None
+
+            _analyze_program(_current_program)
 
         except Exception as e:
             print(f"[PyGhidra-MCP-Bridge] ✗ Failed to connect to server: {e}")
