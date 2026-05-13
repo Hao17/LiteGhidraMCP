@@ -7,6 +7,7 @@ from cli.commands.info import info, switch_version, versions
 from cli.commands.install import install
 from cli.commands.server import server
 from cli.commands.stack import down, up
+from cli.commands.status import status
 from cli.commands.troubleshoot import troubleshoot
 
 
@@ -26,5 +27,6 @@ cli.add_command(dev)
 cli.add_command(info)
 cli.add_command(versions)
 cli.add_command(switch_version)
+cli.add_command(status)
 cli.add_command(install)
 cli.add_command(troubleshoot)

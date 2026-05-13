@@ -34,11 +34,12 @@ def _read_skill() -> str:
 SKILL_MARKER = "<!-- ghidra-mcp-skill -->"
 
 
-def _write_agent_file(filename: str, label: str):
+def _write_agent_file(filename: str, label: str, mcp_port: int = 8804):
     """Write or update a project-level instruction file with skill content."""
     skill = _read_skill()
+    mcp_block = _mcp_instructions_block(mcp_port)
     target = _project_root() / filename
-    block = f"{SKILL_MARKER}\n{skill}\n{SKILL_MARKER}"
+    block = f"{SKILL_MARKER}\n{skill}\n{mcp_block}\n{SKILL_MARKER}"
 
     if target.is_file():
         existing = target.read_text()
@@ -71,14 +72,16 @@ def install():
 @click.option("--port", "-p", default=8804, type=int, help="MCP SSE port (default: 8804).")
 @click.option("--name", "-n", default="ghidra", help="MCP server name (default: ghidra).")
 @click.option("--client", "-c", default=0, type=int, help="Client N (0=default port, 1-9=auto-calc).")
-def claude_code(port, name, client):
-    """Add Ghidra MCP server to Claude Code."""
+@click.option("--skip-skill", is_flag=True, help="Skip writing skill to CLAUDE.md.")
+def claude_code(port, name, client, skip_skill):
+    """Add MCP server to Claude Code + install skill to CLAUDE.md."""
     if client > 0:
         _, sse_port = client_ports(client)
         port = sse_port
         if name == "ghidra":
             name = f"ghidra-{client}"
 
+    # MCP connection
     if not shutil.which("claude"):
         output.error("'claude' command not found. Install Claude Code first.")
         raise SystemExit(1)
@@ -89,15 +92,17 @@ def claude_code(port, name, client):
         capture_output=True, text=True,
     )
     if result.returncode == 0:
-        output.success(f"Added '{name}' → {url}")
+        output.success(f"MCP: added '{name}' → {url}")
     else:
         stderr = result.stderr.strip()
         if "already exists" in stderr.lower():
-            output.warning(f"'{name}' already configured. Remove first: claude mcp remove {name}")
+            output.warning(f"MCP: '{name}' already configured. Remove first: claude mcp remove {name}")
         else:
-            output.error(f"Failed: {stderr or result.stdout.strip()}")
+            output.error(f"MCP: {stderr or result.stdout.strip()}")
 
-    _offer_skill()
+    # Skill
+    if not skip_skill:
+        _write_agent_file("CLAUDE.md", "Claude Code")
 
 
 @install.command("claude-desktop")
@@ -142,8 +147,6 @@ def claude_desktop(port, name, client):
     output.info(f"Config: {config_path}")
     output.info("Restart Claude Desktop to apply changes.")
 
-    _offer_skill()
-
 
 @install.command("coco")
 @click.option("--port", "-p", default=8804, type=int, help="MCP SSE port (default: 8804).")
@@ -172,52 +175,71 @@ def coco(port, name, client):
     else:
         output.error(f"Failed: {result.stderr.strip() or result.stdout.strip()}")
 
-    _offer_skill()
-
 
 @install.command("codex")
-def codex():
-    """Install skill to AGENTS.md (OpenAI Codex project instructions)."""
-    _write_agent_file("AGENTS.md", "Codex")
+@click.option("--port", "-p", default=8804, type=int, help="MCP SSE port (default: 8804).")
+@click.option("--client", "-c", default=0, type=int, help="Client N (0=default port, 1-9=auto-calc).")
+def codex(port, client):
+    """Install skill + MCP config to AGENTS.md (OpenAI Codex)."""
+    if client > 0:
+        _, port = client_ports(client)
+
+    _write_agent_file("AGENTS.md", "Codex", mcp_port=port)
 
 
 @install.command("cursor")
-def cursor():
-    """Install skill to .cursor/rules/ghidra-mcp.md (Cursor project rules)."""
+@click.option("--port", "-p", default=8804, type=int, help="MCP SSE port (default: 8804).")
+@click.option("--client", "-c", default=0, type=int, help="Client N (0=default port, 1-9=auto-calc).")
+def cursor(port, client):
+    """Install skill to .cursor/rules/ghidra-mcp.md (Cursor)."""
+    if client > 0:
+        _, port = client_ports(client)
+
     rules_dir = _project_root() / ".cursor" / "rules"
     rules_dir.mkdir(parents=True, exist_ok=True)
     skill = _read_skill()
+    mcp_block = _mcp_instructions_block(port)
     target = rules_dir / "ghidra-mcp.md"
-    target.write_text(skill)
+    target.write_text(skill + "\n" + mcp_block)
     output.success(f"Installed Ghidra MCP skill to {target}")
 
 
 @install.command("copilot")
-def copilot():
+@click.option("--port", "-p", default=8804, type=int, help="MCP SSE port (default: 8804).")
+@click.option("--client", "-c", default=0, type=int, help="Client N (0=default port, 1-9=auto-calc).")
+def copilot(port, client):
     """Install skill to .github/copilot-instructions.md (GitHub Copilot)."""
+    if client > 0:
+        _, port = client_ports(client)
+
     github_dir = _project_root() / ".github"
     github_dir.mkdir(parents=True, exist_ok=True)
-    _write_agent_file(".github/copilot-instructions.md", "Copilot")
+    _write_agent_file(".github/copilot-instructions.md", "Copilot", mcp_port=port)
 
 
 @install.command("skill")
 def skill():
-    """Show the path to the usage skill document."""
+    """Show available install targets for the skill document."""
     path = _skill_path()
     if path.is_file():
         output.success(f"Skill document: {path}")
-        output.info("Add this file as context for your AI client to improve analysis quality.")
         click.echo()
-        click.echo("  gmcp install codex       # → AGENTS.md")
-        click.echo("  gmcp install cursor      # → .cursor/rules/ghidra-mcp.md")
-        click.echo("  gmcp install copilot     # → .github/copilot-instructions.md")
+        click.echo("  Install targets:")
+        click.echo("    gmcp install claude-code   # CLAUDE.md + MCP connection")
+        click.echo("    gmcp install codex         # AGENTS.md + MCP instructions")
+        click.echo("    gmcp install cursor        # .cursor/rules/ghidra-mcp.md")
+        click.echo("    gmcp install copilot       # .github/copilot-instructions.md")
+        click.echo("    gmcp install claude-desktop # Claude Desktop config.json")
+        click.echo("    gmcp install coco          # Coco MCP config")
     else:
         output.error(f"Skill document not found at {path}")
 
 
-def _offer_skill():
-    path = _skill_path()
-    if path.is_file():
-        click.echo()
-        output.info(f"Usage tips: {path}")
-        output.info("Run 'gmcp install skill' for details.")
+def _mcp_instructions_block(port: int) -> str:
+    """Generate MCP connection instructions to embed in agent files."""
+    return (
+        "\n---\n\n"
+        "## MCP Connection\n\n"
+        f"Ghidra MCP SSE endpoint: `{_sse_url(port)}`\n\n"
+        "Use `gmcp status --json` to discover all running clients, ports, and loaded binaries.\n"
+    )

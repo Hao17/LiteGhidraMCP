@@ -147,6 +147,32 @@ Write operations auto-commit — no manual commit needed.
 
 ---
 
+## Service Discovery
+
+Before analysis, discover running clients and their binaries:
+
+```bash
+gmcp status --json
+```
+
+Returns:
+```json
+{
+  "server": {"running": true, "port": 13100},
+  "clients": [
+    {
+      "id": 1, "http_port": 8803, "sse_port": 8804,
+      "mcp_url": "http://127.0.0.1:8804/sse",
+      "program": "my_binary", "processor": "AARCH64", "functions": 1234
+    }
+  ]
+}
+```
+
+Use this to identify which MCP endpoint connects to which binary.
+
+---
+
 ## gmcp CLI Quick Reference
 
 ```bash
@@ -154,6 +180,8 @@ Write operations auto-commit — no manual commit needed.
 pip install -e .            # Install CLI
 gmcp info                   # Show config
 gmcp build                  # Build Docker image
+gmcp status                 # Show running clients & binaries
+gmcp status --json          # Machine-readable status
 
 # Server + Client (one command)
 gmcp up -r myrepo -b mybinary
@@ -182,8 +210,11 @@ gmcp dev shell              # Enter container
 gmcp troubleshoot check
 gmcp troubleshoot fix
 
-# Install MCP connection for AI clients
-gmcp install claude-code
-gmcp install claude-desktop
-gmcp install coco
+# Install skill + MCP for AI clients
+gmcp install claude-code    # CLAUDE.md + MCP connection
+gmcp install codex          # AGENTS.md
+gmcp install cursor         # .cursor/rules/ghidra-mcp.md
+gmcp install copilot        # .github/copilot-instructions.md
+gmcp install claude-desktop # Claude Desktop config.json
+gmcp install coco           # Coco MCP config
 ```
