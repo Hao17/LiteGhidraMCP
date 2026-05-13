@@ -32,6 +32,14 @@ After setup, → [Configure AI Client](#configure-ai-client) to connect your AI 
 
 ## Docker Deployment
 
+### Install CLI
+
+```bash
+pip install -e .
+```
+
+This installs the `gmcp` command — a CLI wrapper for all Docker operations. Run `gmcp --help` to see available commands.
+
 ### Separated Server-Client Mode ⭐ Recommended
 
 AI (Docker) + GUI (Human) collaboration with one command. Each client binds to one REPO/BINARY (name or repo path) at startup, and runtime switching is intentionally unsupported.
@@ -40,22 +48,24 @@ AI (Docker) + GUI (Human) collaboration with one command. Each client binds to o
 > The official Ghidra distribution currently does not ship a `linux_arm_64` decompiler binary. Run the Bridge containers as `linux/amd64`; the compose files in this repo now default to that platform to avoid `Could not find decompiler executable`.
 
 ```bash
-cd docker/
-
 # First time setup
+cd docker/
 cp .env.example .env
 vim .env  # Set GHIDRA_DATA_DIR (e.g., ~/ghidra-data)
 
 # Start server
-make server-up
+gmcp server up
 
-# Start client (REPO required, BINARY recommended)
-make client-up REPO=test BINARY=my_binary                       # Open existing binary
-make client-up REPO=test BINARY=38.1.0/my_binary               # Open binary by repo path
-make client-up REPO=test BINARY=my_binary BINARY_FILE=~/a.bin  # Import + open
+# Start client (--repo required, --binary recommended)
+gmcp client start 1 --repo test --binary my_binary                          # Open existing binary
+gmcp client start 1 --repo test --binary 38.1.0/my_binary                  # Open binary by repo path
+gmcp client start 1 --repo test --binary my_binary --binary-file ~/a.bin   # Import + open
 
 # Second client on different ports (8813/8814)
-make client2-up REPO=test BINARY=modules/other_binary
+gmcp client start 2 --repo test --binary modules/other_binary
+
+# Or start server + client 1 in one command
+gmcp up --repo test --binary my_binary
 ```
 
 **What happens:**
@@ -69,17 +79,19 @@ make client2-up REPO=test BINARY=modules/other_binary
 1. File → New Project → **Shared Project**
 2. Server: `localhost:13100`
 3. User: `root`, **uncheck** "Use PKI authentication"
-4. Password: from `make server-logs` (look for `root (password): ...`)
+4. Password: from `gmcp server logs` (look for `root (password): ...`)
 5. Repository: `mcp-projects`
 
 **Useful commands:**
 
 ```bash
-make server-logs      # View server logs (find root password here)
-make server-users     # List registered users
-make client-logs      # View client logs
-make down-separated   # Stop everything
-make server-clean     # Remove all data (destructive)
+gmcp server logs      # View server logs (find root password here)
+gmcp server users     # List registered users
+gmcp client logs 1    # View client 1 logs
+gmcp down             # Stop everything (server + all clients)
+gmcp server clean     # Remove all data (destructive)
+gmcp info             # Show current configuration
+gmcp troubleshoot check  # Diagnose problems
 ```
 
 **Detailed guide**: [docker/QUICKSTART.md](docker/QUICKSTART.md#separated-server-client-mode-recommended-for-aigui-collaboration)
@@ -246,6 +258,7 @@ Bridge/
 ├── docker_only_ghidra_mcp_server.py  # Docker/Headless mode server (PyGhidra) — DO NOT run in GUI Script Manager
 ├── api/                           # API modules (basic_info, search, view, memory, comment, rename, datatype, version, ...)
 ├── api_v1/                        # AI-friendly aggregated API (overview, search, view, list, edit)
+├── cli/                           # gmcp CLI (pip install -e .)
 ├── scripts/
 │   ├── mcp_sse_proxy.py           # MCP SSE proxy (subprocess)
 │   └── mcp_stdio.py               # MCP stdio mode (standalone)
