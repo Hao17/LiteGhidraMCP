@@ -24,10 +24,10 @@ help:
 	@echo ""
 	@echo "Separated Server-Client Mode (AI + GUI collaboration):"
 	@echo "  make server-up          - Start standalone Ghidra Server"
-	@echo "  make client N=<1-9> REPO=<name> [BINARY=<name-or-path>] [BINARY_FILE=<path>]"
+	@echo "  make client N=<1-99> REPO=<name> [BINARY=<name-or-path>] [BINARY_FILE=<path>]"
 	@echo "                          - Start client N (ports auto-calculated) ⭐"
-	@echo "  make client-stop N=<1-9>  - Stop client N"
-	@echo "  make client-logs N=<1-9>  - View client N logs"
+	@echo "  make client-stop N=<1-99>  - Stop client N"
+	@echo "  make client-logs N=<1-99>  - View client N logs"
 	@echo "  make down-separated     - Stop all services"
 	@echo "  make help-separated     - Detailed help for separated mode"
 	@echo ""
@@ -80,15 +80,15 @@ check-env:
 check-repo:
 	@if [ -z "$(REPO)" ]; then \
 		echo "ERROR: REPO is required."; \
-		echo "Usage: make client N=<1-9> REPO=<name> [BINARY=<name-or-path>] [BINARY_FILE=<path>]"; \
+		echo "Usage: make client N=<1-99> REPO=<name> [BINARY=<name-or-path>] [BINARY_FILE=<path>]"; \
 		exit 1; \
 	fi
 
 # Validate N parameter (client instance number, default 1)
 N ?= 1
 check-n:
-	@if [ "$(N)" -lt 1 ] 2>/dev/null || [ "$(N)" -gt 9 ] 2>/dev/null; then \
-		echo "ERROR: N must be between 1 and 9 (got: $(N))"; \
+	@if [ "$(N)" -lt 1 ] 2>/dev/null || [ "$(N)" -gt 99 ] 2>/dev/null; then \
+		echo "ERROR: N must be between 1 and 99 (got: $(N))"; \
 		exit 1; \
 	fi
 
@@ -240,11 +240,11 @@ up-separated: check-repo
 	@echo "  make down-separated - Stop all services"
 	@echo ""
 
-# Stop all services (server + all clients 1-9)
+# Stop all services (server + all running clients)
 down-separated:
 	@echo "Stopping all services..."
-	@for i in 1 2 3 4 5 6 7 8 9; do \
-		docker-compose -p ghidra-client-$$i -f docker-compose.client.yml down 2>/dev/null || true; \
+	@for proj in $$(docker ps -a --filter "name=ghidra-mcp-bridge-client-" --format '{{.Names}}' 2>/dev/null | sed 's/ghidra-mcp-bridge-client-/ghidra-client-/' ); do \
+		docker-compose -p $$proj -f docker-compose.client.yml down 2>/dev/null || true; \
 	done
 	@docker-compose -f docker-compose.server.yml down
 	@echo "✓ All services stopped"

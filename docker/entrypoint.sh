@@ -96,29 +96,33 @@ if [ "$RUN_MODE" = "SERVER" ]; then
                 username=$(basename "$(dirname "$pubkey")")
                 dest="${SSH_PUBKEY_DIR}/${username}.pub"
 
-                # Skip if already installed with current key
-                if [ -f "$dest" ] && cmp -s "$pubkey" "$dest"; then
-                    continue
+                # Install/update public key if changed
+                if ! ( [ -f "$dest" ] && cmp -s "$pubkey" "$dest" ); then
+                    cp "$pubkey" "$dest"
+                    echo "[post-init] Installed SSH key for: ${username}"
                 fi
 
-                # Install public key to ~ssh directory
-                cp "$pubkey" "$dest"
-                echo "[post-init] Installed SSH key for: ${username}"
-
-                # Add user if not already registered
+                # Register user if not already registered
                 if ! grep -q "^${username}$" "${REPO_DIR}/.users/users" 2>/dev/null; then
-                    "${SVRADMIN}" -add "${username}" 2>/dev/null
-                    echo "[post-init] Registered user: ${username}"
+                    if "${SVRADMIN}" -add "${username}" 2>/dev/null; then
+                        echo "[post-init] Registered user: ${username}"
+                    else
+                        echo "[post-init] WARNING: Failed to register user: ${username}"
+                        continue
+                    fi
 
                     # Grant access to all existing repos
                     for repo_dir in "${REPO_DIR}"/*/; do
                         [ -d "$repo_dir" ] || continue
                         repo_name=$(basename "$repo_dir")
-                        # Skip admin/system directories
                         [[ "$repo_name" == ~* || "$repo_name" == .* ]] && continue
                         "${SVRADMIN}" -grant "${username}" +a "${repo_name}" 2>/dev/null || true
                     done
                 fi
+
+                # Write registration marker so client can detect readiness
+                [ -f "${SSH_DIR}/clients/${username}/.registered" ] || \
+                    touch "${SSH_DIR}/clients/${username}/.registered"
             done
 
             # Full ACL sync: ensure all users have access to all repos
@@ -127,11 +131,21 @@ if [ "$RUN_MODE" = "SERVER" ]; then
                 [ -d "$repo_dir" ] || continue
                 repo_name=$(basename "$repo_dir")
                 [[ "$repo_name" == ~* || "$repo_name" == .* ]] && continue
+
+                # SSH key users
                 for pubkey in "${SSH_DIR}"/clients/*/ssh_key.pub; do
                     [ -f "$pubkey" ] || continue
                     username=$(basename "$(dirname "$pubkey")")
                     "${SVRADMIN}" -grant "${username}" +a "${repo_name}" 2>/dev/null || true
                 done
+
+                # Password-auth users (from server user list)
+                if [ -f "${REPO_DIR}/.users/users" ]; then
+                    while IFS= read -r username; do
+                        [[ -z "$username" || "$username" == bridge-* ]] && continue
+                        "${SVRADMIN}" -grant "${username}" +a "${repo_name}" 2>/dev/null || true
+                    done < "${REPO_DIR}/.users/users"
+                fi
             done
 
             sleep 5
@@ -205,9 +219,18 @@ if [ "$PROJECT_MODE" = "auto-server" ]; then
         sleep 1
     done
 
-    # Wait for server to register our user (server scans every 1s)
+    # Wait for server to register our user (server writes .registered marker)
     echo "Waiting for server to register user ${CLIENT_USER}..."
-    sleep 5
+    for i in $(seq 1 60); do
+        if [ -f "${SSH_CLIENT_DIR}/.registered" ]; then
+            echo "User ${CLIENT_USER} registered by server (after ${i}s)"
+            break
+        fi
+        if [ "$i" -eq 60 ]; then
+            echo "WARNING: Registration marker not found after 60s, proceeding anyway"
+        fi
+        sleep 1
+    done
 
     # Set server connection variables
     export GHIDRA_SERVER_HOST="${GHIDRA_SERVER_HOST:-ghidra-server}"
