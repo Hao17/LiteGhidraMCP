@@ -17,16 +17,27 @@ A PyGhidra-based MCP (Model Context Protocol) Bridge that runs inside Ghidra 12.
 
 ## Quick Start Guide
 
-**Recommended: Docker Deployment (One Command)** ⭐
-- → [Docker Server-Client Mode](#docker-deployment): AI + GUI collaboration, per-client user isolation
+### Let AI Do It ⭐
+
+```bash
+git clone https://github.com/Hao17/LiteGhidraMCP.git && cd LiteGhidraMCP
+pip install -e .
+gmcp install claude-code     # or: gmcp install codex / cursor / copilot
+```
+
+Then just tell your AI: *"Help me analyze ~/Downloads/firmware.bin"* — it knows how to start the server, import the binary, configure MCP, and begin analysis.
+
+### Manual Setup
+
+**Docker Server-Client Mode** (recommended)
+- → [Docker Deployment](#docker-deployment): AI + GUI collaboration, multi-client
 - One command setup, auto SSH key generation, interactive admin registration
-- Best for production, team collaboration, multiple AI agents
 
-**Alternative: GUI Mode**
-- → [Run in Ghidra GUI](#gui-mode): Run script directly in Ghidra CodeBrowser
-- No Docker needed, simplest for single-user analysis
+**GUI Mode** (no Docker)
+- → [GUI Mode](#gui-mode): Run script directly in Ghidra CodeBrowser
+- Simplest for single-user analysis
 
-After setup, → [Connect AI](#connect-ai) to wire up your AI tools.
+After manual setup, → [Connect AI](#connect-ai) to wire up MCP.
 
 ---
 

@@ -17,16 +17,27 @@
 
 ## 快速开始指引
 
-**推荐：Docker 部署（一条命令）** ⭐
-- → [Docker Server-Client 模式](#docker-部署)：AI + GUI 协作，每客户端独立用户隔离
+### 让 AI 帮你搞定 ⭐
+
+```bash
+git clone https://github.com/Hao17/LiteGhidraMCP.git && cd LiteGhidraMCP
+pip install -e .
+gmcp install claude-code     # 或: gmcp install codex / cursor / copilot
+```
+
+然后告诉你的 AI：*"帮我分析 ~/Downloads/firmware.bin"* — 它知道如何启动 Server、导入 binary、配置 MCP、开始分析。
+
+### 手动部署
+
+**Docker Server-Client 模式**（推荐）
+- → [Docker 部署](#docker-部署)：AI + GUI 协作，多客户端
 - 一条命令启动，自动生成 SSH 密钥，交互式注册管理员
-- 适合生产环境、团队协作、多 AI Agent 场景
 
-**替代方案：GUI 模式**
-- → [在 Ghidra GUI 中运行](#gui-模式)：直接在 Ghidra 中运行脚本
-- 无需 Docker，最适合单人分析工作
+**GUI 模式**（无需 Docker）
+- → [GUI 模式](#gui-模式)：直接在 Ghidra 中运行脚本
+- 最适合单人分析工作
 
-启动后，→ [连接 AI](#连接-ai) 接入你的 AI 工具。
+手动部署后，→ [连接 AI](#连接-ai) 接入 MCP。
 
 ---
 
