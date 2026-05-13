@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ghidra-mcp-bridge"
+version = "0.1.0"
+description = "CLI for managing Ghidra MCP Bridge Docker deployments"
+requires-python = ">=3.10"
+dependencies = ["click>=8.1"]
+
+[project.optional-dependencies]
+bridge = ["mcp>=1.0.0", "uvicorn>=0.30.0", "httpx>=0.27.0"]
+
+[project.scripts]
+gmcp = "cli.main:cli"
+
+[tool.setuptools.packages.find]
+include = ["cli*"]
