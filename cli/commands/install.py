@@ -15,14 +15,56 @@ def _sse_url(port: int) -> str:
     return f"http://127.0.0.1:{port}/sse"
 
 
+def _project_root() -> Path:
+    return config.find_docker_dir().parent
+
+
 def _skill_path() -> Path:
-    docker_dir = config.find_docker_dir()
-    return docker_dir.parent / "docs" / "SKILL.md"
+    return _project_root() / "docs" / "SKILL.md"
+
+
+def _read_skill() -> str:
+    path = _skill_path()
+    if not path.is_file():
+        output.error(f"Skill document not found at {path}")
+        raise SystemExit(1)
+    return path.read_text()
+
+
+SKILL_MARKER = "<!-- ghidra-mcp-skill -->"
+
+
+def _write_agent_file(filename: str, label: str):
+    """Write or update a project-level instruction file with skill content."""
+    skill = _read_skill()
+    target = _project_root() / filename
+    block = f"{SKILL_MARKER}\n{skill}\n{SKILL_MARKER}"
+
+    if target.is_file():
+        existing = target.read_text()
+        if SKILL_MARKER in existing:
+            import re
+            new_text = re.sub(
+                rf"{re.escape(SKILL_MARKER)}.*?{re.escape(SKILL_MARKER)}",
+                block,
+                existing,
+                flags=re.DOTALL,
+            )
+            target.write_text(new_text)
+            output.success(f"Updated Ghidra MCP skill in {filename}")
+        else:
+            target.write_text(existing.rstrip() + "\n\n" + block + "\n")
+            output.success(f"Appended Ghidra MCP skill to {filename}")
+    else:
+        target.write_text(block + "\n")
+        output.success(f"Created {filename} with Ghidra MCP skill")
+
+    output.info(f"Path: {target}")
 
 
 @click.group()
 def install():
-    """Configure AI clients to connect to Ghidra MCP Bridge."""
+    """Install skill or configure AI clients for Ghidra MCP Bridge."""
 
 
 @install.command("claude-code")
@@ -133,6 +175,31 @@ def coco(port, name, client):
     _offer_skill()
 
 
+@install.command("codex")
+def codex():
+    """Install skill to AGENTS.md (OpenAI Codex project instructions)."""
+    _write_agent_file("AGENTS.md", "Codex")
+
+
+@install.command("cursor")
+def cursor():
+    """Install skill to .cursor/rules/ghidra-mcp.md (Cursor project rules)."""
+    rules_dir = _project_root() / ".cursor" / "rules"
+    rules_dir.mkdir(parents=True, exist_ok=True)
+    skill = _read_skill()
+    target = rules_dir / "ghidra-mcp.md"
+    target.write_text(skill)
+    output.success(f"Installed Ghidra MCP skill to {target}")
+
+
+@install.command("copilot")
+def copilot():
+    """Install skill to .github/copilot-instructions.md (GitHub Copilot)."""
+    github_dir = _project_root() / ".github"
+    github_dir.mkdir(parents=True, exist_ok=True)
+    _write_agent_file(".github/copilot-instructions.md", "Copilot")
+
+
 @install.command("skill")
 def skill():
     """Show the path to the usage skill document."""
@@ -141,8 +208,9 @@ def skill():
         output.success(f"Skill document: {path}")
         output.info("Add this file as context for your AI client to improve analysis quality.")
         click.echo()
-        click.echo("For Claude Code, add to your project CLAUDE.md or use:")
-        click.echo(f"  cat {path}")
+        click.echo("  gmcp install codex       # → AGENTS.md")
+        click.echo("  gmcp install cursor      # → .cursor/rules/ghidra-mcp.md")
+        click.echo("  gmcp install copilot     # → .github/copilot-instructions.md")
     else:
         output.error(f"Skill document not found at {path}")
 
