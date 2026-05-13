@@ -175,25 +175,25 @@ After starting the Bridge (Docker or GUI), connect your AI client to the MCP SSE
 
 Default endpoint: `http://localhost:8804/sse` (Docker) or `http://127.0.0.1:8804/sse` (GUI)
 
-### Available MCP Tools
-
-- **ghidra_overview**: Comprehensive binary survey — metadata, memory layout, statistics, key functions, imports/exports, strings (recommended first call)
-- **ghidra_search**: Search functions, symbols, strings, cross-references, etc.
-- **ghidra_view**: Decompilation/disassembly/memory viewing
-- **ghidra_list**: Symbol list browsing
-- **ghidra_edit**: Unified editing (rename, datatype, comments)
-- **ghidra_version**: Version management — commit/log/rollback/revert (Server mode only, conditionally registered)
-
-### Coco
+### Quick Install (via gmcp)
 
 ```bash
-coco mcp add-json ghidra '{"type": "sse", "url": "http://127.0.0.1:8804/sse"}'
+gmcp install claude-code           # Claude Code
+gmcp install claude-desktop        # Claude Desktop
+gmcp install coco                  # Coco
+
+# For multi-client setups (auto-calculates port from client N)
+gmcp install claude-code --client 2   # → ghidra-2 on port 8814
 ```
 
-### Claude Desktop
+### Manual Configuration
 
-Edit config file (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+**Claude Code:**
+```bash
+claude mcp add --transport sse ghidra http://127.0.0.1:8804/sse
+```
 
+**Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
 ```json
 {
   "mcpServers": {
@@ -205,13 +205,22 @@ Edit config file (`~/Library/Application Support/Claude/claude_desktop_config.js
 }
 ```
 
-Save and restart Claude Desktop.
-
-### Claude Code
-
+**Coco:**
 ```bash
-claude mcp add --transport sse ghidra http://127.0.0.1:8804/sse
+coco mcp add-json ghidra '{"type": "sse", "url": "http://127.0.0.1:8804/sse"}'
 ```
+
+### Available MCP Tools
+
+- **ghidra_overview**: Comprehensive binary survey — metadata, memory layout, statistics, key functions, imports/exports, strings (recommended first call)
+- **ghidra_search**: Search functions, symbols, strings, cross-references, etc.
+- **ghidra_view**: Decompilation/disassembly/memory viewing
+- **ghidra_list**: Symbol list browsing
+- **ghidra_edit**: Unified editing (rename, datatype, comments)
+- **ghidra_exec**: Execute custom Python/Java scripts with full Ghidra API access
+- **ghidra_version**: Version management — log/rollback/revert (Server mode only, conditionally registered)
+
+For detailed usage tips and analysis workflows, see [docs/SKILL.md](docs/SKILL.md).
 
 ---
 

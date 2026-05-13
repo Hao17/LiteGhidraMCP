@@ -4,6 +4,7 @@ from cli.commands.build import build, rebuild
 from cli.commands.client import client
 from cli.commands.dev import dev
 from cli.commands.info import info, switch_version, versions
+from cli.commands.install import install
 from cli.commands.server import server
 from cli.commands.stack import down, up
 from cli.commands.troubleshoot import troubleshoot
@@ -25,4 +26,5 @@ cli.add_command(dev)
 cli.add_command(info)
 cli.add_command(versions)
 cli.add_command(switch_version)
+cli.add_command(install)
 cli.add_command(troubleshoot)

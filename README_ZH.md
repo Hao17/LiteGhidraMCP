@@ -175,25 +175,25 @@ Bridge 会拉起一个 SSE 代理子进程，它需要 `mcp`、`uvicorn`、`http
 
 默认端点: `http://localhost:8804/sse`（Docker）或 `http://127.0.0.1:8804/sse`（GUI）
 
-### 可用 MCP 工具
-
-- **ghidra_overview**: 二进制全景概览 — 元数据、内存布局、统计、关键函数、导入导出、字符串（推荐首次调用）
-- **ghidra_search**: 搜索函数、符号、字符串、交叉引用等
-- **ghidra_view**: 反编译/反汇编/内存查看
-- **ghidra_list**: 符号列表浏览
-- **ghidra_edit**: 统一编辑（重命名、类型设置、注释）
-- **ghidra_version**: 版本管理 — commit/log/rollback/revert（仅 Server 模式，条件注册）
-
-### Coco
+### 快速安装（通过 gmcp）
 
 ```bash
-coco mcp add-json ghidra '{"type": "sse", "url": "http://127.0.0.1:8804/sse"}'
+gmcp install claude-code           # Claude Code
+gmcp install claude-desktop        # Claude Desktop
+gmcp install coco                  # Coco
+
+# 多客户端场景（根据 Client N 自动计算端口）
+gmcp install claude-code --client 2   # → ghidra-2，端口 8814
 ```
 
-### Claude Desktop
+### 手动配置
 
-编辑配置文件（macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`）：
+**Claude Code:**
+```bash
+claude mcp add --transport sse ghidra http://127.0.0.1:8804/sse
+```
 
+**Claude Desktop**（macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`）：
 ```json
 {
   "mcpServers": {
@@ -205,13 +205,22 @@ coco mcp add-json ghidra '{"type": "sse", "url": "http://127.0.0.1:8804/sse"}'
 }
 ```
 
-保存后重启 Claude Desktop。
-
-### Claude Code
-
+**Coco:**
 ```bash
-claude mcp add --transport sse ghidra http://127.0.0.1:8804/sse
+coco mcp add-json ghidra '{"type": "sse", "url": "http://127.0.0.1:8804/sse"}'
 ```
+
+### 可用 MCP 工具
+
+- **ghidra_overview**: 二进制全景概览 — 元数据、内存布局、统计、关键函数、导入导出、字符串（推荐首次调用）
+- **ghidra_search**: 搜索函数、符号、字符串、交叉引用等
+- **ghidra_view**: 反编译/反汇编/内存查看
+- **ghidra_list**: 符号列表浏览
+- **ghidra_edit**: 统一编辑（重命名、类型设置、注释）
+- **ghidra_exec**: 执行自定义 Python/Java 脚本，完整访问 Ghidra API
+- **ghidra_version**: 版本管理 — log/rollback/revert（仅 Server 模式，条件注册）
+
+详细使用技巧和分析工作流见 [docs/SKILL.md](docs/SKILL.md)。
 
 ---
 
