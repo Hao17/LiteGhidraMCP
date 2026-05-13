@@ -241,10 +241,10 @@ gmcp troubleshoot check
 gmcp troubleshoot fix
 
 # Install skill (project-level AI instructions)
-gmcp install codex          # → AGENTS.md
-gmcp install claude-code    # → CLAUDE.md
-gmcp install cursor         # → .cursor/rules/ghidra-mcp.md
-gmcp install copilot        # → .github/copilot-instructions.md
+gmcp install skill codex          # → AGENTS.md
+gmcp install skill claude-code    # → .claude/commands/
+gmcp install skill cursor         # → .cursor/rules/ghidra-mcp.md
+gmcp install skill copilot        # → .github/copilot-instructions.md
 
 # Configure MCP connection (separate from skill)
 gmcp install mcp claude-code

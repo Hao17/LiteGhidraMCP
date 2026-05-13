@@ -98,30 +98,60 @@ def _symlink_commands(target_dir: Path | None = None):
               help="Target project directory (default: Bridge project root).")
 @click.pass_context
 def install(ctx, target_dir):
-    """Install skill to project-level AI instruction files."""
+    """Install skill or configure MCP connection."""
     ctx.ensure_object(dict)
     ctx.obj["target_dir"] = Path(target_dir) if target_dir else None
 
 
-# ── Skill install targets ──────────────────────────────────
+# ── gmcp install skill <target> ──────────────────────────────
 
-@install.command("codex")
+@install.group("skill", invoke_without_command=True)
 @click.pass_context
-def codex(ctx):
-    """Install skill to AGENTS.md (OpenAI Codex)."""
-    _write_agent_file("AGENTS.md", ctx.obj["target_dir"])
+def skill(ctx):
+    """Install skill to AI coding agents."""
+    if ctx.invoked_subcommand is not None:
+        return
+    cmds_dir = _commands_dir()
+    cmd_files = sorted(cmds_dir.glob("ghidra*.md")) if cmds_dir.is_dir() else []
+    doc_path = _skill_doc_path()
+
+    if cmd_files:
+        output.success(f"Commands directory: {cmds_dir}")
+        for f in cmd_files:
+            click.echo(f"  /{f.stem}")
+    if doc_path.is_file():
+        output.success(f"Skill document: {doc_path}")
+
+    click.echo()
+    click.echo("  Install skill:")
+    click.echo("    gmcp install skill claude-code   # → .claude/commands/ (symlinks)")
+    click.echo("    gmcp install skill codex         # → AGENTS.md")
+    click.echo("    gmcp install skill cursor        # → .cursor/rules/ghidra-mcp.md")
+    click.echo("    gmcp install skill copilot       # → .github/copilot-instructions.md")
+    click.echo()
+    click.echo("  Configure MCP connection:")
+    click.echo("    gmcp install mcp claude-code")
+    click.echo("    gmcp install mcp claude-desktop")
+    click.echo("    gmcp install mcp coco")
 
 
-@install.command("claude-code")
+@skill.command("claude-code")
 @click.pass_context
-def claude_code(ctx):
+def skill_claude_code(ctx):
     """Install skill commands to .claude/commands/ (Claude Code, symlinks)."""
     _symlink_commands(ctx.obj["target_dir"])
 
 
-@install.command("cursor")
+@skill.command("codex")
 @click.pass_context
-def cursor(ctx):
+def skill_codex(ctx):
+    """Install skill to AGENTS.md (OpenAI Codex)."""
+    _write_agent_file("AGENTS.md", ctx.obj["target_dir"])
+
+
+@skill.command("cursor")
+@click.pass_context
+def skill_cursor(ctx):
     """Install skill to .cursor/rules/ghidra-mcp.md (Cursor)."""
     root = ctx.obj["target_dir"] or _project_root()
     rules_dir = root / ".cursor" / "rules"
@@ -131,9 +161,9 @@ def cursor(ctx):
     output.success(f"Created {target}")
 
 
-@install.command("copilot")
+@skill.command("copilot")
 @click.pass_context
-def copilot(ctx):
+def skill_copilot(ctx):
     """Install skill to .github/copilot-instructions.md (GitHub Copilot)."""
     root = ctx.obj["target_dir"] or _project_root()
     github_dir = root / ".github"
@@ -141,7 +171,7 @@ def copilot(ctx):
     _write_agent_file(".github/copilot-instructions.md", ctx.obj["target_dir"])
 
 
-# ── MCP connection config ──────────────────────────────────
+# ── gmcp install mcp <target> ──────────────────────────────
 
 @install.command("mcp")
 @click.argument("target", type=click.Choice(["claude-code", "claude-desktop", "coco"]))
@@ -229,32 +259,3 @@ def _mcp_coco(port: int, name: str):
         output.success(f"Added '{name}' → {url}")
     else:
         output.error(f"Failed: {result.stderr.strip() or result.stdout.strip()}")
-
-
-# ── Skill info ─────────────────────────────────────────────
-
-@install.command("skill")
-def skill():
-    """Show available install targets."""
-    cmds_dir = _commands_dir()
-    cmd_files = sorted(cmds_dir.glob("ghidra*.md")) if cmds_dir.is_dir() else []
-    doc_path = _skill_doc_path()
-
-    if cmd_files:
-        output.success(f"Commands directory: {cmds_dir}")
-        for f in cmd_files:
-            click.echo(f"  /{f.stem}")
-    if doc_path.is_file():
-        output.success(f"Skill document: {doc_path}")
-
-    click.echo()
-    click.echo("  Install skill:")
-    click.echo("    gmcp install claude-code   # → .claude/commands/ (symlinks)")
-    click.echo("    gmcp install codex         # → AGENTS.md")
-    click.echo("    gmcp install cursor        # → .cursor/rules/ghidra-mcp.md")
-    click.echo("    gmcp install copilot       # → .github/copilot-instructions.md")
-    click.echo()
-    click.echo("  Configure MCP connection:")
-    click.echo("    gmcp install mcp claude-code")
-    click.echo("    gmcp install mcp claude-desktop")
-    click.echo("    gmcp install mcp coco")

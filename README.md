@@ -22,7 +22,7 @@ A PyGhidra-based MCP (Model Context Protocol) Bridge that runs inside Ghidra 12.
 ```bash
 git clone https://github.com/Hao17/LiteGhidraMCP.git && cd LiteGhidraMCP
 pip install -e .
-gmcp install claude-code     # or: gmcp install codex / cursor / copilot
+gmcp install skill claude-code   # or: codex / cursor / copilot
 ```
 
 Then just tell your AI: *"Help me analyze ~/Downloads/firmware.bin"* — it knows how to start the server, import the binary, configure MCP, and begin analysis.
@@ -185,10 +185,10 @@ Verify:
 The skill teaches your AI agent the full workflow — how to start/stop Docker services, configure MCP connections, and use all Ghidra MCP tools. Once installed, the AI can manage everything autonomously.
 
 ```bash
-gmcp install claude-code    # Claude Code → .claude/commands/
-gmcp install codex          # OpenAI Codex → AGENTS.md
-gmcp install cursor         # Cursor → .cursor/rules/ghidra-mcp.md
-gmcp install copilot        # GitHub Copilot → .github/copilot-instructions.md
+gmcp install skill claude-code    # Claude Code → .claude/commands/
+gmcp install skill codex          # OpenAI Codex → AGENTS.md
+gmcp install skill cursor         # Cursor → .cursor/rules/ghidra-mcp.md
+gmcp install skill copilot        # GitHub Copilot → .github/copilot-instructions.md
 ```
 
 What the skill covers: [docs/SKILL.md](docs/SKILL.md)
