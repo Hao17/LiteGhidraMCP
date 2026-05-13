@@ -573,36 +573,48 @@ The bridge handles both GUI and headless modes with appropriate threading models
 每个 Client 专属一个 binary，启动时确定 repo + binary，运行时不切换：
 
 ```bash
-# 启动 Server
-make server-up
+# 启动 Server（首次自动创建配置 + 注册管理员用户）
+gmcp server up
 
 # Client 1：连接已有 repo 中的 binary
-make client-up REPO=test BINARY=test_alpha
+gmcp client start 1 --repo test --binary test_alpha
 
 # Client 1：按仓库路径绑定指定 binary
-make client-up REPO=test BINARY=38.1.0/test_alpha
+gmcp client start 1 --repo test --binary 38.1.0/test_alpha
 
 # Client 1：导入新 binary 并启动
-make client-up REPO=test BINARY=test_alpha BINARY_FILE=~/binaries/alpha.bin
+gmcp client start 1 --repo test --binary test_alpha --binary-file ~/binaries/alpha.bin
 
 # Client 2：另一个 binary（不同端口 8813/8814）
-make client2-up REPO=test BINARY=modules/test_beta BINARY_FILE=~/binaries/beta.bin
+gmcp client start 2 --repo test --binary modules/test_beta --binary-file ~/binaries/beta.bin
 
 # 停止
-make client-down      # Client 1
-make client2-down     # Client 2
-make down-separated   # 全部停止
+gmcp client stop 1    # Client 1
+gmcp client stop 2    # Client 2
+gmcp down             # 全部停止
+```
+
+**Makefile 替代方式**（从 `docker/` 目录执行）:
+```bash
+make server-up
+make client N=1 REPO=test BINARY=test_alpha
+make client N=2 REPO=test BINARY=modules/test_beta BINARY_FILE=~/binaries/beta.bin
+make client-stop N=1
+make down-separated
 ```
 
 **参数说明**:
-- `REPO`（必选）：Ghidra Server 仓库名
-- `BINARY`（推荐）：要打开的程序名或仓库路径
-- `BINARY_FILE`（可选）：主机上的 binary 文件路径，自动导入到 repo
+- `--repo` / `REPO`（必选）：Ghidra Server 仓库名
+- `--binary` / `BINARY`（推荐）：要打开的程序名或仓库路径
+- `--binary-file` / `BINARY_FILE`（可选）：主机上的 binary 文件路径，自动导入到 repo
+
+**端口计算**: Client N → HTTP 8800+(N-1)*10+3, SSE +1（如 N=1→8803/8804, N=2→8813/8814）
 
 **设计原则**:
-- MCP Tools（5 个）保持不变，纯分析工具，不包含 program 管理
-- Client 生命周期完全由 Makefile 管理
-- 程序在启动时通过 `BINARY` / `PROGRAM_NAME` 绑定；运行时切换不需要
+- MCP Tools 保持不变，纯分析工具，不包含 program 管理
+- Client 生命周期由 `gmcp` CLI 或 Makefile 管理
+- 程序在启动时通过 `--binary` / `PROGRAM_NAME` 绑定；运行时切换不需要
 - Program API 仅保留枚举/导入能力，不暴露为 MCP tool
+- 首次 `gmcp server up` / `make server-up` 交互式注册管理员用户，ACL sync loop 自动授权到所有 repo
 
 详细架构、数据持久化和部署说明见 `docker/ARCHITECTURE.md` 和 `docker/QUICKSTART.md`。

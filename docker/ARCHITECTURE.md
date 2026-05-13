@@ -120,43 +120,35 @@ environment:
 ### 一键启动 Server + Client
 
 ```bash
-cd docker
-make up-separated
+# gmcp 自动创建 .env（首次运行提示注册管理员用户）
+gmcp up --repo test --binary my_binary
 ```
 
 ### 分步启动（更多控制）
 
 ```bash
-cd docker
+# 1. 启动 Server（首次自动创建配置 + 注册管理员）
+gmcp server up
 
-# 1. 构建镜像
-make build
+# 2. 启动 Client（端口自动分配）
+gmcp client start 1 --repo test --binary my_binary
 
-# 2. 启动 Server
-make server-up
-
-# 3. 启动 Client
-make client-up
-
-# 4. 查看日志
-make logs-separated
+# 3. 查看日志
+gmcp server logs
+gmcp client logs 1
 ```
 
 ### 多客户端部署
 
 ```bash
 # Client 1 (8803/8804)
-make client-up
+gmcp client start 1 --repo test --binary alpha
 
 # Client 2 (8813/8814)
-make client2-up
+gmcp client start 2 --repo test --binary beta
 
-# Client 3 (自定义端口)
-CLIENT_CONTAINER_NAME=ghidra-mcp-bridge-client-3 \
-CLIENT_MCP_PORT=8823 \
-CLIENT_MCP_SSE_PORT=8824 \
-CLIENT_LOG_DIR=./logs/client-3 \
-docker-compose -f docker-compose.client.yml up -d
+# Client 3 (8823/8824)
+gmcp client start 3 --repo aweme --binary 38.1.0/all_init.o
 ```
 
 ## Environment Variables Reference
@@ -350,29 +342,20 @@ volumes:
 
 ### 配置步骤
 
-1. **首次设置：**
+1. **启动服务（首次自动创建配置）：**
 ```bash
-cd docker
-cp .env.example .env
-vim .env  # 设置 GHIDRA_DATA_DIR=~/ghidra-data
-make info  # 验证配置
+gmcp server up     # 自动创建 .env + 初始化数据目录 + 注册管理员
 ```
 
-2. **启动服务：**
+2. **查看配置：**
 ```bash
-make up-separated  # 自动初始化数据目录
+gmcp info          # 显示当前版本和数据路径
+gmcp versions      # 列出所有版本
 ```
 
-3. **查看配置：**
+3. **自定义配置（可选）：**
 ```bash
-make info          # 显示当前版本和数据路径
-make list-versions # 列出所有版本
-```
-
-4. **切换版本：**
-```bash
-make switch-version  # 交互式切换
-# 或直接编辑 .env 修改 GHIDRA_VERSION
+vim docker/.env    # 修改 GHIDRA_DATA_DIR、GHIDRA_VERSION 等
 ```
 
 ### 优势
