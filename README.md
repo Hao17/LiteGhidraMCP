@@ -48,12 +48,7 @@ AI (Docker) + GUI (Human) collaboration with one command. Each client binds to o
 > The official Ghidra distribution currently does not ship a `linux_arm_64` decompiler binary. Run the Bridge containers as `linux/amd64`; the compose files in this repo now default to that platform to avoid `Could not find decompiler executable`.
 
 ```bash
-# First time setup
-cd docker/
-cp .env.example .env
-vim .env  # Set GHIDRA_DATA_DIR (e.g., ~/ghidra-data)
-
-# Start server (first run prompts for admin user registration)
+# Start server (first run auto-creates config and prompts for admin registration)
 gmcp server up
 
 # Start client (--repo required, --binary recommended)

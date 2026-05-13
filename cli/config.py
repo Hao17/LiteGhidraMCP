@@ -90,7 +90,30 @@ def _parse_env(path: Path) -> dict[str, str]:
     return env
 
 
+_DEFAULT_ENV = {
+    "GHIDRA_DATA_DIR": str(Path.home() / "ghidra-data"),
+    "GHIDRA_VERSION": "12.0.3",
+    "GHIDRA_SERVER_PORT": "13100",
+}
+
+
+def _ensure_env(docker_dir: Path) -> None:
+    env_file = docker_dir / ".env"
+    if env_file.is_file():
+        return
+    lines = [
+        "# Ghidra MCP Bridge (auto-generated)",
+        f"GHIDRA_DATA_DIR={_DEFAULT_ENV['GHIDRA_DATA_DIR']}",
+        f"GHIDRA_VERSION={_DEFAULT_ENV['GHIDRA_VERSION']}",
+        f"GHIDRA_SERVER_PORT={_DEFAULT_ENV['GHIDRA_SERVER_PORT']}",
+        "",
+    ]
+    env_file.write_text("\n".join(lines))
+    click.echo(f"Created {env_file} with defaults (data: {_DEFAULT_ENV['GHIDRA_DATA_DIR']})")
+
+
 def load() -> Config:
     docker_dir = find_docker_dir()
+    _ensure_env(docker_dir)
     env = _parse_env(docker_dir / ".env")
     return Config(docker_dir, env)
