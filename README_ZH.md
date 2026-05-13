@@ -24,7 +24,7 @@
 ```bash
 git clone https://github.com/Hao17/LiteGhidraMCP.git && cd LiteGhidraMCP
 pip install -e .
-gmcp install skill claude-code   # 或: codex / cursor / copilot
+gmcp install -d . skill claude-code   # 或: codex / cursor / copilot
 ```
 
 然后告诉你的 AI：
@@ -194,10 +194,11 @@ Bridge 会拉起一个 SSE 代理子进程，它需要 `mcp`、`uvicorn`、`http
 Skill 会教会你的 AI 完整工作流 — 如何启停 Docker 服务、配置 MCP 连接、使用所有 Ghidra MCP 工具。安装后 AI 可以自主管理一切。
 
 ```bash
-gmcp install skill claude-code    # Claude Code → .claude/commands/
-gmcp install skill codex          # OpenAI Codex → AGENTS.md
-gmcp install skill cursor         # Cursor → .cursor/rules/ghidra-mcp.md
-gmcp install skill copilot        # GitHub Copilot → .github/copilot-instructions.md
+# 在你的项目目录下运行（-d 指定目标项目）
+gmcp install -d . skill claude-code    # Claude Code → .claude/commands/
+gmcp install -d . skill codex          # OpenAI Codex → AGENTS.md
+gmcp install -d . skill cursor         # Cursor → .cursor/rules/ghidra-mcp.md
+gmcp install -d . skill copilot        # GitHub Copilot → .github/copilot-instructions.md
 ```
 
 > Skill 涵盖内容：[docs/SKILL.md](docs/SKILL.md)
