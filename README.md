@@ -26,7 +26,7 @@ A PyGhidra-based MCP (Model Context Protocol) Bridge that runs inside Ghidra 12.
 - → [Run in Ghidra GUI](#gui-mode): Run script directly in Ghidra CodeBrowser
 - No Docker needed, simplest for single-user analysis
 
-After setup, → [Configure AI Client](#configure-ai-client) to connect your AI tools.
+After setup, → [Connect AI](#connect-ai) to wire up your AI tools.
 
 ---
 
@@ -167,31 +167,36 @@ Verify:
 
 ---
 
-## Configure AI Client
+## Connect AI
 
-After starting the Bridge (Docker or GUI), connect your AI client to the MCP SSE endpoint.
+### Install Skill (Recommended)
 
-Default endpoint: `http://localhost:8804/sse` (Docker) or `http://127.0.0.1:8804/sse` (GUI)
-
-### Quick Setup (via gmcp)
+The skill teaches your AI agent the full workflow — how to start/stop Docker services, configure MCP connections, and use all Ghidra MCP tools. Once installed, the AI can manage everything autonomously.
 
 ```bash
-# Configure MCP connection
+gmcp install claude-code    # Claude Code → .claude/commands/
+gmcp install codex          # OpenAI Codex → AGENTS.md
+gmcp install cursor         # Cursor → .cursor/rules/ghidra-mcp.md
+gmcp install copilot        # GitHub Copilot → .github/copilot-instructions.md
+```
+
+What the skill covers: [docs/SKILL.md](docs/SKILL.md)
+
+### Configure MCP Connection
+
+If you just need to wire up an AI client to a running Bridge instance:
+
+```bash
 gmcp install mcp claude-code        # Claude Code
 gmcp install mcp claude-desktop     # Claude Desktop
 gmcp install mcp coco               # Coco
 
-# For multi-client setups (auto-calculates port from client N)
+# Multi-client (auto-calculates port from client N)
 gmcp install mcp claude-code --client 2   # → ghidra-2 on port 8814
-
-# Install skill/instructions for your AI coding agent
-gmcp install claude-code    # → .claude/commands/ (symlinks)
-gmcp install codex          # → AGENTS.md
-gmcp install cursor         # → .cursor/rules/ghidra-mcp.md
-gmcp install copilot        # → .github/copilot-instructions.md
 ```
 
-### Manual Configuration
+<details>
+<summary>Manual MCP configuration</summary>
 
 **Claude Code:**
 ```bash
@@ -215,17 +220,21 @@ claude mcp add --transport sse ghidra http://127.0.0.1:8804/sse
 coco mcp add-json ghidra '{"type": "sse", "url": "http://127.0.0.1:8804/sse"}'
 ```
 
-### Available MCP Tools
+Default endpoint: `http://127.0.0.1:8804/sse`. Multi-client: Client N → port `8800+(N-1)*10+4`.
 
-- **ghidra_overview**: Comprehensive binary survey — metadata, memory layout, statistics, key functions, imports/exports, strings (recommended first call)
-- **ghidra_search**: Search functions, symbols, strings, cross-references, etc.
-- **ghidra_view**: Decompilation/disassembly/memory viewing
-- **ghidra_list**: Symbol list browsing
-- **ghidra_edit**: Unified editing (rename, datatype, comments)
-- **ghidra_exec**: Execute custom Python/Java scripts with full Ghidra API access
-- **ghidra_version**: Version management — log/rollback/revert (Server mode only, conditionally registered)
+</details>
 
-For detailed usage tips and analysis workflows, see [docs/SKILL.md](docs/SKILL.md).
+### MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| **ghidra_overview** | Binary survey — metadata, memory layout, key functions, imports/exports, strings |
+| **ghidra_search** | Search functions, symbols, strings, cross-references, bytes, instructions |
+| **ghidra_view** | Decompilation / disassembly / memory viewing |
+| **ghidra_list** | Symbol list browsing (functions, classes, imports, exports, ...) |
+| **ghidra_edit** | Rename, set datatypes, add comments (batch supported) |
+| **ghidra_exec** | Execute custom Python/Java scripts with full Ghidra API access |
+| **ghidra_version** | Version log / rollback / revert (Server mode only) |
 
 ---
 

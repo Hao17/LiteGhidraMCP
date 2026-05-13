@@ -26,7 +26,7 @@
 - → [在 Ghidra GUI 中运行](#gui-模式)：直接在 Ghidra 中运行脚本
 - 无需 Docker，最适合单人分析工作
 
-启动后，→ [配置 AI 客户端](#配置-ai-客户端) 连接你的 AI 工具。
+启动后，→ [连接 AI](#连接-ai) 接入你的 AI 工具。
 
 ---
 
@@ -167,31 +167,36 @@ Bridge 会拉起一个 SSE 代理子进程，它需要 `mcp`、`uvicorn`、`http
 
 ---
 
-## 配置 AI 客户端
+## 连接 AI
 
-启动 Bridge（Docker 或 GUI）后，将 AI 客户端连接到 MCP SSE 端点。
+### 安装 Skill（推荐）
 
-默认端点: `http://localhost:8804/sse`（Docker）或 `http://127.0.0.1:8804/sse`（GUI）
-
-### 快速配置（通过 gmcp）
+Skill 会教会你的 AI 完整工作流 — 如何启停 Docker 服务、配置 MCP 连接、使用所有 Ghidra MCP 工具。安装后 AI 可以自主管理一切。
 
 ```bash
-# 配置 MCP 连接
+gmcp install claude-code    # Claude Code → .claude/commands/
+gmcp install codex          # OpenAI Codex → AGENTS.md
+gmcp install cursor         # Cursor → .cursor/rules/ghidra-mcp.md
+gmcp install copilot        # GitHub Copilot → .github/copilot-instructions.md
+```
+
+Skill 涵盖内容：[docs/SKILL.md](docs/SKILL.md)
+
+### 配置 MCP 连接
+
+如果只需要将 AI 客户端连接到已运行的 Bridge 实例：
+
+```bash
 gmcp install mcp claude-code        # Claude Code
 gmcp install mcp claude-desktop     # Claude Desktop
 gmcp install mcp coco               # Coco
 
-# 多客户端场景（根据 Client N 自动计算端口）
+# 多客户端（根据 Client N 自动计算端口）
 gmcp install mcp claude-code --client 2   # → ghidra-2，端口 8814
-
-# 安装 skill/instructions 到 AI 编码代理
-gmcp install claude-code    # → .claude/commands/（符号链接）
-gmcp install codex          # → AGENTS.md
-gmcp install cursor         # → .cursor/rules/ghidra-mcp.md
-gmcp install copilot        # → .github/copilot-instructions.md
 ```
 
-### 手动配置
+<details>
+<summary>手动 MCP 配置</summary>
 
 **Claude Code:**
 ```bash
@@ -215,17 +220,21 @@ claude mcp add --transport sse ghidra http://127.0.0.1:8804/sse
 coco mcp add-json ghidra '{"type": "sse", "url": "http://127.0.0.1:8804/sse"}'
 ```
 
-### 可用 MCP 工具
+默认端点：`http://127.0.0.1:8804/sse`。多客户端：Client N → 端口 `8800+(N-1)*10+4`。
 
-- **ghidra_overview**: 二进制全景概览 — 元数据、内存布局、统计、关键函数、导入导出、字符串（推荐首次调用）
-- **ghidra_search**: 搜索函数、符号、字符串、交叉引用等
-- **ghidra_view**: 反编译/反汇编/内存查看
-- **ghidra_list**: 符号列表浏览
-- **ghidra_edit**: 统一编辑（重命名、类型设置、注释）
-- **ghidra_exec**: 执行自定义 Python/Java 脚本，完整访问 Ghidra API
-- **ghidra_version**: 版本管理 — log/rollback/revert（仅 Server 模式，条件注册）
+</details>
 
-详细使用技巧和分析工作流见 [docs/SKILL.md](docs/SKILL.md)。
+### MCP 工具
+
+| 工具 | 说明 |
+|------|------|
+| **ghidra_overview** | 二进制全景概览 — 元数据、内存布局、关键函数、导入导出、字符串 |
+| **ghidra_search** | 搜索函数、符号、字符串、交叉引用、字节、指令 |
+| **ghidra_view** | 反编译/反汇编/内存查看 |
+| **ghidra_list** | 符号列表浏览（函数、类、导入、导出等） |
+| **ghidra_edit** | 重命名、设置数据类型、添加注释（支持批量） |
+| **ghidra_exec** | 执行自定义 Python/Java 脚本，完整访问 Ghidra API |
+| **ghidra_version** | 版本历史/回滚/回退（仅 Server 模式） |
 
 ---
 
