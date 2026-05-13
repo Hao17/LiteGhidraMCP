@@ -47,17 +47,19 @@ def docker_exec(
     cmd: list[str],
     *,
     interactive: bool = False,
+    capture: bool = False,
 ) -> subprocess.CompletedProcess:
     full_cmd = ["docker", "exec"]
     if interactive:
         full_cmd += ["-it"]
     full_cmd += [container] + cmd
 
-    return subprocess.run(
-        full_cmd,
-        cwd=str(cfg.docker_dir),
-        env=cfg.full_env(),
-    )
+    kwargs: dict = dict(cwd=str(cfg.docker_dir), env=cfg.full_env())
+    if capture:
+        kwargs["capture_output"] = True
+        kwargs["text"] = True
+
+    return subprocess.run(full_cmd, **kwargs)
 
 
 def docker_logs(

@@ -10,7 +10,7 @@ A PyGhidra-based MCP (Model Context Protocol) Bridge that runs inside Ghidra 12.
 
 ### Highlights
 
-- **6 aggregated MCP tools** — Single entry, pattern-dispatched to 50+ APIs. No tool sprawl.
+- **7 MCP tools** — Single entry, pattern-dispatched to 50+ APIs. No tool sprawl.
 - **Version control + AI/human collaboration** — Multiple AI agents and human analysts work on the same binary via Ghidra Server, with full version history.
 - **Multi-binary cross-analysis** — Spin up multiple clients against different binaries in one project. Ideal for scenarios like VMP unpacking, DLL-EXE interaction tracing, and multi-module firmware.
 - **GUI, headless, and Docker** — Same API codebase across all modes. Docker Server-Client for fully autonomous AI-driven analysis.
@@ -19,7 +19,7 @@ A PyGhidra-based MCP (Model Context Protocol) Bridge that runs inside Ghidra 12.
 
 **Recommended: Docker Deployment (One Command)** ⭐
 - → [Docker Server-Client Mode](#docker-deployment): AI + GUI collaboration, per-client user isolation
-- One command setup, auto SSH key generation
+- One command setup, auto SSH key generation, interactive admin registration
 - Best for production, team collaboration, multiple AI agents
 
 **Alternative: GUI Mode**
@@ -53,7 +53,7 @@ cd docker/
 cp .env.example .env
 vim .env  # Set GHIDRA_DATA_DIR (e.g., ~/ghidra-data)
 
-# Start server
+# Start server (first run prompts for admin user registration)
 gmcp server up
 
 # Start client (--repo required, --binary recommended)
@@ -69,28 +69,31 @@ gmcp up --repo test --binary my_binary
 ```
 
 **What happens:**
-- Ghidra Server starts on port `13100` with `root` user (random password in logs)
+- Ghidra Server starts on port `13100`
+- **First run only**: prompts you to register an admin user (username + password) for GUI access. All future repositories will auto-grant access to this admin.
 - Each client auto-generates SSH key and registers as `bridge-<N>`
-- Repository `mcp-projects` is auto-created
+- Repository is auto-created on first client connection
 - HTTP API: `http://localhost:8803`, MCP SSE: `http://localhost:8804/sse`
 
 **Connect Ghidra GUI:**
 
 1. File → New Project → **Shared Project**
 2. Server: `localhost:13100`
-3. User: `root`, **uncheck** "Use PKI authentication"
-4. Password: from `gmcp server logs` (look for `root (password): ...`)
-5. Repository: `mcp-projects`
+3. User: the admin username you registered (or `root`), **uncheck** "Use PKI authentication"
+4. Password: the one you set during registration (for `root`: check `gmcp server logs`)
+5. Select a repository
 
 **Useful commands:**
 
 ```bash
-gmcp server logs      # View server logs (find root password here)
-gmcp server users     # List registered users
-gmcp client logs 1    # View client 1 logs
-gmcp down             # Stop everything (server + all clients)
-gmcp server clean     # Remove all data (destructive)
-gmcp info             # Show current configuration
+gmcp server logs         # View server logs
+gmcp server users        # List registered users
+gmcp server add-user x   # Add another user (prompts for password)
+gmcp client logs 1       # View client 1 logs
+gmcp client list         # List all running clients
+gmcp down                # Stop everything (server + all clients)
+gmcp server clean        # Remove all data (destructive, re-prompts admin on next start)
+gmcp info                # Show current configuration
 gmcp troubleshoot check  # Diagnose problems
 ```
 
@@ -175,15 +178,22 @@ After starting the Bridge (Docker or GUI), connect your AI client to the MCP SSE
 
 Default endpoint: `http://localhost:8804/sse` (Docker) or `http://127.0.0.1:8804/sse` (GUI)
 
-### Quick Install (via gmcp)
+### Quick Setup (via gmcp)
 
 ```bash
-gmcp install claude-code           # Claude Code
-gmcp install claude-desktop        # Claude Desktop
-gmcp install coco                  # Coco
+# Configure MCP connection
+gmcp install mcp claude-code        # Claude Code
+gmcp install mcp claude-desktop     # Claude Desktop
+gmcp install mcp coco               # Coco
 
 # For multi-client setups (auto-calculates port from client N)
-gmcp install claude-code --client 2   # → ghidra-2 on port 8814
+gmcp install mcp claude-code --client 2   # → ghidra-2 on port 8814
+
+# Install skill/instructions for your AI coding agent
+gmcp install claude-code    # → .claude/commands/ (symlinks)
+gmcp install codex          # → AGENTS.md
+gmcp install cursor         # → .cursor/rules/ghidra-mcp.md
+gmcp install copilot        # → .github/copilot-instructions.md
 ```
 
 ### Manual Configuration
@@ -254,7 +264,7 @@ Use different ports in different Ghidra instances, then configure multiple MCP s
 {
   "mcpServers": {
     "ghidra-binary1": { "type": "sse", "url": "http://127.0.0.1:8804/sse" },
-    "ghidra-binary2": { "type": "sse", "url": "http://127.0.0.1:8806/sse" }
+    "ghidra-binary2": { "type": "sse", "url": "http://127.0.0.1:8814/sse" }
   }
 }
 ```
@@ -263,15 +273,17 @@ Use different ports in different Ghidra instances, then configure multiple MCP s
 
 ```
 Bridge/
-├── ghidra_mcp_server.py           # GUI mode server (Ghidra Script Manager)
-├── docker_only_ghidra_mcp_server.py  # Docker/Headless mode server (PyGhidra) — DO NOT run in GUI Script Manager
-├── api/                           # API modules (basic_info, search, view, memory, comment, rename, datatype, version, ...)
-├── api_v1/                        # AI-friendly aggregated API (overview, search, view, list, edit)
-├── cli/                           # gmcp CLI (pip install -e .)
+├── ghidra_mcp_server.py              # GUI mode server (Ghidra Script Manager)
+├── docker_only_ghidra_mcp_server.py  # Docker/Headless mode server (PyGhidra) — DO NOT run in GUI
+├── api/                              # API modules (basic_info, search, view, memory, comment, rename, datatype, version, ...)
+├── api_v1/                           # AI-friendly aggregated API (overview, search, view, list, edit)
+├── cli/                              # gmcp CLI (pip install -e .)
 ├── scripts/
-│   ├── mcp_sse_proxy.py           # MCP SSE proxy (subprocess)
-│   └── mcp_stdio.py               # MCP stdio mode (standalone)
-└── docker/                        # Docker deployment (Server-Client mode)
+│   ├── mcp_sse_proxy.py              # MCP SSE proxy (subprocess)
+│   └── mcp_stdio.py                  # MCP stdio mode (standalone)
+├── docs/                             # Documentation (SKILL.md, DESIGN.md)
+├── utils/                            # Shared utilities
+└── docker/                           # Docker deployment (Server-Client mode)
 ```
 
 ## Troubleshooting
