@@ -17,17 +17,21 @@ A PyGhidra-based MCP (Model Context Protocol) Bridge that runs inside Ghidra 12.
 
 ## Quick Start
 
-### Let AI do it ⭐
+### Let AI do it ⭐ (recommended)
 
 ```bash
+# Install the gmcp CLI
 git clone https://github.com/Hao17/LiteGhidraMCP.git && cd LiteGhidraMCP
 pip install -e .
-gmcp install -d . skill claude-code   # or: codex / cursor / copilot
+
+# Install the skill into your analysis project (`-d` = your project dir, where AI will run)
+cd /path/to/your/project
+gmcp install -d . skill claude-code   # or: codex / cursor
 ```
 
 Then tell your AI: *"Help me analyze ~/Downloads/firmware.bin"* — the skill teaches it the rest.
 
-### Docker (recommended)
+### Docker
 
 ```bash
 pip install -e .                                # installs the `gmcp` CLI
@@ -37,11 +41,16 @@ gmcp client start 1 --repo test --binary-file ~/firmware.bin
 gmcp install mcp claude-code                    # or: claude-desktop / coco
 ```
 
-HTTP API on `:8803`, MCP SSE on `:8804/sse`. Multi-client port math: client N → `8800+(N-1)*10+3` (HTTP) / `+4` (SSE).
+`gmcp client start` prints the endpoints to use — copy them into your MCP client config:
 
-> **Apple Silicon / ARM hosts**: the official Ghidra distribution has no `linux_arm_64` decompiler binary; the compose files default to `linux/amd64` to avoid `Could not find decompiler executable`.
-
-For multi-client setup, GUI connection, the local-project mode, and user/ACL management → **[docker/QUICKSTART.md](docker/QUICKSTART.md)**.
+```
+✓ Client 1 started
+  User:    u-a1b2c3d4e5f6 (ephemeral)
+  Repo:    test
+  Binary:  firmware.bin
+  HTTP:    http://localhost:8803
+  MCP SSE: http://localhost:8804/sse
+```
 
 ### GUI mode (no Docker)
 

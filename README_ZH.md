@@ -17,17 +17,21 @@
 
 ## 快速开始
 
-### 让 AI 帮你搞定 ⭐
+### 让 AI 帮你搞定 ⭐（推荐）
 
 ```bash
+# 安装 gmcp CLI
 git clone https://github.com/Hao17/LiteGhidraMCP.git && cd LiteGhidraMCP
 pip install -e .
-gmcp install -d . skill claude-code   # 或: codex / cursor / copilot
+
+# 把 Skill 安装到你的分析项目（`-d` 是你的项目目录，AI 会在那里运行）
+cd /path/to/your/project
+gmcp install -d . skill claude-code   # 或: codex / cursor
 ```
 
 然后告诉你的 AI：*"帮我分析 ~/Downloads/firmware.bin"* —— Skill 会教会它后续流程。
 
-### Docker（推荐）
+### Docker
 
 ```bash
 pip install -e .                                # 安装 `gmcp` CLI
@@ -37,11 +41,16 @@ gmcp client start 1 --repo test --binary-file ~/firmware.bin
 gmcp install mcp claude-code                    # 或: claude-desktop / coco
 ```
 
-HTTP API 在 `:8803`，MCP SSE 在 `:8804/sse`。多客户端端口公式：Client N → `8800+(N-1)*10+3`（HTTP）/ `+4`（SSE）。
+`gmcp client start` 启动后会打印当前 Client 的端点 —— 复制到 MCP 客户端配置即可：
 
-> **Apple Silicon / ARM 主机**：Ghidra 官方发布包没有 `linux_arm_64` 反编译器二进制；本仓库的 compose 默认固定为 `linux/amd64`，避免 `Could not find decompiler executable`。
-
-多客户端部署、GUI 连接、本地项目模式、用户/ACL 管理 → **[docker/QUICKSTART.md](docker/QUICKSTART.md)**。
+```
+✓ Client 1 started
+  User:    u-a1b2c3d4e5f6 (ephemeral)
+  Repo:    test
+  Binary:  firmware.bin
+  HTTP:    http://localhost:8803
+  MCP SSE: http://localhost:8804/sse
+```
 
 ### GUI 模式（无需 Docker）
 
