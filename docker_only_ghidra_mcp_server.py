@@ -330,8 +330,10 @@ def _import_program(path, name="", analyze=True):
 def _analyze_program(program):
     """Run auto-analysis on a program if not already analyzed.
 
-    AutoAnalysisManager manages its own transactions internally, so no
-    explicit startTransaction/endTransaction wrapping is needed.
+    When called directly from PyGhidra (no AutoAnalysisPlugin / HeadlessAnalyzer
+    wrapping it), AnalysisTaskWrapper does NOT open a transaction per analyzer,
+    so analyzers throw NoTransactionException on the first DB write. The caller
+    must wrap startAnalysis() in a transaction.
     """
     if program is None:
         return
@@ -350,8 +352,13 @@ def _analyze_program(program):
         mgr = AutoAnalysisManager.getAnalysisManager(program)
         mgr.initializeOptions()
         mgr.reAnalyzeAll(None)
-        mgr.startAnalysis(TaskMonitor.DUMMY)
-        GhidraProgramUtilities.setAnalyzedFlag(program)
+
+        tx_id = program.startTransaction("Auto-analysis")
+        try:
+            mgr.startAnalysis(TaskMonitor.DUMMY)
+            GhidraProgramUtilities.markProgramAnalyzed(program)
+        finally:
+            program.endTransaction(tx_id, True)
 
         # Save analysis results. May fail for transient programs (import path)
         # where the DomainFile is created later by load_results.save().
