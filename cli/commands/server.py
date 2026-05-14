@@ -373,6 +373,37 @@ def repo_revoke(user, repo_name):
     output.success(f"Revoked {user} on {repo_bare}.")
 
 
+@repo.command("info")
+@click.argument("name")
+def repo_info(name):
+    """Show REPO contents — every file with its full nested path (via bridgectl).
+
+    Use this to discover paths inside a repo before `gmcp client start
+    --binary <path>`. Subfolders show up as `/12.7.0/foo.so` etc.
+    """
+    cfg = config.load()
+    name_bare = name.lstrip("/")
+    if not (cfg.version_dir / "repos" / name_bare).is_dir():
+        output.error(f"Repository '{name_bare}' not found. Existing repos: gmcp server repos")
+        raise click.Abort()
+    _ensure_bridgectl_key(cfg)
+    r = docker.admin_bootstrap(cfg, ["list-files", name_bare], capture=True)
+    if r.returncode != 0:
+        output.error(f"info failed:\n{r.stderr or r.stdout}")
+        raise click.Abort()
+    out = (r.stdout or "").rstrip("\n")
+    click.echo(f"Repository: {name_bare}")
+    if not out:
+        click.echo("  (empty — no files yet)")
+        return
+    for line in out.splitlines():
+        click.echo(f"  {line}")
+    # admin_bootstrap writes `# total: N` to stderr; surface it as a footer.
+    err = (r.stderr or "").strip()
+    if err.startswith("# total:"):
+        click.echo(err)
+
+
 @repo.command("list")
 def repo_list():
     """List repos with ACL entries from .bridge-acl.conf."""

@@ -13,6 +13,8 @@ Required env:
 Usage:
   python3 admin_bootstrap.py create-repo <name>
   python3 admin_bootstrap.py list-repos
+  python3 admin_bootstrap.py list-files <repo>
+  python3 admin_bootstrap.py release-user-checkouts <user> [<repo>]
 """
 import os
 import sys
@@ -85,6 +87,53 @@ def cmd_list_repos():
     handle = _connect()
     for r in handle.getRepositoryNames() or []:
         print(r)
+    return 0
+
+
+def cmd_list_files(repo_name):
+    """Walk the repo's project tree as bridgectl and print each file's full path.
+
+    Output: one path per line, e.g. `/12.7.0/all_init.o`. Final stderr line
+    `# total: <N>` summarises the count. Used by `gmcp server repo ls` to let
+    callers discover nested binary paths before passing them to
+    `gmcp client start --binary <path>`.
+    """
+    handle = _connect()
+    bare = repo_name.lstrip("/")
+    try:
+        repo = handle.getRepository(bare)
+    except Exception as e:
+        sys.stderr.write(f"ERROR: cannot open repo '{bare}': {e}\n")
+        return 1
+    if repo is None:
+        sys.stderr.write(f"ERROR: repo '{bare}' not found\n")
+        return 1
+
+    total = 0
+    stack = ["/"]
+    seen = set()
+    while stack:
+        folder_path = stack.pop()
+        if folder_path in seen:
+            continue
+        seen.add(folder_path)
+        try:
+            sub_folders = list(repo.getSubfolderList(folder_path) or [])
+        except Exception:
+            sub_folders = []
+        for sub in sub_folders:
+            child = (folder_path.rstrip("/") + "/" + str(sub)) or "/"
+            stack.append(child)
+        try:
+            items = list(repo.getItemList(folder_path) or [])
+        except Exception:
+            items = []
+        for item in items:
+            name = str(item.getName())
+            full = folder_path.rstrip("/") + "/" + name
+            print(full)
+            total += 1
+    sys.stderr.write(f"# total: {total}\n")
     return 0
 
 
@@ -169,6 +218,11 @@ def main():
             return cmd_create_repo(args[0])
         if op == "list-repos":
             return cmd_list_repos()
+        if op == "list-files":
+            if not args:
+                sys.stderr.write("ERROR: list-files requires <repo>\n")
+                return 2
+            return cmd_list_files(args[0])
         if op == "release-user-checkouts":
             if not args:
                 sys.stderr.write("ERROR: release-user-checkouts requires <user> [<repo>]\n")

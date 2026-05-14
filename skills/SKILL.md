@@ -27,6 +27,8 @@ gmcp install mcp claude-code          # or: claude-desktop / coco
 #    name + non-trivial function count, you're connected.
 ```
 
+> **Nested binary paths**: Ghidra Server repos can contain subfolders (e.g. a version-namespaced layout like `12.7.0/all_init.o`). The `-b` value must match the full path, not just the leaf name — `-b all_init.o` will fail to resolve when the binary actually lives at `/12.7.0/all_init.o`. To see what's in a repo before starting a client, run `gmcp server repo info <repo>`; pass any path it prints as `-b`.
+
 After this, use `/ghidra` (Claude Code) or follow the workflow below to analyze. Annotation writes auto-commit to the Ghidra Server; no manual save.
 
 **Already set up?** Just run `gmcp status` to confirm the right binary is loaded, then call `ghidra_overview()`. If function count is sane, you're ready.
