@@ -50,8 +50,11 @@ services:
       # Auto-import: binary name to import from /import on startup
       - IMPORT_BINARY_NAME=${IMPORT_BINARY_NAME:-}
 
-      # Client identity (determines username: bridge-1, bridge-2, ...)
+      # Slot ID (only used for port allocation + container name; identity comes from AUTO_SERVER_USER)
       - CLIENT_ID=${CLIENT_ID:-1}
+
+      # SSH user identity (gmcp client start generates UUID or accepts --user; no longer slot-based)
+      - AUTO_SERVER_USER=${AUTO_SERVER_USER:-}
 
       # Logging
       - LOG_LEVEL=${LOG_LEVEL:-INFO}

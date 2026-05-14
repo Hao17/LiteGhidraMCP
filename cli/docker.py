@@ -82,3 +82,34 @@ def run_script(cfg: Config, args: list[str]) -> subprocess.CompletedProcess:
         cwd=str(cfg.docker_dir),
         env=cfg.full_env(),
     )
+
+
+def admin_bootstrap(
+    cfg: Config,
+    args: list[str],
+    *,
+    capture: bool = True,
+) -> subprocess.CompletedProcess:
+    """Run scripts/admin_bootstrap.py one-shot inside the bridge image as bridgectl.
+
+    Requires bridgectl SSH key at ${GHIDRA_DATA_DIR}/${GHIDRA_VERSION}/ssh/clients/bridgectl/.
+    """
+    ssh_dir = cfg.version_dir / "ssh"
+    docker_cmd = [
+        "docker", "run", "--rm",
+        "--network", "ghidra-shared-network",
+        "-v", f"{ssh_dir}:/ssh:ro",
+        "-e", "GHIDRA_SERVER_HOST=ghidra-server",
+        "-e", f"GHIDRA_SERVER_PORT={cfg.server_port}",
+        "-e", "GHIDRA_SERVER_USER=bridgectl",
+        "-e", "GHIDRA_SERVER_KEYSTORE=/ssh/clients/bridgectl/ssh_key",
+        "--entrypoint", "python3",
+        "ghidra-mcp-bridge:latest",
+        "/app/scripts/admin_bootstrap.py",
+        *args,
+    ]
+    kwargs: dict = dict(cwd=str(cfg.docker_dir), env=cfg.full_env())
+    if capture:
+        kwargs["capture_output"] = True
+        kwargs["text"] = True
+    return subprocess.run(docker_cmd, **kwargs)

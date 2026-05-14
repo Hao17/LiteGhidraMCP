@@ -568,31 +568,45 @@ The bridge handles both GUI and headless modes with appropriate threading models
 
 单一镜像通过 `RUN_MODE` 环境变量控制运行模式（`SERVER` / `CLIENT`）。
 
+### 权限模型（admin-owned）
+
+仓库始终由 admin 创建并拥有 `+a`，客户端是被显式授权的二等公民：
+
+| 用户类型 | 注册方式 | 默认权限 |
+|---|---|---|
+| **password admin**（如 `syec`） | `gmcp server up` 首次或 `gmcp server add-user` | 所有 repo +a，GUI 用 |
+| **`bridgectl`**（SSH） | `gmcp server up` 自动生成 SSH key | 所有 repo +a，仅供 `gmcp` CLI 自动化（如创建 repo） |
+| **客户端身份**（SSH） | `gmcp client start` 时生成 UUID 或 `--user <name>` | 仅 `gmcp server repo grant` 显式授予的 repo |
+
+ACL sync loop（每 5s）维护：①password 用户始终 `+a`；②`bridgectl` 始终 `+a`；③其他 SSH 用户只看 `/repos/.bridge-acl.conf` 显式 grants。客户端容器不再有 `createRepository` 权限——不存在的 repo 由 admin 通过 `gmcp server repo create` 走 `bridgectl` 创建。
+
 ### 快速启动
 
 ```bash
 pip install -e .          # 安装 gmcp CLI
 
-# 启动 Server（首次自动创建 .env + 注册管理员用户）
+# 1) 启动 Server（首次自动创建 .env + bridgectl SSH key + 注册管理员）
 gmcp server up
 
-# 启动 Client（每个 Client 绑定一个 binary，运行时不切换）
-gmcp client start 1 --repo test --binary test_alpha                              # 打开已有 binary
-gmcp client start 1 --repo test --binary 38.1.0/test_alpha                       # 按仓库路径
-gmcp client start 1 --repo test --binary test_alpha --binary-file ~/alpha.bin    # 导入并打开
-gmcp client start 2 --repo test --binary modules/test_beta                       # Client 2（8813/8814）
+# 2) admin 创建 repo（必须；client 不能自己建）
+gmcp server repo create myproj
+
+# 3) 启动 Client（默认生成 ephemeral UUID 身份，自动 +w grant）
+gmcp client start 1 --repo myproj --binary-file ~/alpha.bin
+gmcp client start 1 --repo myproj --binary 38.1.0/alpha                            # 仓库路径
+gmcp client start 2 --repo myproj --user alice                                     # 显式身份
 
 # 停止
-gmcp client stop 1    # Client 1
-gmcp client stop 2    # Client 2
+gmcp client stop 1    # 不释放身份；UUID 留在 .bridge-acl.conf，再次 start 会重生成新 UUID
 gmcp down             # 全部停止
 ```
 
 **首次启动流程**:
 1. `gmcp server up` 自动创建 `docker/.env`（默认 `GHIDRA_DATA_DIR=~/ghidra-data`）
-2. 启动 Ghidra Server（端口 13100）
-3. 交互式注册管理员用户（用户名 + 密码），用于 Ghidra GUI 访问
-4. ACL sync loop（每 5 秒）自动将该管理员授权到所有 repo
+2. 在 `${GHIDRA_DATA_DIR}/${GHIDRA_VERSION}/ssh/clients/bridgectl/` 生成自动化身份 SSH key
+3. 启动 Ghidra Server（端口 13100）
+4. 交互式注册管理员用户（用户名 + 密码），用于 Ghidra GUI 访问
+5. ACL sync loop（每 5 秒）将 admin 和 `bridgectl` 授权到所有 repo
 
 **连接 Ghidra GUI**: File → New Project → Shared Project → `localhost:13100` → 使用注册的管理员用户名
 
@@ -601,14 +615,22 @@ gmcp down             # 全部停止
 ```bash
 # Server 管理
 gmcp server up / down / restart / logs
-gmcp server users              # 列出用户
-gmcp server add-user <name>    # 添加用户
-gmcp server repos              # 列出仓库和权限
-gmcp server clean              # 删除所有数据（下次启动重新注册管理员）
+gmcp server users                                 # 列出用户
+gmcp server add-user <name>                       # 添加 password 管理员
+gmcp server repos                                 # 列出仓库 + ACL（svrAdmin -list --users）
+gmcp server clean                                 # 删除所有数据
+gmcp server migrate-acl                           # 清理遗留 bridge-N 用户（一次性）
+
+# Repo 管理（admin-owned，必须 admin 操作）
+gmcp server repo create <name>                    # 通过 bridgectl 创建
+gmcp server repo delete <name>                    # 停 server → rm -rf → 重启
+gmcp server repo grant <user> <repo> +w           # 授权（写入 .bridge-acl.conf）
+gmcp server repo revoke <user> <repo>             # 撤销（同时 svrAdmin -revoke）
+gmcp server repo list                             # 显示 repo + 显式 grants
 
 # Client 管理
-gmcp client start N --repo <name> [--binary <name>] [--binary-file <path>]
-gmcp client stop N / logs N / list
+gmcp client start N --repo <repo> [--user <name>] [--binary <name>] [--binary-file <path>]
+gmcp client stop N / logs N
 
 # 一键操作
 gmcp up --repo <name> --binary <name>   # 启动 Server + Client 1

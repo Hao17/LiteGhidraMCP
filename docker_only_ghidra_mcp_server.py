@@ -605,29 +605,30 @@ def _init_ghidra_project():
             if not repo_name:
                 repo_name = "/mcp-projects"
 
-            # Create repository if it doesn't exist
+            # Repository must already exist + be ACL-granted to this user.
+            # Admin-owned model: clients NEVER create repos. Use:
+            #   gmcp server repo create <name>      (admin creates the repo)
+            #   gmcp server repo grant <user> <name> +w   (admin grants client access)
             # Strip leading '/' for API calls (Ghidra uses bare names internally)
             repo_bare = repo_name.lstrip("/")
             repo_list = list(repos) if repos else []
             if repo_bare not in repo_list:
-                print(f"[PyGhidra-MCP-Bridge] Repository '{repo_bare}' not found in user's list, creating...")
-                try:
-                    server_handle.createRepository(repo_bare)
-                    print(f"[PyGhidra-MCP-Bridge] ✓ Created repository: {repo_bare}")
-                except Exception as e:
-                    if "DuplicateFile" in str(type(e).__name__) or "already exists" in str(e):
-                        print(f"[PyGhidra-MCP-Bridge] Repository '{repo_bare}' exists but not in user's list, waiting for ACL sync...")
-                        # Repo exists but user doesn't have access yet — wait for server ACL sync
-                        for _retry in range(6):
-                            time.sleep(5)
-                            repos = server_handle.getRepositoryNames()
-                            if repo_bare in list(repos or []):
-                                print(f"[PyGhidra-MCP-Bridge] ✓ Repository '{repo_bare}' now accessible")
-                                break
-                        else:
-                            raise RuntimeError(f"Repository '{repo_bare}' exists but not accessible after 30s. Check server ACL.")
-                    else:
-                        raise
+                print(f"[PyGhidra-MCP-Bridge] Repository '{repo_bare}' not accessible to user '{server_handle.getUser()}', waiting for ACL sync...")
+                # Wait up to 30s for ACL sync to grant access (covers race with
+                # gmcp client start orchestrating create+grant before container starts).
+                for _retry in range(6):
+                    time.sleep(5)
+                    repos = server_handle.getRepositoryNames()
+                    if repo_bare in list(repos or []):
+                        print(f"[PyGhidra-MCP-Bridge] ✓ Repository '{repo_bare}' now accessible")
+                        break
+                else:
+                    raise RuntimeError(
+                        f"Repository '{repo_bare}' not accessible after 30s. "
+                        f"Either the repo doesn't exist (create with 'gmcp server repo create {repo_bare}') "
+                        f"or user '{server_handle.getUser()}' is not granted access "
+                        f"(grant with 'gmcp server repo grant {server_handle.getUser()} {repo_bare} +w')."
+                    )
 
             # Create shared project connected to server repository
             _server_handle = server_handle

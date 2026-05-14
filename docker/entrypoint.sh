@@ -103,21 +103,16 @@ if [ "$RUN_MODE" = "SERVER" ]; then
                 fi
 
                 # Register user if not already registered
-                if ! grep -q "^${username}$" "${REPO_DIR}/.users/users" 2>/dev/null; then
+                # NOTE: registration only; explicit grants come from .bridge-acl.conf below.
+                # bridgectl is the only SSH user that auto-gets +a on all repos.
+                # Users file format: name:hash:other (one per line)
+                if ! cut -d: -f1 "${REPO_DIR}/users" 2>/dev/null | grep -q "^${username}$"; then
                     if "${SVRADMIN}" -add "${username}" 2>/dev/null; then
                         echo "[post-init] Registered user: ${username}"
                     else
                         echo "[post-init] WARNING: Failed to register user: ${username}"
                         continue
                     fi
-
-                    # Grant access to all existing repos
-                    for repo_dir in "${REPO_DIR}"/*/; do
-                        [ -d "$repo_dir" ] || continue
-                        repo_name=$(basename "$repo_dir")
-                        [[ "$repo_name" == ~* || "$repo_name" == .* ]] && continue
-                        "${SVRADMIN}" -grant "${username}" +a "${repo_name}" 2>/dev/null || true
-                    done
                 fi
 
                 # Write registration marker so client can detect readiness
@@ -125,28 +120,63 @@ if [ "$RUN_MODE" = "SERVER" ]; then
                     touch "${SSH_DIR}/clients/${username}/.registered"
             done
 
-            # Full ACL sync: ensure all users have access to all repos
-            # (handles repos created after user registration)
+            # Full ACL sync (admin-owned model):
+            #   1. password users (registered via svrAdmin -add ... --p) get +a on all repos
+            #   2. bridgectl SSH user gets +a on all repos (gmcp CLI automation identity)
+            #   3. other SSH users get NO automatic grants — only what's in .bridge-acl.conf
+            #
+            # .bridge-acl.conf format (one entry per line, '#' = comment):
+            #   <username> <repo|__all__> <+r|+w|+a>
+            ACL_FILE="${REPO_DIR}/.bridge-acl.conf"
+
             for repo_dir in "${REPO_DIR}"/*/; do
                 [ -d "$repo_dir" ] || continue
                 repo_name=$(basename "$repo_dir")
                 [[ "$repo_name" == ~* || "$repo_name" == .* ]] && continue
 
-                # SSH key users
-                for pubkey in "${SSH_DIR}"/clients/*/ssh_key.pub; do
-                    [ -f "$pubkey" ] || continue
-                    username=$(basename "$(dirname "$pubkey")")
-                    "${SVRADMIN}" -grant "${username}" +a "${repo_name}" 2>/dev/null || true
-                done
-
-                # Password-auth users (from server user list)
-                if [ -f "${REPO_DIR}/.users/users" ]; then
-                    while IFS= read -r username; do
-                        [[ -z "$username" || "$username" == bridge-* ]] && continue
+                # 1. Password-auth users (admin role for GUI access)
+                # Users file format: name:hash:other (one per line); password-only users
+                # have a non-trivial hash. SSH-only users show '*:*' in field 2 of /repos/users.
+                if [ -f "${REPO_DIR}/users" ]; then
+                    while IFS=: read -r username _rest; do
+                        [[ -z "$username" ]] && continue
+                        # Skip SSH-key-based identities (their pubkey lives under /ssh/clients/)
+                        if [ -f "${SSH_DIR}/clients/${username}/ssh_key.pub" ]; then
+                            continue
+                        fi
                         "${SVRADMIN}" -grant "${username}" +a "${repo_name}" 2>/dev/null || true
-                    done < "${REPO_DIR}/.users/users"
+                    done < "${REPO_DIR}/users"
+                fi
+
+                # 2. bridgectl always gets +a (automation user for gmcp CLI)
+                if [ -f "${SSH_DIR}/clients/bridgectl/ssh_key.pub" ]; then
+                    "${SVRADMIN}" -grant "bridgectl" +a "${repo_name}" 2>/dev/null || true
                 fi
             done
+
+            # 3. Explicit grants from .bridge-acl.conf
+            if [ -f "${ACL_FILE}" ]; then
+                while IFS=' ' read -r acl_user acl_repo acl_perm _rest; do
+                    # Skip blanks/comments
+                    [[ -z "$acl_user" || "$acl_user" == \#* ]] && continue
+                    # Validate perm
+                    case "$acl_perm" in
+                        +r|+w|+a) ;;
+                        *) echo "[post-init] WARNING: bad perm '$acl_perm' for $acl_user in ACL file"; continue ;;
+                    esac
+                    # __all__ → iterate every real repo
+                    if [ "$acl_repo" = "__all__" ]; then
+                        for repo_dir in "${REPO_DIR}"/*/; do
+                            [ -d "$repo_dir" ] || continue
+                            repo_name=$(basename "$repo_dir")
+                            [[ "$repo_name" == ~* || "$repo_name" == .* ]] && continue
+                            "${SVRADMIN}" -grant "$acl_user" "$acl_perm" "$repo_name" 2>/dev/null || true
+                        done
+                    else
+                        "${SVRADMIN}" -grant "$acl_user" "$acl_perm" "$acl_repo" 2>/dev/null || true
+                    fi
+                done < "${ACL_FILE}"
+            fi
 
             sleep 5
         done
