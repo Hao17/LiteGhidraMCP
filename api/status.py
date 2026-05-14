@@ -54,6 +54,31 @@ def status(state):
             if prog:
                 result["state"]["has_program"] = True
                 result["state"]["program_name"] = prog.getName()
+                # Checkout / writable state — used by `gmcp client start` to detect
+                # admin-GUI lock conflicts immediately after container boot.
+                try:
+                    from api.version import _get_domain_file
+                    df = _get_domain_file(prog)
+                    if df is not None and df.isVersioned():
+                        writable = bool(df.isCheckedOut())
+                        result["state"]["versioned"] = True
+                        result["state"]["writable"] = writable
+                        if not writable:
+                            holders = []
+                            try:
+                                from docker_only_ghidra_mcp_server import _describe_checkout_holders
+                                holders = _describe_checkout_holders(df)
+                            except Exception:
+                                pass
+                            result["state"]["checkout_holders"] = [
+                                {"user": u, "kind": "ephemeral-mcp" if str(u).startswith("u-") else "named-user"}
+                                for u, _cid in holders
+                            ]
+                    else:
+                        result["state"]["versioned"] = False
+                        result["state"]["writable"] = True  # Local/non-versioned = always writable
+                except Exception:
+                    pass
                 try:
                     from ghidra.app.decompiler import DecompInterface
 

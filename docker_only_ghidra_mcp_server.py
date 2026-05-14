@@ -93,6 +93,52 @@ def _release_stale_checkout(df):
         return False
 
 
+def _describe_checkout_holders(df):
+    """Return a list of (user, checkout_id) tuples for the file, or [] on error.
+
+    Used after checkout fails to identify the conflicting holder so the host CLI
+    can distinguish admin-GUI conflicts (refuse to start) from MCP-orphan locks.
+    """
+    try:
+        repo = _project.getProjectData().getRepository()
+        if repo is None:
+            return []
+        parent_path = df.getParent().getPathname()
+        file_name = df.getName()
+        checkouts = repo.getCheckouts(parent_path, file_name) or []
+        return [(co.getUser(), co.getCheckoutId()) for co in checkouts]
+    except Exception:
+        return []
+
+
+def _report_checkout_conflict(df):
+    """After a failed checkout, log the holder(s) in a CLI-parseable form.
+
+    Prints lines tagged `MCP-CHECKOUT-CONFLICT:` so `gmcp client logs` (and
+    automated tooling) can grep the holder identity out of container logs.
+    """
+    holders = _describe_checkout_holders(df)
+    if not holders:
+        print(f"[PyGhidra-MCP-Bridge] MCP-CHECKOUT-CONFLICT: file={df.getName()} holder=unknown")
+        return
+    for user, cid in holders:
+        kind = "ephemeral-mcp" if str(user).startswith("u-") else "named-user"
+        print(
+            f"[PyGhidra-MCP-Bridge] MCP-CHECKOUT-CONFLICT: file={df.getName()} "
+            f"holder={user} kind={kind} checkout_id={cid}"
+        )
+        if kind == "named-user":
+            print(
+                f"[PyGhidra-MCP-Bridge] ⚠ '{user}' is holding this binary's write lock "
+                f"(likely via Ghidra GUI). Close it there, then retry."
+            )
+        else:
+            print(
+                f"[PyGhidra-MCP-Bridge] ⚠ Orphan MCP checkout from '{user}'. "
+                f"Run: gmcp client clean --all  (then retry)."
+            )
+
+
 def _ensure_server_connection():
     """Check server connection and reconnect if needed.
 
@@ -750,7 +796,7 @@ def _init_ghidra_project():
                                 if _ok:
                                     print(f"[PyGhidra-MCP-Bridge] ✓ Exclusive checkout acquired: {_df.getName()}")
                                 else:
-                                    print(f"[PyGhidra-MCP-Bridge] ⚠ Checkout conflict (another user): {_df.getName()}")
+                                    _report_checkout_conflict(_df)
                             elif _df.isCheckedOut():
                                 print(f"[PyGhidra-MCP-Bridge] ✓ Already checked out: {_df.getName()}")
 
@@ -790,7 +836,7 @@ def _init_ghidra_project():
                         if ok:
                             print(f"[PyGhidra-MCP-Bridge] ✓ Exclusive checkout acquired: {domain_file.getName()}")
                         else:
-                            print(f"[PyGhidra-MCP-Bridge] ⚠ Checkout conflict (another user): {domain_file.getName()}")
+                            _report_checkout_conflict(domain_file)
                 except Exception as e:
                     print(f"[PyGhidra-MCP-Bridge] ⚠ Checkout error: {e}")
                 _current_program = domain_file.getDomainObject(_project, False, False, TaskMonitor.DUMMY)
@@ -1264,11 +1310,14 @@ class GhidraRequestHandler(BaseHTTPRequestHandler):
 
         if self.path == "/_shutdown":
             self._send_json({"success": True, "message": "Shutdown requested"})
-            # Shutdown in background thread
+            # Cleanup (release checkout) + exit process. Run in background so
+            # the HTTP response can flush before the process dies.
             def shutdown():
-                time.sleep(0.5)
-                if _server_instance:
-                    _server_instance.shutdown()
+                time.sleep(0.2)
+                _shutdown_cleanup()
+                # Exit hard — _server_instance.shutdown() alone leaves the main
+                # thread blocked in time.sleep, so the container would linger.
+                os._exit(0)
             threading.Thread(target=shutdown, daemon=True).start()
             return
 
@@ -1491,8 +1540,19 @@ def _print_startup_banner(host: str, port: int, mcp_port: Optional[int], routes:
     print("\n")
 
 
+_shutdown_lock = threading.Lock()
+_shutdown_done = False
+
+
 def _shutdown_cleanup():
-    """Release checkout and stop server on shutdown."""
+    """Release checkout and stop server on shutdown. Idempotent — safe to call
+    from both the SIGTERM handler and the /_shutdown HTTP endpoint."""
+    global _shutdown_done
+    with _shutdown_lock:
+        if _shutdown_done:
+            return
+        _shutdown_done = True
+
     # Flush pending checkin (save + checkin if checked out)
     try:
         from api.checkout import flush_checkin
@@ -1516,7 +1576,10 @@ def _shutdown_cleanup():
         print(f"[PyGhidra-MCP-Bridge] undoCheckout error: {e}")
 
     if _server_instance:
-        _server_instance.shutdown()
+        try:
+            _server_instance.shutdown()
+        except Exception:
+            pass
 
 
 def main():

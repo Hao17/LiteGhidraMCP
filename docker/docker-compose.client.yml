@@ -80,7 +80,10 @@ services:
       # Log persistence
       - ${GHIDRA_DATA_DIR}/logs/${GHIDRA_VERSION}/client-${CLIENT_ID:-1}:/app/logs:rw
 
-    restart: unless-stopped
+    # `on-failure` lets a crashed container come back, but a clean exit from
+    # /_shutdown (via gmcp client stop) stays exited — otherwise the cleanup
+    # path would race against an auto-restart and never release the checkout.
+    restart: on-failure
 
     healthcheck:
       test: ["CMD", "/healthcheck.sh"]

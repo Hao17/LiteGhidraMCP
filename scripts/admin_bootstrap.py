@@ -88,6 +88,73 @@ def cmd_list_repos():
     return 0
 
 
+def cmd_release_user_checkouts(user, repo_name=None):
+    """Terminate every checkout held by `user` on the given repo (or all repos).
+
+    Requires bridgectl's +a admin rights on the target repo(s). Used by
+    `gmcp client stop` / `gmcp client clean` after the client container has
+    exited, to release any server-side lock the container failed to drop
+    (e.g. due to SIGKILL on slow checkin).
+
+    Output: `released:<repo>:<folder>:<file>:<checkout_id>` per terminated lock,
+    `total-released:<N>` summary.
+    """
+    handle = _connect()
+    if repo_name:
+        repo_names = [repo_name.lstrip("/")]
+    else:
+        repo_names = [str(r) for r in (handle.getRepositoryNames() or [])]
+
+    total = 0
+    for rn in repo_names:
+        try:
+            repo = handle.getRepository(rn)
+        except Exception as e:
+            sys.stderr.write(f"WARN: cannot open repo {rn}: {e}\n")
+            continue
+        if repo is None:
+            continue
+
+        # Walk every folder and inspect each item's checkout list.
+        stack = ["/"]
+        seen = set()
+        while stack:
+            folder_path = stack.pop()
+            if folder_path in seen:
+                continue
+            seen.add(folder_path)
+            try:
+                sub_folders = list(repo.getSubfolderList(folder_path) or [])
+            except Exception:
+                sub_folders = []
+            for sub in sub_folders:
+                stack.append((folder_path.rstrip("/") + "/" + str(sub)) or "/")
+            try:
+                items = list(repo.getItemList(folder_path) or [])
+            except Exception:
+                items = []
+            for item in items:
+                item_name = str(item.getName())
+                try:
+                    checkouts = repo.getCheckouts(folder_path, item_name) or []
+                except Exception:
+                    checkouts = []
+                for co in checkouts:
+                    if str(co.getUser()) != user:
+                        continue
+                    cid = co.getCheckoutId()
+                    try:
+                        repo.terminateCheckout(folder_path, item_name, cid, False)
+                        print(f"released:{rn}:{folder_path}:{item_name}:{cid}")
+                        total += 1
+                    except Exception as e:
+                        sys.stderr.write(
+                            f"WARN: terminate {rn}{folder_path}/{item_name} cid={cid}: {e}\n"
+                        )
+    print(f"total-released:{total}")
+    return 0
+
+
 def main():
     if len(sys.argv) < 2:
         sys.stderr.write(__doc__)
@@ -102,6 +169,13 @@ def main():
             return cmd_create_repo(args[0])
         if op == "list-repos":
             return cmd_list_repos()
+        if op == "release-user-checkouts":
+            if not args:
+                sys.stderr.write("ERROR: release-user-checkouts requires <user> [<repo>]\n")
+                return 2
+            user = args[0]
+            repo = args[1] if len(args) > 1 else None
+            return cmd_release_user_checkouts(user, repo)
         sys.stderr.write(f"ERROR: unknown operation '{op}'\n")
         return 2
     except Exception as e:

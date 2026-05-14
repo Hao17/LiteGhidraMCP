@@ -1,14 +1,22 @@
+import json
 import os
 import re
 import shutil
 import subprocess
 import time
+import urllib.error
+import urllib.request
 import uuid as _uuid
 
 import click
 
 from cli import config, docker, output
-from cli.commands.server import CONTAINER as SERVER_CONTAINER, SVRADMIN, _read_acl, _write_acl
+from cli.commands.server import (
+    CONTAINER as SERVER_CONTAINER,
+    SVRADMIN,
+    _read_acl,
+    _write_acl,
+)
 from cli.ports import client_ports
 
 COMPOSE_FILE = "docker-compose.client.yml"
@@ -17,6 +25,54 @@ COMPOSE_FILE = "docker-compose.client.yml"
 _RESERVED_USERS = {"bridgectl", "admin", "root", "anonymous"}
 _VALID_USER_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 
+# Ephemeral users created by `gmcp client start` (no explicit --user) match this
+# prefix and are eligible for full teardown on stop / clean.
+_EPHEMERAL_PREFIX = "u-"
+
+
+def _is_ephemeral_user(user: str) -> bool:
+    return user.startswith(_EPHEMERAL_PREFIX)
+
+
+# ---------------------------------------------------------------------------
+# Session metadata: ${SSH_DIR}/clients/.session-N.json
+# Records the identity + repo for an active client slot so `stop` knows what
+# to tear down (ephemeral UUIDs are not predictable across runs).
+# ---------------------------------------------------------------------------
+
+def _session_file(cfg: config.Config, n: int):
+    return cfg.version_dir / "ssh" / "clients" / f".session-{n}.json"
+
+
+def _read_session(cfg: config.Config, n: int):
+    path = _session_file(cfg, n)
+    if not path.is_file():
+        return None
+    try:
+        return json.loads(path.read_text())
+    except Exception:
+        return None
+
+
+def _write_session(cfg: config.Config, n: int, user: str, repo_bare: str, ephemeral: bool) -> None:
+    path = _session_file(cfg, n)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({
+        "slot": n,
+        "user": user,
+        "repo": repo_bare,
+        "ephemeral": ephemeral,
+        "started_at": int(time.time()),
+    }, indent=2) + "\n")
+
+
+def _delete_session(cfg: config.Config, n: int) -> None:
+    _session_file(cfg, n).unlink(missing_ok=True)
+
+
+# ---------------------------------------------------------------------------
+# SSH key + ACL helpers
+# ---------------------------------------------------------------------------
 
 def _ensure_client_key(cfg: config.Config, user: str) -> None:
     """Generate SSH keypair for user under ${SSH_DIR}/clients/<user>/ if missing."""
@@ -44,6 +100,16 @@ def _grant_in_acl(cfg: config.Config, user: str, repo_bare: str, perm: str = "+w
     entries = [e for e in entries if not (e[0] == user and e[1] == repo_bare)]
     entries.append((user, repo_bare, perm))
     _write_acl(cfg, entries)
+
+
+def _strip_user_from_acl(cfg: config.Config, user: str) -> int:
+    """Remove ALL ACL entries for `user`. Returns the count stripped."""
+    entries = _read_acl(cfg)
+    kept = [e for e in entries if e[0] != user]
+    removed = len(entries) - len(kept)
+    if removed:
+        _write_acl(cfg, kept)
+    return removed
 
 
 def _sync_register_and_grant(
@@ -91,6 +157,126 @@ def _sync_register_and_grant(
     return False
 
 
+def _wait_admin_queue(cfg: config.Config, timeout: int = 10) -> None:
+    """Block until ~admin/*.cmd queue is drained (best-effort)."""
+    admin_dir = cfg.version_dir / "repos" / "~admin"
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        pending = list(admin_dir.glob("*.cmd")) if admin_dir.is_dir() else []
+        if not pending:
+            return
+        time.sleep(0.5)
+
+
+def _teardown_ephemeral_user(cfg: config.Config, user: str, repo_bare: str) -> None:
+    """Fully remove an ephemeral identity from the server side.
+
+    Must run AFTER the container has released its checkout — otherwise the
+    server is left with a checkout owned by a now-deleted user.
+
+    Order:
+      1. Strip ACL entry  (so the entrypoint's 5s sync loop won't re-grant)
+      2. Force-release any lingering server-side checkouts for this user
+         (covers the SIGKILL-during-flush case where the container died with
+         lock still held)
+      3. svrAdmin -revoke
+      4. svrAdmin -remove
+      5. Wait for admin queue drain
+      6. rm SSH private/public keys + repos/~ssh/<user>.pub
+    """
+    if not _is_ephemeral_user(user):
+        output.info(f"Skipping teardown for non-ephemeral user '{user}' (would not auto-clean named identities).")
+        return
+
+    removed = _strip_user_from_acl(cfg, user)
+    if removed:
+        output.info(f"Stripped {removed} ACL entr(ies) for {user}.")
+
+    # Force-release any orphan checkouts owned by this user. Best-effort:
+    # admin_bootstrap needs the server running + bridgectl key, and may fail
+    # for transient reasons; SSH key cleanup proceeds either way.
+    probe = docker.docker_exec(cfg, SERVER_CONTAINER, ["true"], capture=True)
+    if probe.returncode == 0:
+        r = docker.admin_bootstrap(cfg, ["release-user-checkouts", user, repo_bare], capture=True)
+        if r.returncode == 0:
+            # stdout has `released:...` per lock + `total-released:N` summary
+            tail = (r.stdout or "").strip().splitlines()[-1:] if r.stdout else []
+            for line in tail:
+                if line.startswith("total-released:") and not line.endswith(":0"):
+                    output.info(f"Released orphan server-side checkout(s): {line}")
+        else:
+            output.info(
+                f"Could not force-release checkouts for {user} via admin_bootstrap "
+                f"(rc={r.returncode}); continuing teardown."
+            )
+
+        docker.docker_exec(cfg, SERVER_CONTAINER, [SVRADMIN, "-revoke", user, repo_bare], capture=True)
+        docker.docker_exec(cfg, SERVER_CONTAINER, [SVRADMIN, "-remove", user], capture=True)
+        _wait_admin_queue(cfg)
+
+    udir = cfg.version_dir / "ssh" / "clients" / user
+    if udir.exists():
+        shutil.rmtree(udir, ignore_errors=True)
+    pub = cfg.version_dir / "repos" / "~ssh" / f"{user}.pub"
+    pub.unlink(missing_ok=True)
+    output.info(f"Removed ephemeral user '{user}' (key + pubkey + svrAdmin entry).")
+
+
+def _request_container_shutdown(http_port: int, timeout: float = 30.0) -> bool:
+    """Hit /_shutdown on the client container so it can release checkout cleanly
+    BEFORE docker stops it (the SIGTERM grace period is short).
+
+    Returns True if the endpoint responded 2xx, False on any failure (including
+    no listener — container may already be down).
+    """
+    url = f"http://127.0.0.1:{http_port}/_shutdown"
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            return 200 <= resp.status < 300
+    except (urllib.error.URLError, ConnectionError, TimeoutError, OSError):
+        return False
+
+
+def _poll_writable_status(http_port: int, timeout: float = 45.0):
+    """Poll /api/status after container boot. Returns the `state` dict on first
+    response with has_program=True (writable or not), or None on timeout.
+
+    Container needs to load PyGhidra + connect to server + open program before
+    /api/status reports has_program=True. That can take 30+ seconds on a cold
+    JVM, hence the generous timeout.
+    """
+    url = f"http://127.0.0.1:{http_port}/api/status"
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=2.0) as resp:
+                if 200 <= resp.status < 300:
+                    body = json.loads(resp.read().decode("utf-8"))
+                    state = body.get("state", {})
+                    if state.get("has_program"):
+                        return state
+        except (urllib.error.URLError, ConnectionError, TimeoutError, OSError, ValueError):
+            pass
+        time.sleep(1.0)
+    return None
+
+
+def _wait_container_exit(container_name: str, timeout: float = 30.0) -> bool:
+    """Poll `docker inspect` until the named container is gone or stopped."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        r = subprocess.run(
+            ["docker", "inspect", "-f", "{{.State.Running}}", container_name],
+            capture_output=True, text=True,
+        )
+        if r.returncode != 0:
+            return True  # Container doesn't exist anymore
+        if r.stdout.strip() == "false":
+            return True
+        time.sleep(0.5)
+    return False
+
+
 @click.group()
 def client():
     """Manage Bridge clients (one per binary)."""
@@ -115,6 +301,16 @@ def start(n, repo, binary, binary_file, user_arg):
         click.echo(f"  gmcp server repo create {repo_bare}")
         raise click.Abort()
 
+    # Clean up any leftover ephemeral session from a prior crashed start on this slot.
+    prior = _read_session(cfg, n)
+    if prior is not None:
+        prior_user = prior.get("user", "")
+        prior_repo = prior.get("repo", repo_bare)
+        if prior.get("ephemeral") and _is_ephemeral_user(prior_user):
+            output.info(f"Found prior ephemeral session for slot {n} (user={prior_user}). Cleaning up before start.")
+            _teardown_ephemeral_user(cfg, prior_user, prior_repo)
+        _delete_session(cfg, n)
+
     # Resolve client identity
     if user_arg:
         user = user_arg
@@ -124,8 +320,10 @@ def start(n, repo, binary, binary_file, user_arg):
         if not _VALID_USER_RE.match(user):
             output.error(f"Invalid user name '{user}' (allowed: [A-Za-z0-9._-], 1-64 chars).")
             raise click.Abort()
+        ephemeral = False
     else:
-        user = f"u-{_uuid.uuid4().hex[:12]}"
+        user = f"{_EPHEMERAL_PREFIX}{_uuid.uuid4().hex[:12]}"
+        ephemeral = True
         output.info(f"Ephemeral identity: {user}")
 
     # Generate SSH key (idempotent) + write +w grant (idempotent replace)
@@ -144,6 +342,9 @@ def start(n, repo, binary, binary_file, user_arg):
         staged_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(binary_file, staged_path)
         output.info(f"Binary staged: {binary_file} → {staged_path}")
+
+    # Persist session metadata so `stop` knows which user to tear down.
+    _write_session(cfg, n, user, repo_bare, ephemeral)
 
     env = {
         "CLIENT_ID": str(n),
@@ -164,25 +365,134 @@ def start(n, repo, binary, binary_file, user_arg):
         env_overrides=env,
     )
     output.success(f"Client {n} started")
-    click.echo(f"  User:    {user}")
+    click.echo(f"  User:    {user}{' (ephemeral)' if ephemeral else ''}")
     click.echo(f"  Repo:    {repo_bare}")
     click.echo(f"  Binary:  {binary or '(first available)'}")
     click.echo(f"  HTTP:    http://localhost:{http_port}")
     click.echo(f"  MCP SSE: http://localhost:{sse_port}/sse")
 
+    # Wait for the program to load, then surface checkout-conflict warnings.
+    # This catches the "admin GUI is editing the same binary" case loudly
+    # rather than letting the user discover it via failed write API calls.
+    output.info("Verifying checkout state (this can take ~30s on first start)...")
+    state = _poll_writable_status(http_port)
+    if state is None:
+        output.info(
+            "Could not confirm checkout state via /api/status. "
+            f"Tail logs to debug: gmcp client logs {n}"
+        )
+    elif state.get("versioned") and not state.get("writable", True):
+        holders = state.get("checkout_holders", [])
+        named = [h["user"] for h in holders if h.get("kind") == "named-user"]
+        ephem = [h["user"] for h in holders if h.get("kind") == "ephemeral-mcp"]
+        click.echo()
+        if named:
+            output.error(
+                f"⚠ MCP client {n} is READ-ONLY: '{named[0]}' holds the write lock "
+                f"(likely via Ghidra GUI). Close it there, then: gmcp client stop {n} && gmcp client start {n} ..."
+            )
+        elif ephem:
+            output.error(
+                f"⚠ MCP client {n} is READ-ONLY: orphan MCP checkout from '{ephem[0]}'. "
+                f"Run: gmcp client clean --all  then restart."
+            )
+        else:
+            output.error(f"⚠ MCP client {n} is READ-ONLY: holder unknown. Check: gmcp client logs {n}")
+
 
 @client.command()
 @click.argument("n", type=click.IntRange(1, 9))
 def stop(n):
-    """Stop client N."""
+    """Stop client N and tear down its ephemeral identity (if any).
+
+    Ordering matters: the container must release its server-side checkout
+    BEFORE we delete the user — otherwise the server is left with a checkout
+    owned by a vanished user.
+
+    Steps:
+      1. POST /_shutdown to the container (graceful checkin + exit)
+      2. docker compose down  (SIGTERM fallback if /_shutdown was unreachable)
+      3. If session.ephemeral: svrAdmin -revoke / -remove + strip ACL + rm SSH key
+      4. Delete the session file
+    """
     cfg = config.load()
+    session = _read_session(cfg, n)
+    http_port, _ = client_ports(n)
+
+    # Step 1: graceful HTTP shutdown — container releases checkout itself.
+    if _request_container_shutdown(http_port):
+        output.info(f"Graceful shutdown signaled on :{http_port}; waiting for container exit...")
+        _wait_container_exit(f"ghidra-mcp-bridge-client-{n}", timeout=30)
+    else:
+        output.info(f"Container on :{http_port} did not respond to /_shutdown (already down?).")
+
+    # Step 2: compose down — covers the case where /_shutdown failed AND
+    # ensures the docker-compose state is cleaned. SIGTERM fallback releases
+    # checkout via the SIGTERM handler in docker_only_ghidra_mcp_server.py.
     docker.compose(
         cfg,
         ["down"],
         project=f"ghidra-client-{n}",
         file=COMPOSE_FILE,
     )
+
+    # Step 3: tear down ephemeral identity (only if we created it).
+    if session is not None:
+        user = session.get("user", "")
+        repo_bare = session.get("repo", "")
+        if session.get("ephemeral") and _is_ephemeral_user(user) and repo_bare:
+            _teardown_ephemeral_user(cfg, user, repo_bare)
+        elif user and not _is_ephemeral_user(user):
+            output.info(f"Preserving named identity '{user}' (use `gmcp server repo revoke` to drop access).")
+        _delete_session(cfg, n)
+
     output.success(f"Client {n} stopped")
+
+
+@client.command()
+@click.argument("n", type=click.IntRange(1, 9), required=False)
+@click.option("--all", "all_slots", is_flag=True, help="Clean every slot's leftover ephemeral identity.")
+def clean(n, all_slots):
+    """Tear down leftover ephemeral identities from crashed clients.
+
+    Use this when a container died without `gmcp client stop` and left an
+    orphan checkout / user on the server. Either pass N or --all.
+    """
+    cfg = config.load()
+    if not n and not all_slots:
+        output.error("Specify a slot number or --all.")
+        raise click.Abort()
+
+    targets = []
+    if all_slots:
+        clients_dir = cfg.version_dir / "ssh" / "clients"
+        if clients_dir.is_dir():
+            for sf in sorted(clients_dir.glob(".session-*.json")):
+                try:
+                    slot = int(sf.stem.split("-", 1)[1])
+                    targets.append(slot)
+                except ValueError:
+                    continue
+    else:
+        targets = [n]
+
+    if not targets:
+        output.info("No leftover sessions found.")
+        return
+
+    for slot in targets:
+        session = _read_session(cfg, slot)
+        if session is None:
+            output.info(f"Slot {slot}: no session file, skipping.")
+            continue
+        user = session.get("user", "")
+        repo_bare = session.get("repo", "")
+        if session.get("ephemeral") and _is_ephemeral_user(user) and repo_bare:
+            output.info(f"Slot {slot}: tearing down ephemeral user '{user}' (repo={repo_bare})")
+            _teardown_ephemeral_user(cfg, user, repo_bare)
+        else:
+            output.info(f"Slot {slot}: not ephemeral (user='{user}'), leaving identity in place.")
+        _delete_session(cfg, slot)
 
 
 @client.command()
