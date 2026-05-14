@@ -196,17 +196,6 @@ def _run_script_by_path(script_path: str, extra_args: list = None):
         }
 
 
-def _build_java_script(class_name, user_code):
-    """Build a Java Ghidra script from template by replacing placeholders."""
-    template_path = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)),
-        "scripts", "exec_runner_template.java"
-    )
-    with open(template_path, 'r', encoding='utf-8') as f:
-        template = f.read()
-    return template.replace("{CLASS_NAME}", class_name).replace("{USER_CODE}", user_code)
-
-
 def _run_demo_script():
     """执行 api/demo.py 演示脚本（API 开发参考样例）"""
     return _run_script_by_path("api/demo.py", ["demo_param_1", "demo_param_2", "12345"])
@@ -427,12 +416,15 @@ class GhidraRequestHandler(BaseHTTPRequestHandler):
 
                 ts = int(time.time() * 1000)
 
-                if language == "java":
+                if language != "python":
                     return self._send_json({
                         "success": False,
-                        "error": "Java exec is temporarily disabled in GUI mode",
+                        "error": (
+                            f"language='{language}' is not supported. Only "
+                            "language='python' (in-process) is available."
+                        ),
                         "mode": "gui",
-                    })
+                    }, status=400)
 
                 code_path = os.path.join(tempfile.gettempdir(), f"ghidra_exec_{ts}.py")
                 with open(code_path, 'w', encoding='utf-8') as f:

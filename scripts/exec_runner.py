@@ -2,7 +2,8 @@
 Ghidra Script Execution Runner.
 
 Runs user-provided Python code inside Ghidra with full Flat API access.
-Used by both GUI mode (via runScript) and Headless mode (via analyzeHeadless -postScript).
+Used by GUI mode via runScript. Headless mode now exec()s user code
+directly in `_exec_python_inprocess` (no subprocess), bypassing this file.
 
 Protocol:
     args[0] = result JSON output path

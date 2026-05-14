@@ -993,214 +993,6 @@ def _exec_python_inprocess(code):
     return output
 
 
-def _exec_java_headless(code, readonly=True, noanalysis=True, timeout=120):
-    """Execute Java code via analyzeHeadless subprocess.
-
-    Supports two forms:
-    - Full class: code contains 'extends GhidraScript' -> run as-is
-    - Snippet: code is the run() method body -> wrap in template
-
-    When readonly=False in server mode, performs checkout handoff:
-    releases MCP's exclusive checkout so the subprocess can write,
-    then reloads the program afterward to pick up changes.
-    """
-    import re
-    import tempfile as _tempfile
-
-    # Checkout handoff only needed for writable exec in server mode
-    project_mode = os.environ.get("PROJECT_MODE", "local")
-    need_handoff = (not readonly) and (project_mode == "server")
-
-    if need_handoff:
-        # Flush pending writes and release checkout so subprocess can acquire it
-        try:
-            from api.checkout import flush_checkin
-            flush_checkin(_mock_state)
-        except Exception as _e:
-            print(f"[PyGhidra-MCP-Bridge] ⚠ flush_checkin before exec: {_e}")
-
-    ts = int(time.time() * 1000)
-    result_path = os.path.join(_tempfile.gettempdir(), f"ghidra_exec_result_{ts}.json")
-    cleanup_files = [result_path]
-    is_full_class = "extends GhidraScript" in code
-
-    if is_full_class:
-        # Extract class name from source
-        match = re.search(r'public\s+class\s+(\w+)', code)
-        if not match:
-            return {"success": False, "error": "Could not find 'public class <Name>' in Java code"}
-        class_name = match.group(1)
-        code_content = code
-    else:
-        class_name = f"GhidraExec_{ts}"
-        code_content = _build_java_script(class_name, code)
-
-    script_file = os.path.join(_tempfile.gettempdir(), f"{class_name}.java")
-    with open(script_file, 'w', encoding='utf-8') as f:
-        f.write(code_content)
-    cleanup_files.append(script_file)
-
-    try:
-        # For full scripts, result_path is passed as args[0] but script may not use it
-        # For template-wrapped snippets, the template writes result JSON
-        cmd = _build_headless_cmd(
-            script_name=f"{class_name}.java",
-            script_path=_tempfile.gettempdir(),
-            result_path=result_path,
-            extra_args=[],
-            readonly=readonly,
-            noanalysis=noanalysis,
-        )
-
-        start_time = time.time()
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-        execution_time_ms = int((time.time() - start_time) * 1000)
-
-        # Try to read structured result (template-wrapped scripts write this)
-        if os.path.exists(result_path):
-            with open(result_path, 'r', encoding='utf-8') as f:
-                result = json.load(f)
-        else:
-            # Full scripts: success based on return code, stdout from subprocess
-            result = {
-                "success": proc.returncode == 0,
-                "stdout": "",
-            }
-            if proc.returncode != 0:
-                result["error"] = "Script execution failed (non-zero exit code)"
-
-        # Extract println output from analyzeHeadless stdout
-        # Script println() lines appear as: "INFO  ClassName.java> message (GhidraScript)"
-        if proc.stdout:
-            lines = proc.stdout.split("\n")
-            script_output = []
-            for line in lines:
-                stripped = line.strip()
-                if "(GhidraScript)" not in stripped:
-                    continue
-                # Remove "INFO  " prefix and " (GhidraScript)" suffix
-                parts = stripped.split(None, 1)
-                if len(parts) < 2:
-                    continue
-                msg = parts[1]
-                paren_idx = msg.rfind("(GhidraScript)")
-                if paren_idx > 0:
-                    msg = msg[:paren_idx].rstrip()
-                # Remove "ClassName.java> " prefix from println output
-                gt_idx = msg.find("> ")
-                if gt_idx > 0 and msg[:gt_idx].endswith(".java"):
-                    msg = msg[gt_idx + 2:]
-                script_output.append(msg)
-
-            if script_output and not result.get("stdout"):
-                result["stdout"] = "\n".join(script_output)
-
-            result["subprocess_stdout"] = proc.stdout[-4000:]
-
-        if proc.stderr:
-            result["subprocess_stderr"] = proc.stderr[-2000:]
-
-        result["returncode"] = proc.returncode
-        result["execution_time_ms"] = execution_time_ms
-
-        # After writable exec: reload program to pick up subprocess changes
-        if need_handoff:
-            try:
-                from api.version import _get_domain_file, _release_program, _reopen_program
-                from ghidra.util.task import TaskMonitor
-                df = _get_domain_file(_current_program) if _current_program else None
-                _release_program()
-                # Re-acquire exclusive checkout for continued MCP writes
-                if df and df.isVersioned() and not df.isCheckedOut():
-                    df.checkout(True, TaskMonitor.DUMMY)
-                _reopen_program(df)
-                result["_handoff"] = "program reloaded after exec"
-            except Exception as _e:
-                result["_handoff_error"] = f"Program reload failed: {_e}"
-
-        return result
-
-    except subprocess.TimeoutExpired:
-        return {
-            "success": False,
-            "error": f"Timeout after {timeout}s",
-        }
-    except FileNotFoundError as e:
-        return {
-            "success": False,
-            "error": f"analyzeHeadless not found: {e}",
-        }
-    finally:
-        for fp in cleanup_files:
-            try:
-                os.remove(fp)
-            except OSError:
-                pass
-
-
-def _build_java_script(class_name, user_code):
-    """Build a Java Ghidra script from template by replacing placeholders."""
-    template_path = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)),
-        "scripts", "exec_runner_template.java"
-    )
-    with open(template_path, 'r', encoding='utf-8') as f:
-        template = f.read()
-    return template.replace("{CLASS_NAME}", class_name).replace("{USER_CODE}", user_code)
-
-
-def _build_headless_cmd(script_name, script_path, result_path, extra_args=None,
-                        readonly=True, noanalysis=True):
-    """Build analyzeHeadless command line from environment configuration."""
-    import tempfile as _tempfile
-
-    ghidra_home = os.environ.get("GHIDRA_HOME", "/opt/ghidra")
-    analyze = os.path.join(ghidra_home, "support", "analyzeHeadless")
-
-    project_mode = os.environ.get("PROJECT_MODE", "local")
-    project_path = os.environ.get("PROJECT_PATH", "/ghidra-projects")
-    project_name = os.environ.get("PROJECT_NAME", "default")
-
-    # Determine current program name
-    prog_name = ""
-    if _current_program:
-        prog_name = _current_program.getName()
-
-    if project_mode == "server":
-        server_host = os.environ.get("GHIDRA_SERVER_HOST", "localhost")
-        server_port = os.environ.get("GHIDRA_SERVER_PORT", "13100")
-        server_user = os.environ.get("GHIDRA_SERVER_USER", "")
-        server_keystore = os.environ.get("GHIDRA_SERVER_KEYSTORE", "")
-        repo_name = os.environ.get("GHIDRA_SERVER_REPO", "").lstrip("/")
-
-        cmd = [
-            analyze,
-            f"ghidra://{server_host}:{server_port}/{repo_name}/",
-        ]
-        if server_user:
-            cmd.extend(["-connect", server_user])
-        if server_keystore:
-            cmd.extend(["-keystore", server_keystore])
-        if prog_name:
-            cmd.extend(["-process", prog_name])
-    else:
-        cmd = [analyze, project_path, project_name]
-        if prog_name:
-            cmd.extend(["-process", prog_name])
-
-    if readonly:
-        cmd.append("-readOnly")
-    if noanalysis:
-        cmd.append("-noanalysis")
-
-    # Script arguments: result_path first, then extras
-    script_args = [result_path] + (extra_args or [])
-    cmd.extend(["-postScript", script_name] + script_args)
-    cmd.extend(["-scriptPath", script_path])
-
-    return cmd
-
-
 def _discover_and_load_api_modules():
     """
     自动发现并加载 api/ 和 api_v*/ 目录下所有模块。
@@ -1390,6 +1182,22 @@ class GhidraRequestHandler(BaseHTTPRequestHandler):
                 if not code.strip():
                     return self._send_json({"success": False, "error": "Missing 'code'"})
 
+                # Java exec spawned an analyzeHeadless subprocess that fought
+                # the live MCP client for the same exclusive checkout. Python
+                # in-process shares the running session's checkout, so it's
+                # the only supported language now.
+                if language != "python":
+                    return self._send_json({
+                        "success": False,
+                        "error": (
+                            f"language='{language}' is not supported. Only "
+                            "language='python' (in-process) is available — "
+                            "the previous Java/headless path was removed "
+                            "because the subprocess conflicted with the MCP "
+                            "client's checkout."
+                        ),
+                    }, status=400)
+
                 # Checkout/save wrapper for non-readonly exec
                 if not readonly:
                     ok, err = _ensure_server_connection()
@@ -1400,15 +1208,7 @@ class GhidraRequestHandler(BaseHTTPRequestHandler):
                     if not ok:
                         return self._send_json(err)
 
-                if language == "java":
-                    noanalysis = body.get("noanalysis", True)
-                    timeout = body.get("timeout", 120)
-                    result = _exec_java_headless(
-                        code, readonly=readonly, noanalysis=noanalysis, timeout=timeout
-                    )
-                else:
-                    result = _exec_python_inprocess(code)
-
+                result = _exec_python_inprocess(code)
                 result["mode"] = "headless"
 
                 if not readonly and isinstance(result, dict) and result.get("success", False):

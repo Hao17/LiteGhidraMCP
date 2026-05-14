@@ -226,24 +226,21 @@ def ghidra_overview(
 @mcp.tool()
 def ghidra_exec(
     code: str,
-    language: str = "python",
     readonly: bool = True,
-    noanalysis: bool = True,
     timeout: int = 120,
 ) -> dict:
-    """Execute a script in Ghidra with full API access.
+    """Execute a Python script in Ghidra with full API access.
 
-    Python scripts have access to all Ghidra Flat API functions.
-    Set `result` variable to return structured data.
-    Use print() for text output (captured in 'stdout').
+    Runs in-process inside the same Ghidra session that backs the MCP
+    client — write operations share the client's existing checkout and
+    never spawn a subprocess.
 
-    Java scripts: provide the run() method body (extends GhidraScript).
+    Scripts have access to all Ghidra Flat API functions. Set `result`
+    to return structured data. Use print() for stdout capture.
 
     Args:
-        code: Script source code to execute
-        language: "python" (default) or "java"
-        readonly: If True (default), read-only mode (headless). Set False to write.
-        noanalysis: If True (default), skip auto-analysis for speed
+        code: Python source code to execute
+        readonly: If True (default), refuses writes. Set False to modify.
         timeout: Max execution time in seconds (default: 120)
 
     Examples:
@@ -252,9 +249,8 @@ def ghidra_exec(
     """
     body = {
         "code": code,
-        "language": language,
+        "language": "python",
         "readonly": readonly,
-        "noanalysis": noanalysis,
         "timeout": timeout,
     }
     return _call_api("/api/v1/exec", method="POST", body=body)
