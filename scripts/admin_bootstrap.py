@@ -14,6 +14,7 @@ Usage:
   python3 admin_bootstrap.py create-repo <name>
   python3 admin_bootstrap.py list-repos
   python3 admin_bootstrap.py list-files <repo>
+  python3 admin_bootstrap.py list-checkout-holders <repo>
   python3 admin_bootstrap.py release-user-checkouts <user> [<repo>]
 """
 import os
@@ -109,6 +110,69 @@ def cmd_list_files(repo_name):
         sys.stderr.write(f"ERROR: repo '{bare}' not found\n")
         return 1
 
+    # RepositoryAdapter requires an explicit connect() before any folder/item
+    # enumeration; otherwise getSubfolderList throws NotConnectedException.
+    try:
+        repo.connect()
+    except Exception as e:
+        sys.stderr.write(f"ERROR: repo.connect() failed: {e}\n")
+        return 1
+
+    total = 0
+    stack = ["/"]
+    seen = set()
+    while stack:
+        folder_path = stack.pop()
+        if folder_path in seen:
+            continue
+        seen.add(folder_path)
+        try:
+            sub_folders = list(repo.getSubfolderList(folder_path) or [])
+        except Exception as e:
+            sys.stderr.write(f"WARN: getSubfolderList({folder_path}) failed: {e}\n")
+            sub_folders = []
+        for sub in sub_folders:
+            child = (folder_path.rstrip("/") + "/" + str(sub)) or "/"
+            stack.append(child)
+        try:
+            items = list(repo.getItemList(folder_path) or [])
+        except Exception as e:
+            sys.stderr.write(f"WARN: getItemList({folder_path}) failed: {e}\n")
+            items = []
+        for item in items:
+            name = str(item.getName())
+            full = folder_path.rstrip("/") + "/" + name
+            print(full)
+            total += 1
+    sys.stderr.write(f"# total: {total}\n")
+    return 0
+
+
+def cmd_list_checkout_holders(repo_name):
+    """List every user currently holding an exclusive/shared checkout on
+    `repo_name`. Output: one line per holder as `<user>:<folder>:<file>:<cid>`.
+
+    Used by `gmcp client start` to find orphan ephemeral checkouts left by
+    crashed containers whose SSH key directory has since been pruned — those
+    are invisible to disk-side iteration but still block new checkouts.
+    """
+    handle = _connect()
+    bare = repo_name.lstrip("/")
+    try:
+        repo = handle.getRepository(bare)
+    except Exception as e:
+        sys.stderr.write(f"ERROR: cannot open repo '{bare}': {e}\n")
+        return 1
+    if repo is None:
+        sys.stderr.write(f"ERROR: repo '{bare}' not found\n")
+        return 1
+
+    try:
+        repo.connect()
+    except Exception as e:
+        sys.stderr.write(f"ERROR: repo.connect() failed: {e}\n")
+        return 1
+
     total = 0
     stack = ["/"]
     seen = set()
@@ -122,17 +186,22 @@ def cmd_list_files(repo_name):
         except Exception:
             sub_folders = []
         for sub in sub_folders:
-            child = (folder_path.rstrip("/") + "/" + str(sub)) or "/"
-            stack.append(child)
+            stack.append((folder_path.rstrip("/") + "/" + str(sub)) or "/")
         try:
             items = list(repo.getItemList(folder_path) or [])
         except Exception:
             items = []
         for item in items:
-            name = str(item.getName())
-            full = folder_path.rstrip("/") + "/" + name
-            print(full)
-            total += 1
+            item_name = str(item.getName())
+            try:
+                checkouts = repo.getCheckouts(folder_path, item_name) or []
+            except Exception:
+                checkouts = []
+            for co in checkouts:
+                user = str(co.getUser())
+                cid = co.getCheckoutId()
+                print(f"{user}:{folder_path}:{item_name}:{cid}")
+                total += 1
     sys.stderr.write(f"# total: {total}\n")
     return 0
 
@@ -164,6 +233,16 @@ def cmd_release_user_checkouts(user, repo_name=None):
         if repo is None:
             continue
 
+        # RepositoryAdapter needs an explicit connect() before enumeration —
+        # without this, getSubfolderList/getItemList throw NotConnectedException
+        # and the silent except below skipped every repo (so this loop
+        # historically released nothing).
+        try:
+            repo.connect()
+        except Exception as e:
+            sys.stderr.write(f"WARN: repo.connect({rn}) failed: {e}\n")
+            continue
+
         # Walk every folder and inspect each item's checkout list.
         stack = ["/"]
         seen = set()
@@ -174,13 +253,15 @@ def cmd_release_user_checkouts(user, repo_name=None):
             seen.add(folder_path)
             try:
                 sub_folders = list(repo.getSubfolderList(folder_path) or [])
-            except Exception:
+            except Exception as e:
+                sys.stderr.write(f"WARN: getSubfolderList({rn}{folder_path}) failed: {e}\n")
                 sub_folders = []
             for sub in sub_folders:
                 stack.append((folder_path.rstrip("/") + "/" + str(sub)) or "/")
             try:
                 items = list(repo.getItemList(folder_path) or [])
-            except Exception:
+            except Exception as e:
+                sys.stderr.write(f"WARN: getItemList({rn}{folder_path}) failed: {e}\n")
                 items = []
             for item in items:
                 item_name = str(item.getName())
@@ -223,6 +304,11 @@ def main():
                 sys.stderr.write("ERROR: list-files requires <repo>\n")
                 return 2
             return cmd_list_files(args[0])
+        if op == "list-checkout-holders":
+            if not args:
+                sys.stderr.write("ERROR: list-checkout-holders requires <repo>\n")
+                return 2
+            return cmd_list_checkout_holders(args[0])
         if op == "release-user-checkouts":
             if not args:
                 sys.stderr.write("ERROR: release-user-checkouts requires <user> [<repo>]\n")

@@ -168,6 +168,128 @@ def _wait_admin_queue(cfg: config.Config, timeout: int = 10) -> None:
         time.sleep(0.5)
 
 
+def _live_ephemeral_users(cfg: config.Config) -> set:
+    """Return the set of ephemeral users currently bound to a running client container.
+
+    A user is 'live' if there's a `.session-N.json` file naming it AND the
+    container `ghidra-mcp-bridge-client-N` is actually up. Any ephemeral
+    identity NOT in this set is stranded (its container crashed without
+    `gmcp client stop`).
+    """
+    clients_dir = cfg.version_dir / "ssh" / "clients"
+    if not clients_dir.is_dir():
+        return set()
+    live = set()
+    for sf in clients_dir.glob(".session-*.json"):
+        try:
+            data = json.loads(sf.read_text())
+        except Exception:
+            continue
+        user = data.get("user", "")
+        slot = data.get("slot")
+        if not user or slot is None:
+            continue
+        container = f"ghidra-mcp-bridge-client-{slot}"
+        r = subprocess.run(
+            ["docker", "inspect", "-f", "{{.State.Running}}", container],
+            capture_output=True, text=True,
+        )
+        if r.returncode == 0 and r.stdout.strip() == "true":
+            live.add(user)
+    return live
+
+
+def _release_stranded_ephemeral_locks(cfg: config.Config, repo_bare: str) -> int:
+    """Force-release exclusive checkouts on `repo_bare` held by ephemeral
+    users whose containers are no longer running.
+
+    These accumulate when a container is SIGKILLed (OOM, host reboot, `docker
+    kill`) without `gmcp client stop` — the server still records the lock
+    as owned by a UUID nobody is using anymore, and any new client trying
+    to open the same binary hits `checkout_conflict`. Two failure modes
+    must be covered:
+
+      1. SSH key dir still exists, container gone — disk-side iteration
+         would find it, but doesn't generalize:
+      2. SSH key dir was already pruned (prior `client stop` succeeded
+         locally but its release-checkouts call silently failed against
+         the server) yet the server-side lock persists.
+
+    To catch both, we ask the server (via bridgectl) which users currently
+    hold checkouts on this repo, cross-reference against `_live_ephemeral_
+    users`, and release any ephemeral holder that's not live.
+
+    Returns the total number of checkouts released.
+    """
+    probe = docker.docker_exec(cfg, SERVER_CONTAINER, ["true"], capture=True)
+    if probe.returncode != 0:
+        return 0  # Server not running, can't drive bridgectl
+
+    holders = _list_repo_checkout_holders(cfg, repo_bare)
+    if holders is None:
+        return 0
+    live = _live_ephemeral_users(cfg)
+
+    # Identify which holders are stranded ephemerals (released as a group
+    # per user, since `release-user-checkouts` is per-user not per-file).
+    stranded_by_user = {}
+    for user, folder, fname, cid in holders:
+        if not _is_ephemeral_user(user):
+            continue  # Leave named identities alone
+        if user in live:
+            continue
+        stranded_by_user.setdefault(user, []).append(f"{folder.rstrip('/')}/{fname}")
+
+    total = 0
+    for user in sorted(stranded_by_user):
+        files = stranded_by_user[user]
+        output.info(
+            f"Stranded ephemeral '{user}' held {len(files)} checkout(s) on {repo_bare}: "
+            + ", ".join(files)
+        )
+        r = docker.admin_bootstrap(
+            cfg, ["release-user-checkouts", user, repo_bare], capture=True
+        )
+        if r.returncode != 0:
+            output.error(f"  Failed to release {user}: {(r.stderr or r.stdout or '').strip()}")
+            continue
+        for line in (r.stdout or "").splitlines():
+            if line.startswith("total-released:"):
+                try:
+                    n = int(line.split(":", 1)[1])
+                except ValueError:
+                    continue
+                if n > 0:
+                    output.info(f"  Released {n} checkout(s) from {user}.")
+                    total += n
+    return total
+
+
+def _list_repo_checkout_holders(cfg: config.Config, repo_bare: str):
+    """Query bridgectl for every server-side checkout on `repo_bare`.
+
+    Returns a list of `(user, folder, file, checkout_id)` tuples, or None
+    if the server is unreachable. Empty list means no checkouts exist.
+    """
+    probe = docker.docker_exec(cfg, SERVER_CONTAINER, ["true"], capture=True)
+    if probe.returncode != 0:
+        return None
+    r = docker.admin_bootstrap(
+        cfg, ["list-checkout-holders", repo_bare], capture=True
+    )
+    if r.returncode != 0:
+        return None
+    holders = []
+    for line in (r.stdout or "").splitlines():
+        # Format: <user>:<folder>:<file>:<checkout_id>
+        parts = line.split(":", 3)
+        if len(parts) < 4:
+            continue
+        user, folder, fname, cid = parts
+        holders.append((user, folder, fname, cid))
+    return holders
+
+
 def _teardown_ephemeral_user(cfg: config.Config, user: str, repo_bare: str) -> None:
     """Fully remove an ephemeral identity from the server side.
 
@@ -310,6 +432,11 @@ def start(n, repo, binary, binary_file, user_arg):
             output.info(f"Found prior ephemeral session for slot {n} (user={prior_user}). Cleaning up before start.")
             _teardown_ephemeral_user(cfg, prior_user, prior_repo)
         _delete_session(cfg, n)
+
+    # Release stranded checkouts from any OTHER ephemeral identity whose
+    # container died without `gmcp client stop`. Otherwise the new client
+    # below would hit `checkout_conflict` on its first write.
+    _release_stranded_ephemeral_locks(cfg, repo_bare)
 
     # Resolve client identity
     if user_arg:
@@ -493,6 +620,48 @@ def clean(n, all_slots):
         else:
             output.info(f"Slot {slot}: not ephemeral (user='{user}'), leaving identity in place.")
         _delete_session(cfg, slot)
+
+
+@client.command()
+@click.argument("n", type=click.IntRange(1, 9), required=False)
+@click.option("--repo", "-r", default="", help="Repo to scan (overrides session file).")
+def unstick(n, repo):
+    """Release stranded checkouts blocking client N (or --repo) without restarting it.
+
+    Use this when ghidra_edit / ghidra_exec returns `checkout_conflict` even
+    though your client is alive: an earlier crashed container is still on
+    the server's books as the lock holder. This walks every ephemeral
+    identity with no live container and terminates its checkouts on the
+    target repo via bridgectl. The live client picks up the released lock
+    on its next write attempt — no `gmcp client stop` needed.
+    """
+    cfg = config.load()
+    if not n and not repo:
+        output.error("Specify a slot number (N) or --repo <name>.")
+        raise click.Abort()
+
+    if n:
+        session = _read_session(cfg, n)
+        if session is None and not repo:
+            output.error(f"Slot {n} has no session file. Pass --repo to scan a specific repo.")
+            raise click.Abort()
+        repo_bare = (repo or session.get("repo", "")).lstrip("/")
+    else:
+        repo_bare = repo.lstrip("/")
+
+    if not repo_bare:
+        output.error("Could not determine target repo.")
+        raise click.Abort()
+    if not (cfg.version_dir / "repos" / repo_bare).is_dir():
+        output.error(f"Repository '{repo_bare}' not found.")
+        raise click.Abort()
+
+    output.header(f"Releasing stranded checkouts on {repo_bare}...")
+    total = _release_stranded_ephemeral_locks(cfg, repo_bare)
+    if total == 0:
+        output.success("No stranded checkouts found.")
+    else:
+        output.success(f"Released {total} stranded checkout(s). Retry your write — the live client should now succeed.")
 
 
 @client.command()
