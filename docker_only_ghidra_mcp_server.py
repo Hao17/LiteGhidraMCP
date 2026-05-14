@@ -344,7 +344,7 @@ def _analyze_program(program):
 
         print(f"[PyGhidra-MCP-Bridge] Running auto-analysis: {program.getName()} ...")
 
-        from ghidra.app.util.importer import AutoAnalysisManager
+        from ghidra.app.plugin.core.analysis import AutoAnalysisManager
         from ghidra.util.task import TaskMonitor
 
         mgr = AutoAnalysisManager.getAnalysisManager(program)
