@@ -29,9 +29,10 @@ def start(n, repo, binary, binary_file):
     if binary_file:
         import_name = binary or os.path.basename(binary_file)
         imports_dir = cfg.imports_dir
-        imports_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(binary_file, imports_dir / import_name)
-        output.info(f"Binary staged: {binary_file}")
+        staged_path = imports_dir / import_name
+        staged_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(binary_file, staged_path)
+        output.info(f"Binary staged: {binary_file} → {staged_path}")
 
     env = {
         "CLIENT_ID": str(n),

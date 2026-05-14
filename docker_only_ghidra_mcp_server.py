@@ -177,10 +177,42 @@ class MockGhidraState:
         return None
 
 
+def _split_folder_and_name(raw_name):
+    """Split 'folder/sub/basename' into ('/folder/sub', 'basename').
+
+    Leading/trailing slashes are tolerated. A bare name returns ('/', name).
+    """
+    cleaned = (raw_name or "").strip("/")
+    if "/" not in cleaned:
+        return "/", cleaned
+    folder, base = cleaned.rsplit("/", 1)
+    return "/" + folder, base
+
+
+def _get_or_create_folder(project_data, folder_path):
+    """Navigate to absolute folder_path, creating intermediate folders.
+
+    folder_path: '/' or '/a' or '/a/b/c'. Returns the DomainFolder.
+    """
+    folder = project_data.getRootFolder()
+    stripped = (folder_path or "/").strip("/")
+    if not stripped:
+        return folder
+    for part in stripped.split("/"):
+        if not part:
+            continue
+        sub = folder.getFolder(part)
+        if sub is None:
+            sub = folder.createFolder(part)
+        folder = sub
+    return folder
+
+
 def _import_program(path, name="", analyze=True):
     """Import a binary file into the current project/repository.
 
-    Returns dict with program info on success.
+    `name` may include a folder path (e.g. '38.1.0/libfoo.so'); intermediate
+    folders are created as needed. Returns dict with program info on success.
     """
     global _current_program
 
@@ -199,18 +231,22 @@ def _import_program(path, name="", analyze=True):
     if not binary_file.exists():
         raise FileNotFoundError(f"File not found: {path}")
 
-    # Determine program name
-    prog_name = name if name else binary_file.getName()
+    # Split requested name into target folder + basename. Bare names land in root.
+    raw_name = name if name else binary_file.getName()
+    folder_path, basename = _split_folder_and_name(raw_name)
+    full_path = (folder_path.rstrip("/") + "/" + basename) if folder_path != "/" else "/" + basename
 
-    # Check if program already exists
-    root = proj.getProjectData().getRootFolder()
-    if root.getFile(prog_name) is not None:
-        raise RuntimeError(f"Program '{prog_name}' already exists in project")
+    project_data = proj.getProjectData()
+    target_folder = _get_or_create_folder(project_data, folder_path)
+
+    # Duplicate check scoped to the target folder
+    if target_folder.getFile(basename) is not None:
+        raise RuntimeError(f"Program '{full_path}' already exists in project")
 
     # Import using AutoImporter (returns LoadResults in Ghidra 12.0+)
     msg = MessageLog()
     load_results = AutoImporter.importByUsingBestGuess(
-        binary_file, proj, "/", proj, msg, TaskMonitor.DUMMY
+        binary_file, proj, folder_path, proj, msg, TaskMonitor.DUMMY
     )
 
     if load_results is None:
@@ -247,24 +283,26 @@ def _import_program(path, name="", analyze=True):
     # Release after save (DomainFile persists in project)
     load_results.release(proj)
 
-    # Rename domain file if custom name specified (after save + release)
-    if name and original_name != name:
-        df = root.getFile(original_name)
+    # Rename domain file if requested basename differs from loader's choice.
+    # setName() takes a basename only; the file stays in target_folder.
+    prog_name = basename
+    if basename and original_name != basename:
+        df = target_folder.getFile(original_name)
         if df is not None:
             try:
-                df.setName(name)
+                df.setName(basename)
             except Exception:
                 prog_name = original_name  # Keep original name on rename failure
 
     # For shared projects (server mode), check in the file to the server
     versioned = False
-    df = root.getFile(prog_name)
+    df = target_folder.getFile(prog_name)
     if df is None:
-        df = root.getFile(original_name)  # Try original name
+        df = target_folder.getFile(original_name)  # Try original name
     if df is not None and _project is not None:
         try:
             # Ensure repository connection is alive
-            repo = proj.getProjectData().getRepository()
+            repo = project_data.getRepository()
             if repo is not None:
                 try:
                     repo.connect()
@@ -279,10 +317,12 @@ def _import_program(path, name="", analyze=True):
         except Exception:
             pass  # Version control is best-effort
 
+    pathname = df.getPathname() if df is not None else full_path
     result = {
         "name": prog_name,
-        "message": f"Successfully imported '{prog_name}'",
-        "versioned": versioned
+        "path": pathname,
+        "message": f"Successfully imported '{pathname}'",
+        "versioned": versioned,
     }
     return result
 
@@ -631,7 +671,7 @@ def _init_ghidra_project():
             if import_name:
                 import_path = f"/import/{import_name}"
                 if os.path.exists(import_path):
-                    existing = root_folder.getFile(import_name)
+                    existing = _find_domain_file(root_folder, import_name)
                     if existing is None:
                         print(f"[PyGhidra-MCP-Bridge] Importing binary: {import_name}")
                         _import_program(import_path, name=import_name, analyze=True)

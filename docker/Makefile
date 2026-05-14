@@ -380,9 +380,10 @@ _CLIENT_SSE_PORT  = $(shell echo $$((8800 + ($(N) - 1) * 10 + 4)))
 # Usage: make client N=3 REPO=aweme BINARY=38.1.0/all_init.o [BINARY_FILE=path]
 client: check-env check-repo check-n
 	@if [ -n "$(BINARY_FILE)" ]; then \
-		mkdir -p "$(GHIDRA_DATA_DIR)/$(GHIDRA_VERSION)/imports"; \
-		cp "$(BINARY_FILE)" "$(GHIDRA_DATA_DIR)/$(GHIDRA_VERSION)/imports/$(or $(BINARY),$(notdir $(BINARY_FILE)))"; \
-		echo "Binary staged: $(BINARY_FILE)"; \
+		dst="$(GHIDRA_DATA_DIR)/$(GHIDRA_VERSION)/imports/$(or $(BINARY),$(notdir $(BINARY_FILE)))"; \
+		mkdir -p "$$(dirname "$$dst")"; \
+		cp "$(BINARY_FILE)" "$$dst"; \
+		echo "Binary staged: $(BINARY_FILE) → $$dst"; \
 	fi
 	@CLIENT_ID=$(N) CLIENT_MCP_PORT=$(_CLIENT_HTTP_PORT) CLIENT_MCP_SSE_PORT=$(_CLIENT_SSE_PORT) \
 	 GHIDRA_SERVER_REPO=/$(REPO) \
