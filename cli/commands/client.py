@@ -2,12 +2,13 @@ import os
 import re
 import shutil
 import subprocess
+import time
 import uuid as _uuid
 
 import click
 
 from cli import config, docker, output
-from cli.commands.server import _read_acl, _write_acl
+from cli.commands.server import CONTAINER as SERVER_CONTAINER, SVRADMIN, _read_acl, _write_acl
 from cli.ports import client_ports
 
 COMPOSE_FILE = "docker-compose.client.yml"
@@ -43,6 +44,51 @@ def _grant_in_acl(cfg: config.Config, user: str, repo_bare: str, perm: str = "+w
     entries = [e for e in entries if not (e[0] == user and e[1] == repo_bare)]
     entries.append((user, repo_bare, perm))
     _write_acl(cfg, entries)
+
+
+def _sync_register_and_grant(
+    cfg: config.Config, user: str, repo_bare: str, perm: str = "+w", timeout: int = 15
+) -> bool:
+    """Eagerly register user + apply grant via svrAdmin, bypassing the 5s ACL sync window.
+
+    The server's background scanner (entrypoint.sh) does the same work every 5s,
+    but a brand-new ephemeral identity has to wait through that window before the
+    client container can authenticate against the requested repo. Doing it
+    synchronously here makes `gmcp client start` deterministic.
+
+    Returns True if commands were issued and the ~admin/ queue drained within
+    `timeout` seconds. Returns False (with no error) if the server container
+    isn't running or queue drain timed out — the in-container retry loop in
+    docker_only_ghidra_mcp_server.py is the backstop in those cases.
+    """
+    # 1. Pre-stage pubkey under /repos/~ssh/ so SSH auth works on first connect.
+    src = cfg.version_dir / "ssh" / "clients" / user / "ssh_key.pub"
+    if not src.is_file():
+        return False
+    dst_dir = cfg.version_dir / "repos" / "~ssh"
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dst_dir / f"{user}.pub")
+
+    # 2. Bail out if the server container isn't running; nothing to drive synchronously.
+    probe = docker.docker_exec(cfg, SERVER_CONTAINER, ["true"], capture=True)
+    if probe.returncode != 0:
+        return False
+
+    # 3. Queue add + grant. svrAdmin writes commands to /repos/~admin/*.cmd; the
+    # server's command processor consumes them FIFO. -add for an existing user
+    # exits non-zero — we don't care, the grant still applies.
+    docker.docker_exec(cfg, SERVER_CONTAINER, [SVRADMIN, "-add", user], capture=True)
+    docker.docker_exec(cfg, SERVER_CONTAINER, [SVRADMIN, "-grant", user, perm, repo_bare], capture=True)
+
+    # 4. Wait for the queue to drain — server deletes the .cmd file once processed.
+    admin_dir = cfg.version_dir / "repos" / "~admin"
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        pending = list(admin_dir.glob("*.cmd")) if admin_dir.is_dir() else []
+        if not pending:
+            return True
+        time.sleep(0.5)
+    return False
 
 
 @click.group()
@@ -85,7 +131,10 @@ def start(n, repo, binary, binary_file, user_arg):
     # Generate SSH key (idempotent) + write +w grant (idempotent replace)
     _ensure_client_key(cfg, user)
     _grant_in_acl(cfg, user, repo_bare, "+w")
-    output.info(f"Granted {user} +w on {repo_bare} (effective within ~5s via ACL sync).")
+    if _sync_register_and_grant(cfg, user, repo_bare, "+w"):
+        output.info(f"Granted {user} +w on {repo_bare} (synchronously applied).")
+    else:
+        output.info(f"Granted {user} +w on {repo_bare} (effective within ~5s via ACL sync).")
 
     import_name = ""
     if binary_file:

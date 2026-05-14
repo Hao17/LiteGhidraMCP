@@ -616,8 +616,16 @@ def _init_ghidra_project():
                 print(f"[PyGhidra-MCP-Bridge] Repository '{repo_bare}' not accessible to user '{server_handle.getUser()}', waiting for ACL sync...")
                 # Wait up to 30s for ACL sync to grant access (covers race with
                 # gmcp client start orchestrating create+grant before container starts).
+                # Re-acquire the handle each retry — Ghidra Server caches the
+                # accessible-repos view per session, so a stale handle never sees
+                # freshly-applied grants without re-auth.
                 for _retry in range(6):
                     time.sleep(5)
+                    try:
+                        server_handle = ClientUtil.getRepositoryServer(server_host, server_port, True)
+                    except Exception as _e:
+                        print(f"[PyGhidra-MCP-Bridge] reconnect during ACL wait failed: {_e}")
+                        continue
                     repos = server_handle.getRepositoryNames()
                     if repo_bare in list(repos or []):
                         print(f"[PyGhidra-MCP-Bridge] ✓ Repository '{repo_bare}' now accessible")
