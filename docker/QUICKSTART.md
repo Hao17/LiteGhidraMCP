@@ -6,7 +6,7 @@
 |------|----------|----------|-----------|
 | **Local GUI** | Daily RE work, single user | N/A | No |
 | **Docker + Local Project** (`PROJECT_MODE=local`) | Automation only | No (locks project) | No |
-| **Docker + Server-Client** ⭐ (`PROJECT_MODE=server`) | Production, collaboration | Yes | Yes |
+| **Docker + Server-Client** ⭐ (`gmcp server up` + `gmcp client start`) | Production, collaboration | Yes | Yes |
 
 ### Prerequisites
 
@@ -203,21 +203,6 @@ docker-compose up -d
 ```bash
 docker-compose logs -f
 curl http://localhost:8803/api/status
-```
-
----
-
-## External Ghidra Server
-
-Connect to an existing Ghidra Server with `PROJECT_MODE=server`. Edit `.env`:
-
-```bash
-PROJECT_MODE=server
-GHIDRA_SERVER_HOST=192.168.1.100
-GHIDRA_SERVER_PORT=13100
-GHIDRA_SERVER_USER=my_user
-GHIDRA_SERVER_REPO=/my_repo
-GHIDRA_SERVER_KEYSTORE=/root/.ghidra/ssh_key
 ```
 
 ---

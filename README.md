@@ -65,8 +65,11 @@ AI (Docker) + GUI (Human) collaboration with one command. Each client binds to o
 > The official Ghidra distribution currently does not ship a `linux_arm_64` decompiler binary. Run the Bridge containers as `linux/amd64`; the compose files in this repo now default to that platform to avoid `Could not find decompiler executable`.
 
 ```bash
-# Start server (first run auto-creates config and prompts for admin registration)
+# Start server (first run auto-creates config and prompts to register an admin)
 gmcp server up
+
+# Create the repository (admin-owned model: clients cannot create repos)
+gmcp server repo create test
 
 # Start client (--repo required, --binary recommended)
 gmcp client start 1 --repo test --binary my_binary                          # Open existing binary
@@ -76,16 +79,16 @@ gmcp client start 1 --repo test --binary my_binary --binary-file ~/a.bin   # Imp
 # Second client on different ports (8813/8814)
 gmcp client start 2 --repo test --binary modules/other_binary
 
-# Or start server + client 1 in one command
-gmcp up --repo test --binary my_binary
+# Stable named identity (instead of the default ephemeral UUID)
+gmcp client start 1 --repo test --binary my_binary --user alice
 ```
 
 #### What happens
 
 - Ghidra Server starts on port `13100`
-- **First run only**: prompts you to register an admin user (username + password) for GUI access. All future repositories will auto-grant access to this admin.
-- Each client auto-generates SSH key and registers as `bridge-<N>`
-- Repository is auto-created on first client connection
+- **First run only**: prompts you to register an admin user (username + password) for GUI access. The admin is auto-granted `+a` on every repository.
+- `gmcp server repo create` provisions the repo via the `bridgectl` SSH identity (auto-generated on first `server up`)
+- Each `gmcp client start` generates a fresh ephemeral identity (`u-<hex>`) with its own SSH keypair and a `+w` grant on the chosen repo. Pass `--user <name>` to reuse a stable identity instead.
 - HTTP API: `http://localhost:8803`, MCP SSE: `http://localhost:8804/sse`
 
 #### Connect Ghidra GUI
@@ -99,15 +102,18 @@ gmcp up --repo test --binary my_binary
 #### Useful commands
 
 ```bash
-gmcp server logs         # View server logs
-gmcp server users        # List registered users
-gmcp server add-user x   # Add another user (prompts for password)
-gmcp client logs 1       # View client 1 logs
-gmcp client list         # List all running clients
-gmcp down                # Stop everything (server + all clients)
-gmcp server clean        # Remove all data (destructive, re-prompts admin on next start)
-gmcp info                # Show current configuration
-gmcp troubleshoot check  # Diagnose problems
+gmcp server logs              # View server logs
+gmcp server users             # List registered users
+gmcp server add-user <name>   # Add another password admin (prompts for password)
+gmcp server repos             # List repositories with their ACL grants
+gmcp server repo create <r>   # Create a repository (admin-owned)
+gmcp server repo grant <user> <repo> +w  # Grant a non-admin SSH identity write access
+gmcp client logs 1            # View client 1 logs
+gmcp client stop 1            # Stop client 1 (also tears down its ephemeral identity)
+gmcp down                     # Stop everything (server + all clients)
+gmcp server clean             # Remove all data (destructive, re-prompts admin on next start)
+gmcp info                     # Show current configuration
+gmcp troubleshoot check       # Diagnose problems
 ```
 
 > **Detailed guide**: [docker/QUICKSTART.md](docker/QUICKSTART.md)
@@ -121,10 +127,6 @@ cd docker && cp .env.example .env
 # Edit .env: set HOST_PROJECT_PATH, PROJECT_NAME, PROJECT_MODE=local
 docker-compose up -d
 ```
-
-### External Ghidra Server
-
-Connect to an existing Ghidra Server with `PROJECT_MODE=server`. See [docker/QUICKSTART.md](docker/QUICKSTART.md) for configuration details.
 
 ---
 

@@ -8,11 +8,9 @@ version: '3.8'
 #   make client2-up         # Start second client (ports 8813/8814)
 #   make client-down        # Stop client
 #
-# Connection Modes:
-#   1. Docker Network Mode (default):
-#      GHIDRA_SERVER_HOST=ghidra-server (joins ghidra-shared-network)
-#   2. External Server Mode:
-#      GHIDRA_SERVER_HOST=host.docker.internal or external IP
+# Connection:
+#   Joins ghidra-shared-network and talks to the server container at
+#   GHIDRA_SERVER_HOST=ghidra-server (created by docker-compose.server.yml).
 #
 # Multi-Client Support:
 #   Set CLIENT_CONTAINER_NAME, CLIENT_MCP_PORT, CLIENT_MCP_SSE_PORT, CLIENT_ID
