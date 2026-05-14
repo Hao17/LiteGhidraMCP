@@ -1,9 +1,17 @@
 # Ghidra MCP Setup
 
-Start a Ghidra Docker environment, load a binary, connect MCP, and begin analysis. Use this when you need to reverse-engineer a native binary (.so, ELF, PE, etc.) with Ghidra.
+Set up the Ghidra MCP Bridge for binary analysis in this project. Run when you need to reverse-engineer a native binary (`.so`, ELF, PE, etc.) and the Bridge isn't connected yet.
 
 ## Arguments
 - `$ARGUMENTS` — Optional: path to the binary file to analyze (e.g., `./libs/libfoo.so`)
+
+## Quick path (if Bridge is already running)
+
+```
+ghidra_overview()
+```
+
+If this MCP tool exists and returns a binary name + sane function count, you're already connected — skip straight to `/ghidra` and analyze. Otherwise, work through the steps below.
 
 ## Workflow
 
@@ -13,9 +21,14 @@ Start a Ghidra Docker environment, load a binary, connect MCP, and begin analysi
 which gmcp && gmcp --version
 ```
 
-If `gmcp` is not found, install it:
+If `gmcp` is not found, install it from the Bridge repo (one time per machine):
 ```bash
-pip install -e ~/Repos/Onmi/OnmiPy/Bridge
+pip install -e /path/to/Bridge   # adjust to wherever you cloned the Bridge
+```
+
+If this is the first time using the Bridge in *this* project, also install the skill so your AI client has the same usage doc:
+```bash
+gmcp install -d . skill claude-code   # or: codex / cursor / copilot
 ```
 
 ### Step 2: Check current state
@@ -97,15 +110,25 @@ ghidra_overview()
 
 ## Multi-binary Setup
 
-To analyze multiple binaries simultaneously:
+To analyze multiple binaries simultaneously, give each its own client (1–9):
+
 ```bash
 gmcp client start 1 -r myrepo -b binary_a -f ./binary_a.so
 gmcp client start 2 -r myrepo -b binary_b -f ./binary_b.so
-gmcp install mcp claude-code --client 1   # → ghidra on port 8804
-gmcp install mcp claude-code --client 2   # → ghidra-2 on port 8814
+gmcp install mcp claude-code --client 1   # → MCP name "ghidra"   on port 8804
+gmcp install mcp claude-code --client 2   # → MCP name "ghidra-2" on port 8814
 ```
 
-Client N uses ports: HTTP `880N3`, SSE `880N4` (e.g., Client 2 → 8813/8814).
+Port and MCP-name table:
+
+| Client | HTTP  | SSE   | Default MCP name |
+|--------|-------|-------|------------------|
+| 1      | 8803  | 8804  | `ghidra`         |
+| 2      | 8813  | 8814  | `ghidra-2`       |
+| 3      | 8823  | 8824  | `ghidra-3`       |
+| N      | `8803 + (N-1)*10` | `8804 + (N-1)*10` | `ghidra-N` |
+
+In your AI session, Client 1's tools are `ghidra_overview`, `ghidra_search`, etc; Client 2's tools are `ghidra-2_overview`, `ghidra-2_search`, etc. Use the prefix to pick which binary to talk to. `gmcp status` shows which client holds which binary.
 
 ## Teardown
 

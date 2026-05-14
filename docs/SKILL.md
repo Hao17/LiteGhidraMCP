@@ -4,6 +4,61 @@ This document teaches AI assistants how to effectively use the Ghidra MCP tools 
 
 ---
 
+## Quick Start (Adding This Plugin to Your Project)
+
+You are in a project that needs to reverse-engineer a native binary (`.so`, ELF, PE, etc.). Five steps to connect this Bridge:
+
+```bash
+# 1. Install the gmcp CLI (once per machine — points at the Bridge repo)
+pip install -e /path/to/Bridge
+
+# 2. Install the skill into THIS project (once per project)
+cd /path/to/your-project
+gmcp install -d . skill claude-code   # or: codex / cursor / copilot
+
+# 3. Start the Bridge + a client bound to your binary
+gmcp up -r myrepo -b libfoo.so -f ./relative/path/to/libfoo.so
+
+# 4. Register the MCP connection with your AI client
+gmcp install mcp claude-code          # or: claude-desktop / coco
+
+# 5. Verify in your AI session
+#    Ask the agent to call ghidra_overview() — if it returns a binary
+#    name + non-trivial function count, you're connected.
+```
+
+After this, use `/ghidra` (Claude Code) or follow the workflow below to analyze. Annotation writes auto-commit to the Ghidra Server; no manual save.
+
+**Already set up?** Just run `gmcp status` to confirm the right binary is loaded, then call `ghidra_overview()`. If function count is sane, you're ready.
+
+---
+
+## Multiple Binaries at Once
+
+Each binary you want loaded simultaneously needs its own client (1–9). Port and MCP-name mapping is fixed by client number:
+
+| Client | HTTP  | SSE   | Default MCP name |
+|--------|-------|-------|------------------|
+| 1      | 8803  | 8804  | `ghidra`         |
+| 2      | 8813  | 8814  | `ghidra-2`       |
+| 3      | 8823  | 8824  | `ghidra-3`       |
+| N      | `8803 + (N-1)*10` | `8804 + (N-1)*10` | `ghidra-N` |
+
+```bash
+gmcp client start 1 -r repo -b alpha.so -f ./alpha.so
+gmcp client start 2 -r repo -b beta.so  -f ./beta.so
+gmcp install mcp claude-code              # Client 1 registered as "ghidra"
+gmcp install mcp claude-code --client 2   # Client 2 registered as "ghidra-2"
+```
+
+In your AI session the tools split by MCP-server prefix:
+- Client 1 → `ghidra_overview`, `ghidra_search`, `ghidra_view`, `ghidra_list`, `ghidra_edit`
+- Client 2 → `ghidra-2_overview`, `ghidra-2_search`, ... (same tools, different binary)
+
+Switch which binary you analyze by calling the matching prefix. `gmcp status` shows which client holds which binary.
+
+---
+
 ## Analysis Workflow
 
 ### Step 1: Overview First
@@ -177,14 +232,14 @@ Use this to identify which MCP endpoint connects to which binary.
 
 To use the Ghidra MCP tools, your AI client needs an MCP connection to the Bridge SSE endpoint.
 
-Default endpoint: `http://127.0.0.1:8804/sse` (Client 1). Multi-client ports: Client N → `880N4` (e.g. Client 2 → `8814`).
+Default endpoint: `http://127.0.0.1:8804/sse` (Client 1). Multi-client ports follow `8804 + (N-1)*10` (Client 2 → `8814`, Client 3 → `8824`). See the *Multiple Binaries at Once* section above for the full table.
 
 **Quick setup:**
 ```bash
-gmcp install mcp claude-code              # Claude Code
+gmcp install mcp claude-code              # Claude Code (Client 1 by default)
 gmcp install mcp claude-desktop           # Claude Desktop
 gmcp install mcp coco                     # Coco
-gmcp install mcp claude-code --client 2   # Client 2 → port 8814
+gmcp install mcp claude-code --client 2   # Client 2 → port 8814, name "ghidra-2"
 ```
 
 **Manual setup:**

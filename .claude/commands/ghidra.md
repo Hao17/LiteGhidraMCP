@@ -7,11 +7,12 @@ Analyze a binary loaded in Ghidra via MCP tools. Follows a systematic top-down w
 
 ## Prerequisites
 
-Before analysis, verify MCP is connected. Try calling `ghidra_overview()`. If the tool is not available or returns an error:
+Before analysis, verify MCP is connected. Call `ghidra_overview()`:
 
-1. Run `gmcp status --json` to check if Ghidra Docker is running
-2. If not running, follow `/ghidra-setup` to start the environment and configure MCP
-3. Once `ghidra_overview()` works, continue below
+- Returns metadata + a non-trivial function count → connected, continue to the workflow below.
+- Tool missing or errors out → run `/ghidra-setup` to bring up a client.
+
+**Multi-binary case.** If you need a binary that's not the one currently loaded, start a separate client (`gmcp client start 2 ...`) and call its tools via the `ghidra-2_*` prefix — see `/ghidra-setup` for the port/name table. Don't switch programs inside an existing client; runtime switching is disabled by design.
 
 ## Workflow
 
