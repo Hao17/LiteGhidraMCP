@@ -201,7 +201,7 @@ gmcp install -d . skill cursor         # Cursor → .cursor/rules/ghidra-mcp.md
 gmcp install -d . skill copilot        # GitHub Copilot → .github/copilot-instructions.md
 ```
 
-> What the skill covers: [docs/SKILL.md](docs/SKILL.md)
+> What the skill covers: [skills/SKILL.md](skills/SKILL.md)
 
 ### Configure MCP Connection
 
@@ -311,7 +311,7 @@ Bridge/
 ├── scripts/
 │   ├── mcp_sse_proxy.py              # MCP SSE proxy (subprocess)
 │   └── mcp_stdio.py                  # MCP stdio mode (standalone)
-├── docs/                             # Documentation (SKILL.md, DESIGN.md)
+├── skills/                           # AI skill document (SKILL.md, installed by `gmcp install skill`)
 ├── utils/                            # Shared utilities
 └── docker/                           # Docker deployment (Server-Client mode)
 ```

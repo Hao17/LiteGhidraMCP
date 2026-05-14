@@ -292,5 +292,5 @@ SERVER_REPO_NAME=/my-projects     # Default repo name
 ## Next Steps
 
 - [API Reference](../CLAUDE.md) — Complete API documentation
-- [SKILL.md](../docs/SKILL.md) — AI analysis workflows and MCP tool usage
+- [SKILL.md](../skills/SKILL.md) — AI analysis workflows and MCP tool usage
 - [ARCHITECTURE.md](ARCHITECTURE.md) — Docker architecture details

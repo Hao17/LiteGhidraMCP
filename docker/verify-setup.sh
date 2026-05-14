@@ -63,9 +63,7 @@ echo
 echo "Checking documentation..."
 check_file "README.md"
 check_file "README_ZH.md"
-check_file "docs/DEVELOPMENT.md"
-check_file "docs/SSH_KEY_AUTHENTICATION.md"
-check_file "docs/SSH_KEY_TESTING.md"
+check_file "skills/SKILL.md"
 echo
 
 echo "Checking examples..."
@@ -124,7 +122,7 @@ echo
 echo "3. Read the current docs:"
 echo "   - Quick start: docker/QUICKSTART.md"
 echo "   - Architecture: docker/ARCHITECTURE.md"
-echo "   - SSH keys: docs/SSH_KEY_AUTHENTICATION.md"
+echo "   - AI skill:   skills/SKILL.md"
 echo
 
 if [ "$failures" -ne 0 ]; then

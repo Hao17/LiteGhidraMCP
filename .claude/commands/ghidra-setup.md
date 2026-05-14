@@ -5,6 +5,12 @@ Set up the Ghidra MCP Bridge for binary analysis in this project. Run when you n
 ## Arguments
 - `$ARGUMENTS` — Optional: path to the binary file to analyze (e.g., `./libs/libfoo.so`)
 
+## Important: this skill runs in the shell, not via MCP
+
+Every step below is executed with the **Bash tool** calling the `gmcp` CLI. The MCP tools (`ghidra_*`) **cannot** start servers, spawn clients, or load binaries — they only exist *after* a client container is already running. If you find yourself reaching for an MCP tool to "start the server" or "open this .so", stop and use `gmcp` via Bash instead. See `/ghidra` → "Mental Model" for the full layer separation.
+
+If multiple binaries are already loaded under different MCP names (`ghidra_*`, `ghidra-2_*`, ...), each one is a separate container — you do **not** need to re-run setup. Run `gmcp status` (Bash) to see which client holds which binary.
+
 ## Quick path (if Bridge is already running)
 
 ```

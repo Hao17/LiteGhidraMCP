@@ -201,7 +201,7 @@ gmcp install -d . skill cursor         # Cursor → .cursor/rules/ghidra-mcp.md
 gmcp install -d . skill copilot        # GitHub Copilot → .github/copilot-instructions.md
 ```
 
-> Skill 涵盖内容：[docs/SKILL.md](docs/SKILL.md)
+> Skill 涵盖内容：[skills/SKILL.md](skills/SKILL.md)
 
 ### 配置 MCP 连接
 
@@ -311,7 +311,7 @@ Bridge/
 ├── scripts/
 │   ├── mcp_sse_proxy.py              # MCP SSE 代理（子进程）
 │   └── mcp_stdio.py                  # MCP stdio 模式（独立进程）
-├── docs/                             # 文档（SKILL.md、DESIGN.md）
+├── skills/                           # AI Skill 文档（SKILL.md，由 `gmcp install skill` 写入）
 ├── utils/                            # 共享工具模块
 └── docker/                           # Docker 部署（Server-Client 模式）
 ```

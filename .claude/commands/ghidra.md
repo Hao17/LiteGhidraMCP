@@ -5,14 +5,50 @@ Analyze a binary loaded in Ghidra via MCP tools. Follows a systematic top-down w
 ## Arguments
 - `$ARGUMENTS` — Optional: function name, address, or analysis focus (e.g., "crypto functions", "main")
 
+## Mental Model — `gmcp` vs MCP tools (READ THIS FIRST)
+
+There are **two completely separate layers** here, and confusing them is the #1 source of wasted turns:
+
+| Layer | What it is | How you call it | What it can do |
+|---|---|---|---|
+| **`gmcp` CLI** | A shell command (`pip install -e .` from the Bridge repo). Manages Docker containers. | Via the **Bash tool** (`gmcp server up`, `gmcp client start ...`) | Start/stop the Ghidra Server, spawn client containers, import binaries, configure MCP endpoints. |
+| **MCP tools** (`ghidra_*`) | The MCP protocol tools your AI client is already connected to. | Direct tool calls (`ghidra_overview`, `ghidra_search`, ...) | **Only** analyze the one binary already loaded in the client this MCP connection points at. |
+
+### What each layer CANNOT do
+
+- **MCP tools cannot start, stop, switch, or import binaries.** There is no `ghidra_start_server`, no `ghidra_load_binary`, no "open this other .so" command. Don't go looking — runtime program switching is intentionally disabled. Each MCP connection is bound to **exactly one** binary for its entire lifetime.
+- **`gmcp` cannot decompile or read program data.** It's pure container/lifecycle management. To inspect bytes or functions you must go through MCP tools.
+
+### Anti-patterns to avoid
+
+- ❌ "I'm already connected to `ghidra_*`, let me ask it to load `other.so`." → **Wrong.** Drop to Bash and run `gmcp client start 2 -r <repo> -b other -f ./other.so`, then connect a *second* MCP (`ghidra-2_*`).
+- ❌ "Let me call `ghidra_overview` to see if the server is up before starting it." → **Wrong direction.** Use `gmcp status` via Bash; MCP tools only exist *after* a client is running and registered.
+- ❌ Calling MCP tools to "restart" or "reload" Ghidra. → **Use Bash:** `gmcp client stop N` / `gmcp client start N ...`. The only MCP-side reload is `_reload` for hot-reloading API code, not for changing binaries.
+- ❌ Treating multiple connected MCPs (`ghidra_*`, `ghidra-2_*`, `ghidra-3_*`) as one. Each prefix is a **separate binary in a separate container**. Always pick the right prefix for the binary you want.
+
+### When to drop to Bash (use `gmcp`) vs stay in MCP
+
+- Need to **analyze the currently-connected binary** → MCP tools.
+- Need a **different binary** / **second binary in parallel** / **fresh container** → Bash + `gmcp client start N ...`, then `/ghidra-setup` step 5 to wire up the new MCP.
+- Need to know **what's running** / **what's loaded where** → Bash: `gmcp status` (returns a JSON map of client N → binary).
+- Container looks unhealthy / port not responding → Bash: `gmcp client logs N`, `gmcp troubleshoot check`.
+
 ## Prerequisites
 
 Before analysis, verify MCP is connected. Call `ghidra_overview()`:
 
 - Returns metadata + a non-trivial function count → connected, continue to the workflow below.
-- Tool missing or errors out → run `/ghidra-setup` to bring up a client.
+- Tool missing or errors out → **do not retry MCP tools.** Run `/ghidra-setup` (which uses `gmcp` via Bash) to bring up a client.
 
-**Multi-binary case.** If you need a binary that's not the one currently loaded, start a separate client (`gmcp client start 2 ...`) and call its tools via the `ghidra-2_*` prefix — see `/ghidra-setup` for the port/name table. Don't switch programs inside an existing client; runtime switching is disabled by design.
+**Multi-binary case.** If the binary you need is not the one this MCP connection points at:
+
+1. Don't ask the existing `ghidra_*` tools to "switch" — they can't.
+2. In a Bash shell: `gmcp client start 2 -r <repo> -b <other_binary> -f <path/to/other.so>` (pick the next free N, see `gmcp status`).
+3. Wire up the new client's MCP: `gmcp install mcp claude-code --client 2` (this writes a *new* MCP server registration named `ghidra-2`).
+4. Restart the AI client / reload MCPs so `ghidra-2_*` tools appear.
+5. Now use `ghidra-2_overview`, `ghidra-2_search`, etc. for that binary. The original `ghidra_*` still points at the original binary — both stay live in parallel.
+
+Port/name table is in `/ghidra-setup`. Client N → MCP name `ghidra-N` (Client 1 = bare `ghidra`), SSE port `8804 + (N-1)*10`.
 
 ## Workflow
 

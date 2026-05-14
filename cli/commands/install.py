@@ -21,7 +21,7 @@ def _project_root() -> Path:
 
 
 def _skill_doc_path() -> Path:
-    return _project_root() / "docs" / "SKILL.md"
+    return _project_root() / "skills" / "SKILL.md"
 
 
 def _commands_dir() -> Path:
